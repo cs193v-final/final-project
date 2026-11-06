@@ -18,7 +18,7 @@ fakepw="Zq8$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 scheme="postgres"
 fakeurl="${scheme}://fakeuser:${fakepw}@ep-fake-123.us-east-1.aws.neon.tech/neondb"
 
-cd "$work"
+cd "$work" || { echo "cannot enter temp dir; aborting" >&2; exit 1; }
 git init -q -b main
 git config user.email test@example.com
 git config user.name "Hook Test"
