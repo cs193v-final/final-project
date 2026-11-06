@@ -14,7 +14,7 @@ zero=0000000000000000000000000000000000000000
 status=0
 
 # git passes one line per ref: <local ref> <local sha> <remote ref> <remote sha>
-while read -r local_ref local_sha remote_ref remote_sha; do
+while read -r _local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$zero" ] && continue          # deleting a branch: nothing to scan
   if [ "$remote_sha" = "$zero" ]; then
     range="$local_sha --not --remotes"            # new branch: commits not yet on any remote
