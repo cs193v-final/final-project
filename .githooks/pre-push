@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Block pushes that contain secrets. Scans EVERY commit being pushed,
+# not just the latest one.
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-push: gitleaks is not installed, so the push is blocked." >&2
+  echo "          Install it with: scripts/install-gitleaks.sh" >&2
+  exit 1
+fi
+
+config="$(git rev-parse --show-toplevel)/.gitleaks.toml"
+zero=0000000000000000000000000000000000000000
+status=0
+
+# git passes one line per ref: <local ref> <local sha> <remote ref> <remote sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue          # deleting a branch: nothing to scan
+  if [ "$remote_sha" = "$zero" ]; then
+    range="$local_sha --not --remotes"            # new branch: commits not yet on any remote
+  else
+    range="$remote_sha..$local_sha"               # existing branch: only the new commits
+  fi
+  if ! gitleaks git --redact --no-banner --verbose --config "$config" \
+       --log-opts="$range"; then
+    echo >&2
+    echo "pre-push: possible secret in commits for $remote_ref (above, redacted). Push blocked." >&2
+    echo "          Remove it from history (e.g. git reset / amend) before pushing." >&2
+    status=1
+  fi
+done
+
+exit $status

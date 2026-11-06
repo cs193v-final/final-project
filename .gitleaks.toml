@@ -1,0 +1,23 @@
+# Gitleaks config: the built-in rules plus project-specific ones.
+# Used by .githooks/pre-commit and .githooks/pre-push.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "postgres-connection-url"
+description = "Postgres connection URL with an embedded password"
+regex = '''postgres(?:ql)?://[^:\s/@'"]+:[^@\s'"]+@[^\s/'"]+'''
+keywords = ["postgres://", "postgresql://"]
+
+[[rules]]
+id = "env-file"
+description = "Environment file committed (use .env.example for templates)"
+path = '''(^|/)\.env(\.[^/]*)?$'''
+  [[rules.allowlists]]
+  paths = ['''(^|/)\.env\.example$''']
+
+# The template may show the *shape* of a URL with obvious placeholders.
+[[allowlists]]
+description = "Placeholder credentials in templates and docs"
+regexes = ['''postgres(?:ql)?://(USER|user|username)(:|%3A)(PASSWORD|password)@''']
