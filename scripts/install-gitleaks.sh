@@ -14,14 +14,20 @@ else
     *) echo "Unsupported CPU: $(uname -m). Install gitleaks manually." >&2; exit 1 ;;
   esac
   os=$(uname -s | tr '[:upper:]' '[:lower:]')
-  version=$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
-            | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+  # CI pins GITLEAKS_VERSION; otherwise use the latest release.
+  version=${GITLEAKS_VERSION:-$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
+            | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')}
+  file="gitleaks_${version}_${os}_${arch}.tar.gz"
+  base="https://github.com/gitleaks/gitleaks/releases/download/v${version}"
   tmp=$(mktemp -d)
-  curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_${os}_${arch}.tar.gz" \
-    | tar xz -C "$tmp" gitleaks
+  curl -fsSL -o "$tmp/$file" "$base/$file"
+  curl -fsSL -o "$tmp/checksums.txt" "$base/gitleaks_${version}_checksums.txt"
+  (cd "$tmp" && grep " $file\$" checksums.txt | sha256sum -c --quiet -) \
+    || { echo "gitleaks checksum mismatch; not installing." >&2; exit 1; }
+  tar xzf "$tmp/$file" -C "$tmp" gitleaks
   sudo install "$tmp/gitleaks" /usr/local/bin/gitleaks
   rm -rf "$tmp"
-  echo "Installed $(gitleaks version)"
+  echo "Installed gitleaks $(/usr/local/bin/gitleaks version)"
 fi
 
 git config core.hooksPath .githooks

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:            # lets us turn on a merge queue later
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GITLEAKS_VERSION: 8.30.1
+
+jobs:
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # scan the full history, not just the last commit
+      - run: scripts/install-gitleaks.sh
+      - run: gitleaks git --redact --no-banner --verbose --config .gitleaks.toml
+
+  hook-tests:
+    name: Hook tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/install-gitleaks.sh
+      - run: scripts/test-hooks.sh
+
+  shellcheck:
+    name: Shell lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck .githooks/* scripts/*.sh
+
+  app:
+    name: App checks (lint, typecheck, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect app
+        id: detect
+        run: |
+          if [ -f package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"
+          else echo "No package.json yet; skipping app checks."; fi
+      - if: steps.detect.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - if: steps.detect.outputs.present == 'true'
+        run: npm ci
+      - if: steps.detect.outputs.present == 'true'
+        run: npm run lint --if-present
+      - if: steps.detect.outputs.present == 'true'
+        run: npm run typecheck --if-present
+      - if: steps.detect.outputs.present == 'true'
+        run: npm test --if-present
