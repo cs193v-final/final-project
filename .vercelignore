@@ -5,6 +5,8 @@
 .githooks/
 .gitleaks.toml
 scripts/install-gitleaks.sh
+scripts/test-hooks.sh
+.github/
 
 # Local credential files. Vercel gets its secrets from `vercel env`, never from files.
 .env*
