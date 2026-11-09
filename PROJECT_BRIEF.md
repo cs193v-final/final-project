@@ -9,10 +9,10 @@
 | Area | Status |
 |---|---|
 | Game code (viewer, guessing, scoring, puzzles) | **Not started.** There is no app code in the repo yet. |
-| Framework / language | **Not chosen.** CI in #7 assumes Node 24 + npm (`lint`, `typecheck`, `test` scripts). |
-| Hosting + database | **In review.** Vercel project + Neon Postgres (dev / preview / prod) are set up in PR #3. |
-| Secret-scanning hooks + CI | **In review.** gitleaks hooks in PR #5 and GitHub Actions CI in PR #7. |
-| Course requirements summary | **In review.** `INSTRUCTIONS.md` in PR #1. |
+| Framework / language | **Not chosen.** CI assumes Node 24 + npm (`lint`, `typecheck`, `test` scripts). |
+| Hosting + database | **Set up.** Vercel project + Neon Postgres (dev / preview / prod), merged in #3. See `README.md` for local env setup. |
+| Secret-scanning hooks + CI | **Set up.** gitleaks hooks (#5) and GitHub Actions CI (#7) are merged. Run `scripts/install-gitleaks.sh` after cloning. |
+| Course requirements summary | **Done.** [`INSTRUCTIONS.md`](INSTRUCTIONS.md), merged in #1. |
 
 Everything under "Project overview" and "Week 8 milestone" below is **planned**, not built.
 
@@ -44,7 +44,7 @@ A playable prototype to test the core gameplay before we build the daily-challen
 - [ ] Moving to the next image after a correct answer or a skip
 - [ ] A final score screen
 
-Checkpoint 1 also requires `PROGRESS.md`, `TECHNICAL.md` and an updated `README.md` on `main` (see `INSTRUCTIONS.md`, PR #1).
+Checkpoint 1 also requires `PROGRESS.md`, `TECHNICAL.md` and an updated `README.md` on `main` (see `INSTRUCTIONS.md`).
 
 ---
 
@@ -168,7 +168,7 @@ Keep `ScoringConfig` in one place so playtesting tweaks are a one-line change.
 
 ## Checklist for coding agents
 
-1. **Read this brief and the repo's instructions first:** `README.md` and `AGENTS.md`, plus `INSTRUCTIONS.md` once it merges.
+1. **Read this brief and the repo's instructions first:** `README.md`, `AGENTS.md` and `INSTRUCTIONS.md`.
 2. **Look at the current code** before writing any. Don't assume something exists because this brief plans it.
 3. **Keep changes focused:** one issue per branch and PR. Never commit directly to `main` (it requires a PR and 1 approval).
 4. **Coordinate before changing a shared interface** (`Puzzle`, `RevealLevel`, `GuessOutcome`, `ScoringEvent`, `ScoringConfig`, `RoundResult`). Tag its owner in the PR.

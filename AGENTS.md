@@ -4,7 +4,7 @@ Rules for any coding agent working in this repo. Keep this file short. Project c
 
 ## Read first
 - [`PROJECT_BRIEF.md`](PROJECT_BRIEF.md): what we're building, who owns what, shared interfaces, open decisions.
-- `INSTRUCTIONS.md` (once PR #1 merges): course requirements and the checkpoint checklist.
+- [`INSTRUCTIONS.md`](INSTRUCTIONS.md): course requirements and the checkpoint checklist.
 - Look at the current code before writing any. The brief describes **planned** work; don't assume something exists because it's in the plan.
 
 ## Git workflow
@@ -15,7 +15,7 @@ Rules for any coding agent working in this repo. Keep this file short. Project c
 
 ## Secrets
 - Real values go **only** in `.env.local` (git-ignored). Never put real values in `.env.example`, code, docs or commits.
-- After cloning, run `scripts/install-gitleaks.sh` to turn on the secret-scanning hooks (once PR #5 merges).
+- After cloning, run `scripts/install-gitleaks.sh` to turn on the secret-scanning hooks. Do this on every computer you commit from.
 - Never bypass the hooks with `--no-verify`.
 
 ## Shared interfaces
@@ -25,7 +25,8 @@ Rules for any coding agent working in this repo. Keep this file short. Project c
 
 ## Commands
 - No app has been set up yet. When it is, list the install, dev, lint, typecheck and test commands here.
-- CI (PR #7) will run `npm run lint`, `npm run typecheck` and `npm test` once a `package.json` exists.
+- Test the secret-scanning hooks: `scripts/test-hooks.sh`.
+- CI (`.github/workflows/ci.yml`) runs a secret scan, the hook tests and `shellcheck` on every PR. It also runs `npm run lint`, `npm run typecheck` and `npm test` once a `package.json` exists (skipped until then).
 
 ## Before opening a PR
 - Run lint, typecheck and tests, if they exist.
