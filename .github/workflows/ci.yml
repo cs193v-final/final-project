@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:            # lets us turn on a merge queue later
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Superseded PR runs are cancelled; runs on main always finish, so every
+  # merge commit gets a completed secret scan.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GITLEAKS_VERSION: 8.30.1
+  # sha256 of gitleaks_8.30.1_linux_x64.tar.gz; update together with the version.
+  GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+
+jobs:
+  secrets:
+    name: Secret scan + hook tests (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # needed for the history scan below
+      - run: scripts/install-gitleaks.sh
+      - name: Secret scan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            # Only this PR's commits, so an old rotated secret on main can't block PRs.
+            gitleaks git --redact --no-banner --verbose --config .gitleaks.toml \
+              --log-opts="origin/$BASE_REF..HEAD"
+          else
+            # Full history on main and in the merge queue. Rotated secrets still in
+            # history go in .gitleaksignore (see README).
+            gitleaks git --redact --no-banner --verbose --config .gitleaks.toml
+          fi
+      - name: Hook tests
+        run: scripts/test-hooks.sh
+
+  shellcheck:
+    name: Shell lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck .githooks/* scripts/*.sh
+
+  app:
+    name: App checks (lint, typecheck, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # NOTE: this expects the app at the repo root, using npm with a committed
+      # package-lock.json (needed by `cache: npm` and `npm ci`). Adjust if the
+      # app lands in a subdirectory or uses pnpm. Also replace npm init's default
+      # "test" script, which always fails.
+      - name: Detect app
+        id: detect
+        run: |
+          if [ -f package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"
+          else echo "No package.json yet; skipping app checks."; fi
+      - if: steps.detect.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - if: steps.detect.outputs.present == 'true'
+        run: npm ci
+      - if: steps.detect.outputs.present == 'true'
+        run: npm run lint --if-present
+      - if: steps.detect.outputs.present == 'true'
+        run: npm run typecheck --if-present
+      - if: steps.detect.outputs.present == 'true'
+        run: npm test --if-present

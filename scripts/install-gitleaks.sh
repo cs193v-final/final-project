@@ -3,6 +3,8 @@
 # Safe to run repeatedly. Run from anywhere inside the repo.
 #
 #   GITLEAKS_VERSION=8.30.1 scripts/install-gitleaks.sh   # install an exact version (CI does this)
+#   GITLEAKS_SHA256=...     also require this exact tarball hash (CI pins it), not just
+#                           a match with the release's own checksums.txt
 #   GITHUB_TOKEN=...        avoids the 60 req/hour GitHub API limit when looking up "latest"
 set -euo pipefail
 
@@ -66,6 +68,10 @@ else
   expected=$(awk -v f="$file" '$2==f {print $1}' "$tmp/checksums.txt")
   if [ -z "$expected" ]; then
     echo "No checksum entry for $file in the v$version release; not installing." >&2
+    exit 1
+  fi
+  if [ -n "${GITLEAKS_SHA256:-}" ] && [ "$expected" != "$GITLEAKS_SHA256" ]; then
+    echo "Release checksum for $file doesn't match the pinned GITLEAKS_SHA256; not installing." >&2
     exit 1
   fi
   actual=$(sha256 "$tmp/$file")
