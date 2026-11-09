@@ -1,0 +1,40 @@
+# Gitleaks config: the built-in rules plus project-specific ones.
+# Used by .githooks/pre-commit, .githooks/pre-push and CI.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "postgres-connection-url"
+description = "Postgres connection URL with an embedded password"
+regex = '''(?i)postgres(?:ql)?://[^:\s/@'"]+:[^@\s'"]+@[^\s/'"]+'''
+keywords = ["postgres://", "postgresql://"]
+
+[[rules]]
+id = "postgres-password-env"
+description = "PGPASSWORD set to a literal value"
+regex = '''(?i)\bPGPASSWORD\s*[=:]\s*['"]?([^\s'"$]{4,})'''
+secretGroup = 1
+keywords = ["pgpassword"]
+
+[[rules]]
+id = "postgres-keyword-dsn"
+description = "libpq key=value connection string with a password (host=... password=...)"
+regex = '''(?i)\bhost\s*=\s*\S+.*?\bpassword\s*=\s*['"]?([^\s'"]{4,})'''
+secretGroup = 1
+keywords = ["password"]
+
+[[rules]]
+id = "env-file"
+description = "Environment file committed (use .env.example for templates)"
+path = '''(^|/)\.env(\.[^/]*)?$'''
+  [[rules.allowlists]]
+  paths = ['''(^|/)\.env\.example$''']
+
+# Templates and docs may show the *shape* of a credential with obvious placeholders.
+[[allowlists]]
+description = "Placeholder credentials in templates and docs"
+regexes = [
+  '''(?i)postgres(?:ql)?://(USER|username)(:|%3A)(PASSWORD)@''',
+  '''^(?i)(PASSWORD|<password>|your[-_]password)$''',
+]
