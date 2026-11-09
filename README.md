@@ -27,7 +27,14 @@ Every pull request and every push to `main` runs [`.github/workflows/ci.yml`](.g
 
 | Check | What it does |
 |---|---|
-| Secret scan (gitleaks) | Scans the **full** git history, a backup for hooks that weren't installed or were skipped |
-| Hook tests | `scripts/test-hooks.sh` checks that the hooks block fake credentials (also safe to run locally) |
+| Secret scan + hook tests (gitleaks) | On PRs, scans the PR's commits; on `main`, scans the **full** history. A backup for hooks that weren't installed or were skipped. Then `scripts/test-hooks.sh` checks that the hooks block fake credentials (also safe to run locally) |
 | Shell lint | `shellcheck` on the hook and setup scripts |
-| App checks | `npm run lint`, `typecheck` and `test` once a `package.json` exists (skipped until then) |
+| App checks | `npm run lint`, `typecheck` and `test` once a `package.json` exists (skipped until then; expects npm with a committed `package-lock.json` at the repo root) |
+
+CI installs a pinned gitleaks (`GITLEAKS_VERSION` + `GITLEAKS_SHA256` in `ci.yml`); update both together.
+
+### If a real secret gets committed
+
+1. **Rotate it first** (revoke and replace it in Neon/Vercel/etc.). Once it's pushed, assume it's leaked.
+2. Remove it from the code in a new PR.
+3. It still exists in old commits, so the full-history scan on `main` keeps failing. Copy the finding's **Fingerprint** from the CI log and add it to [`.gitleaksignore`](.gitleaksignore) with a comment saying what was rotated and when.

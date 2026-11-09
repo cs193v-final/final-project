@@ -1,0 +1,9 @@
+# Findings that gitleaks should ignore, one fingerprint per line.
+#
+# Use this ONLY for a secret that has already been rotated (revoked and replaced)
+# but still exists in old commits. Deleting it in a new commit doesn't remove it
+# from history, so the full-history scan on main would otherwise fail forever.
+#
+# Get the fingerprint from the CI log or `gitleaks git --redact` output
+# (format: <commit>:<file>:<rule-id>:<line>), add it below with a comment
+# saying what was rotated and when, and open a PR.
