@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 # Block commits that contain secrets. Scans only the staged changes.
 set -euo pipefail
+# shellcheck source=.githooks/_common.sh
+. "$(dirname "$0")/_common.sh"
 
-if ! command -v gitleaks >/dev/null 2>&1; then
-  echo "pre-commit: gitleaks is not installed, so the commit is blocked." >&2
-  echo "            Install it with: scripts/install-gitleaks.sh" >&2
-  exit 1
-fi
+require_gitleaks pre-commit
 
-if ! gitleaks git --pre-commit --staged --redact --no-banner --verbose \
-     --config "$(git rev-parse --show-toplevel)/.gitleaks.toml"; then
+rc=0
+gitleaks git --pre-commit --staged --redact --no-banner --verbose \
+  --exit-code "$GITLEAKS_LEAK_EXIT" --config "$config" || rc=$?
+
+if [ "$rc" -eq "$GITLEAKS_LEAK_EXIT" ]; then
   echo >&2
   echo "pre-commit: possible secret found (above, redacted). Commit blocked." >&2
   echo "            Move real values into .env.local, which git ignores." >&2
+  exit 1
+elif [ "$rc" -ne 0 ]; then
+  echo >&2
+  echo "pre-commit: gitleaks failed to run (exit $rc, error above). Commit blocked." >&2
+  echo "            This is a tool error, not a detected secret." >&2
   exit 1
 fi
