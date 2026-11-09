@@ -2,30 +2,41 @@
 # Block pushes that contain secrets. Scans EVERY commit being pushed,
 # not just the latest one.
 set -euo pipefail
+# shellcheck source=.githooks/_common.sh
+. "$(dirname "$0")/_common.sh"
 
-if ! command -v gitleaks >/dev/null 2>&1; then
-  echo "pre-push: gitleaks is not installed, so the push is blocked." >&2
-  echo "          Install it with: scripts/install-gitleaks.sh" >&2
-  exit 1
-fi
+require_gitleaks pre-push
 
-config="$(git rev-parse --show-toplevel)/.gitleaks.toml"
-zero=0000000000000000000000000000000000000000
 status=0
 
 # git passes one line per ref: <local ref> <local sha> <remote ref> <remote sha>
 while read -r _local_ref local_sha remote_ref remote_sha; do
-  [ "$local_sha" = "$zero" ] && continue          # deleting a branch: nothing to scan
-  if [ "$remote_sha" = "$zero" ]; then
+  is_zero_sha "$local_sha" && continue            # deleting a branch: nothing to scan
+  if is_zero_sha "$remote_sha"; then
     range="$local_sha --not --remotes"            # new branch: commits not yet on any remote
+  elif ! git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+    # e.g. force-pushing after a rebase without fetching first
+    echo "pre-push: the remote's tip of $remote_ref ($remote_sha) isn't in your clone." >&2
+    echo "          Run 'git fetch' and push again." >&2
+    status=1
+    continue
   else
     range="$remote_sha..$local_sha"               # existing branch: only the new commits
   fi
-  if ! gitleaks git --redact --no-banner --verbose --config "$config" \
-       --log-opts="$range"; then
+
+  rc=0
+  gitleaks git --redact --no-banner --verbose --exit-code "$GITLEAKS_LEAK_EXIT" \
+    --config "$config" --log-opts="$range" || rc=$?
+
+  if [ "$rc" -eq "$GITLEAKS_LEAK_EXIT" ]; then
     echo >&2
     echo "pre-push: possible secret in commits for $remote_ref (above, redacted). Push blocked." >&2
     echo "          Remove it from history (e.g. git reset / amend) before pushing." >&2
+    status=1
+  elif [ "$rc" -ne 0 ]; then
+    echo >&2
+    echo "pre-push: gitleaks failed to run for $remote_ref (exit $rc, error above). Push blocked." >&2
+    echo "          This is a tool error, not a detected secret." >&2
     status=1
   fi
 done
