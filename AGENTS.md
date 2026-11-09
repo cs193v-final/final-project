@@ -24,9 +24,11 @@ Rules for any coding agent working in this repo. Keep this file short. Project c
 - Don't treat items under "Open decisions" in the brief as settled. Ask, or keep them configurable.
 
 ## Commands
-- No app has been set up yet. When it is, list the install, dev, lint, typecheck and test commands here.
+- Install: `npm ci` (Node 24+).
+- Typecheck: `npm run typecheck`. Tests: `npm test` (Vitest; `npm run test:watch` while working).
+- No UI framework yet (#9), so there's no dev server or lint script. Framework-independent game logic lives in `src/game/`, with tests next to it (`*.test.ts`).
 - Test the secret-scanning hooks: `scripts/test-hooks.sh`.
-- CI (`.github/workflows/ci.yml`) runs a secret scan, the hook tests and `shellcheck` on every PR. It also runs `npm run lint`, `npm run typecheck` and `npm test` once a `package.json` exists (skipped until then).
+- CI (`.github/workflows/ci.yml`) runs a secret scan, the hook tests, `shellcheck`, and `npm run lint` (if present), `npm run typecheck` and `npm test` on every PR.
 
 ## Before opening a PR
 - Run lint, typecheck and tests, if they exist.
