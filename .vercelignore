@@ -1,0 +1,16 @@
+# Files that must never be uploaded by `vercel deploy`.
+# (The CLI uploads from disk, not from git, so .gitignore doesn't protect us here.)
+
+# Secret-scanning hooks and their tooling
+.githooks/
+.gitleaks.toml
+scripts/install-gitleaks.sh
+scripts/test-hooks.sh
+.github/
+
+# Local credential files. Vercel gets its secrets from `vercel env`, never from files.
+.env*
+!.env.example
+
+# Course notes
+INSTRUCTIONS.md
