@@ -168,7 +168,7 @@ Keep `ScoringConfig` in one place so playtesting tweaks are a one-line change.
 
 ## Checklist for coding agents
 
-1. **Read this brief and the repo's instructions first:** `README.md`, plus `INSTRUCTIONS.md` and `AGENTS.md` if present.
+1. **Read this brief and the repo's instructions first:** `README.md` and `AGENTS.md`, plus `INSTRUCTIONS.md` once it merges.
 2. **Look at the current code** before writing any. Don't assume something exists because this brief plans it.
 3. **Keep changes focused:** one issue per branch and PR. Never commit directly to `main` (it requires a PR and 1 approval).
 4. **Coordinate before changing a shared interface** (`Puzzle`, `RevealLevel`, `GuessOutcome`, `ScoringEvent`, `ScoringConfig`, `RoundResult`). Tag its owner in the PR.
