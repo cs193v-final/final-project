@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900">
+<rect x="0" y="0" width="150" height="150" fill="hsl(0 70% 35%)" stroke="#fff" stroke-width="2"/>
+<text x="75" y="85" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">A1</text>
+<rect x="150" y="0" width="150" height="150" fill="hsl(45 70% 35%)" stroke="#fff" stroke-width="2"/>
+<text x="225" y="85" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">B1</text>
+<rect x="300" y="0" width="150" height="150" fill="hsl(90 70% 35%)" stroke="#fff" stroke-width="2"/>
+<text x="375" y="85" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">C1</text>
+<rect x="450" y="0" width="150" height="150" fill="hsl(135 70% 35%)" stroke="#fff" stroke-width="2"/>
+<text x="525" y="85" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">D1</text>
+<rect x="600" y="0" width="150" height="150" fill="hsl(180 70% 35%)" stroke="#fff" stroke-width="2"/>
+<text x="675" y="85" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">E1</text>
+<rect x="750" y="0" width="150" height="150" fill="hsl(225 70% 35%)" stroke="#fff" stroke-width="2"/>
+<text x="825" y="85" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">F1</text>
+<rect x="900" y="0" width="150" height="150" fill="hsl(270 70% 35%)" stroke="#fff" stroke-width="2"/>
+<text x="975" y="85" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">G1</text>
+<rect x="1050" y="0" width="150" height="150" fill="hsl(315 70% 35%)" stroke="#fff" stroke-width="2"/>
+<text x="1125" y="85" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">H1</text>
+<rect x="0" y="150" width="150" height="150" fill="hsl(0 70% 41%)" stroke="#fff" stroke-width="2"/>
+<text x="75" y="235" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">A2</text>
+<rect x="150" y="150" width="150" height="150" fill="hsl(45 70% 41%)" stroke="#fff" stroke-width="2"/>
+<text x="225" y="235" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">B2</text>
+<rect x="300" y="150" width="150" height="150" fill="hsl(90 70% 41%)" stroke="#fff" stroke-width="2"/>
+<text x="375" y="235" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">C2</text>
+<rect x="450" y="150" width="150" height="150" fill="hsl(135 70% 41%)" stroke="#fff" stroke-width="2"/>
+<text x="525" y="235" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">D2</text>
+<rect x="600" y="150" width="150" height="150" fill="hsl(180 70% 41%)" stroke="#fff" stroke-width="2"/>
+<text x="675" y="235" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">E2</text>
+<rect x="750" y="150" width="150" height="150" fill="hsl(225 70% 41%)" stroke="#fff" stroke-width="2"/>
+<text x="825" y="235" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">F2</text>
+<rect x="900" y="150" width="150" height="150" fill="hsl(270 70% 41%)" stroke="#fff" stroke-width="2"/>
+<text x="975" y="235" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">G2</text>
+<rect x="1050" y="150" width="150" height="150" fill="hsl(315 70% 41%)" stroke="#fff" stroke-width="2"/>
+<text x="1125" y="235" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">H2</text>
+<rect x="0" y="300" width="150" height="150" fill="hsl(0 70% 47%)" stroke="#fff" stroke-width="2"/>
+<text x="75" y="385" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">A3</text>
+<rect x="150" y="300" width="150" height="150" fill="hsl(45 70% 47%)" stroke="#fff" stroke-width="2"/>
+<text x="225" y="385" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">B3</text>
+<rect x="300" y="300" width="150" height="150" fill="hsl(90 70% 47%)" stroke="#fff" stroke-width="2"/>
+<text x="375" y="385" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">C3</text>
+<rect x="450" y="300" width="150" height="150" fill="hsl(135 70% 47%)" stroke="#fff" stroke-width="2"/>
+<text x="525" y="385" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">D3</text>
+<rect x="600" y="300" width="150" height="150" fill="hsl(180 70% 47%)" stroke="#fff" stroke-width="2"/>
+<text x="675" y="385" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">E3</text>
+<rect x="750" y="300" width="150" height="150" fill="hsl(225 70% 47%)" stroke="#fff" stroke-width="2"/>
+<text x="825" y="385" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">F3</text>
+<rect x="900" y="300" width="150" height="150" fill="hsl(270 70% 47%)" stroke="#fff" stroke-width="2"/>
+<text x="975" y="385" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">G3</text>
+<rect x="1050" y="300" width="150" height="150" fill="hsl(315 70% 47%)" stroke="#fff" stroke-width="2"/>
+<text x="1125" y="385" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">H3</text>
+<rect x="0" y="450" width="150" height="150" fill="hsl(0 70% 53%)" stroke="#fff" stroke-width="2"/>
+<text x="75" y="535" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">A4</text>
+<rect x="150" y="450" width="150" height="150" fill="hsl(45 70% 53%)" stroke="#fff" stroke-width="2"/>
+<text x="225" y="535" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">B4</text>
+<rect x="300" y="450" width="150" height="150" fill="hsl(90 70% 53%)" stroke="#fff" stroke-width="2"/>
+<text x="375" y="535" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">C4</text>
+<rect x="450" y="450" width="150" height="150" fill="hsl(135 70% 53%)" stroke="#fff" stroke-width="2"/>
+<text x="525" y="535" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">D4</text>
+<rect x="600" y="450" width="150" height="150" fill="hsl(180 70% 53%)" stroke="#fff" stroke-width="2"/>
+<text x="675" y="535" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">E4</text>
+<rect x="750" y="450" width="150" height="150" fill="hsl(225 70% 53%)" stroke="#fff" stroke-width="2"/>
+<text x="825" y="535" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">F4</text>
+<rect x="900" y="450" width="150" height="150" fill="hsl(270 70% 53%)" stroke="#fff" stroke-width="2"/>
+<text x="975" y="535" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">G4</text>
+<rect x="1050" y="450" width="150" height="150" fill="hsl(315 70% 53%)" stroke="#fff" stroke-width="2"/>
+<text x="1125" y="535" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">H4</text>
+<rect x="0" y="600" width="150" height="150" fill="hsl(0 70% 59%)" stroke="#fff" stroke-width="2"/>
+<text x="75" y="685" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">A5</text>
+<rect x="150" y="600" width="150" height="150" fill="hsl(45 70% 59%)" stroke="#fff" stroke-width="2"/>
+<text x="225" y="685" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">B5</text>
+<rect x="300" y="600" width="150" height="150" fill="hsl(90 70% 59%)" stroke="#fff" stroke-width="2"/>
+<text x="375" y="685" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">C5</text>
+<rect x="450" y="600" width="150" height="150" fill="hsl(135 70% 59%)" stroke="#fff" stroke-width="2"/>
+<text x="525" y="685" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">D5</text>
+<rect x="600" y="600" width="150" height="150" fill="hsl(180 70% 59%)" stroke="#fff" stroke-width="2"/>
+<text x="675" y="685" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">E5</text>
+<rect x="750" y="600" width="150" height="150" fill="hsl(225 70% 59%)" stroke="#fff" stroke-width="2"/>
+<text x="825" y="685" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">F5</text>
+<rect x="900" y="600" width="150" height="150" fill="hsl(270 70% 59%)" stroke="#fff" stroke-width="2"/>
+<text x="975" y="685" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">G5</text>
+<rect x="1050" y="600" width="150" height="150" fill="hsl(315 70% 59%)" stroke="#fff" stroke-width="2"/>
+<text x="1125" y="685" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">H5</text>
+<rect x="0" y="750" width="150" height="150" fill="hsl(0 70% 65%)" stroke="#fff" stroke-width="2"/>
+<text x="75" y="835" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">A6</text>
+<rect x="150" y="750" width="150" height="150" fill="hsl(45 70% 65%)" stroke="#fff" stroke-width="2"/>
+<text x="225" y="835" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">B6</text>
+<rect x="300" y="750" width="150" height="150" fill="hsl(90 70% 65%)" stroke="#fff" stroke-width="2"/>
+<text x="375" y="835" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">C6</text>
+<rect x="450" y="750" width="150" height="150" fill="hsl(135 70% 65%)" stroke="#fff" stroke-width="2"/>
+<text x="525" y="835" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">D6</text>
+<rect x="600" y="750" width="150" height="150" fill="hsl(180 70% 65%)" stroke="#fff" stroke-width="2"/>
+<text x="675" y="835" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">E6</text>
+<rect x="750" y="750" width="150" height="150" fill="hsl(225 70% 65%)" stroke="#fff" stroke-width="2"/>
+<text x="825" y="835" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">F6</text>
+<rect x="900" y="750" width="150" height="150" fill="hsl(270 70% 65%)" stroke="#fff" stroke-width="2"/>
+<text x="975" y="835" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">G6</text>
+<rect x="1050" y="750" width="150" height="150" fill="hsl(315 70% 65%)" stroke="#fff" stroke-width="2"/>
+<text x="1125" y="835" font-family="sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#fff">H6</text>
+<circle cx="840" cy="270" r="22" fill="none" stroke="#000" stroke-width="6"/><circle cx="840" cy="270" r="6" fill="#000"/>
+</svg>
