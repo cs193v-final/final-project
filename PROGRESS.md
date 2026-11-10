@@ -40,7 +40,7 @@
 ## 3. Problems and questions
 
 - **Vercel free tier:** only the project owner (Jacky) can deploy. Every deploy goes through one person.
-- **Team access:** Ethan isn't in the GitHub repo yet, so his issues (#15, #16) can't be assigned to him.
+- **Team access:** Ethan joined the GitHub repo late, so his work (#15, #16) starts in Week 9.
 - **Repo admin settings:** our coding agents' GitHub tokens can't change repo rules (by design). Ruleset changes are done by hand on GitHub.
 - **Open gameplay decisions (#21):** scoring values, wrong-guess rules, number of reveal steps, typo tolerance. We plan to decide after a first playtest.
 - TODO (team): where we'd like help from staff.
@@ -54,7 +54,7 @@
 | **Jacky** (`Hombobow`) | Repo, Vercel and Neon setup (#3); gitleaks hooks (#5); CI (#7); course requirements summary (#1); guess checking (#22, closes #12); round logic (#23, closes #13); Next.js scaffold (#24, closes #9); guessing UI (#25, closes #14). Created the Week 8 issues (#9–#21). |
 | **Darian** (`darian07-o`) | Project brief and shared interfaces (#8); `AGENTS.md` rules for coding agents; reviewed every PR so far (#1, #3, #5, #7) with change requests that we fixed. TODO (Darian): add or correct. |
 | **Joseph** (`Joseph-G-McD`) | TODO (Joseph). Assigned: puzzle data (#17), start screen (#18). |
-| **Ethan** (`ethanyng`) | TODO (Ethan). Planned: scoring (#15), score screens (#16). Not yet added to the repo. |
+| **Ethan** (`ethanyng`) | TODO (Ethan). Assigned: scoring (#15), score screens (#16). |
 
 ### Week 9 priorities (TODO, team: confirm owners and order)
 
