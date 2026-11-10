@@ -36,11 +36,15 @@
 
 ## 2. Changes from the proposal
 
-- TODO (team): compare with the proposal's Week 8 goals.
-  - Draft: the planned Week 8 milestone is the three-image practice game (brief, "Week 8 milestone").
-  - So far: the setup, game logic and guessing UI are done or in review. Puzzle data (#32) is merged. The image viewer (#30, #31), start screen (#33) and scoring (#27) are in review.
-- Scope: no change to the idea. Live multiplayer stays out of scope (it was already out in the brief).
-- TODO (team): any other changes in idea or scope.
+**Week 8 goal in the proposal:** "a three-image prototype with working guesses, zoom-out controls, and scoring", to test whether the core game is fun before adding daily challenges, saved progress and result sharing.
+
+- **Where we are against that goal:**
+  - Merged on `main`: guess checking (#22), round logic (#23), the Next.js app (#24), scoring rules (#27), the image viewer (#30), the zoom-out button (#31), puzzle data with three sample puzzles (#32) and the start screen (#33).
+  - Still open: the guessing screen that ties the pieces together on `/play` (#25), and the live score and final score screen (#16, which builds on #25).
+  - So all the parts exist and are tested, but the full playable flow isn't on `main` yet. Integrating it and deploying it (#19) is our first Week 9 priority.
+- **Division of work:** unchanged from the proposal (Darian: viewer and zoom-out; Jacky: guessing and rounds; Ethan: scoring and the score screen; Joseph: puzzle data and the start screen). On top of that, Jacky set up the infrastructure (hosting, database, CI, secret scanning, the app scaffold) and Darian wrote the project brief and shared interfaces.
+- **Idea and scope:** no change. Still a daily five-image game with a practice mode, spoiler-free sharing and a content editor; live multiplayer stays out of scope. The brief adds details the proposal didn't spell out: alternate accepted answers, typo handling, streaks and a score breakdown.
+- **Name:** the proposal's working title was "Crumbscope". The app currently says "Zoom Out", also a working title. We haven't picked a final name.
 
 ## 3. Problems and questions
 
