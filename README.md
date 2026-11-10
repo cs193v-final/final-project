@@ -27,7 +27,15 @@ If a tool only reads `.env` (Prisma CLI, drizzle-kit, plain `dotenv`), point it 
 
 Preview and production credentials are **never** stored in files. Jacky (the deploy owner) sets them in Vercel with `vercel env add <NAME> <preview|production> --sensitive`.
 
-### 3. Deploying
+### 3. Run the app
+The app is [Next.js](https://nextjs.org) (see `AGENTS.md` → Stack). With Node 24+:
+```bash
+npm ci
+npm run dev -- -H 127.0.0.1   # then open http://localhost:3000
+```
+Checks (CI runs the same ones): `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`.
+
+### 4. Deploying
 Deploys go through Jacky's Vercel account (free-tier limitation). See `INSTRUCTIONS.md`.
 
 ## Setup after cloning
@@ -57,7 +65,7 @@ Every pull request and every push to `main` runs [`.github/workflows/ci.yml`](.g
 |---|---|
 | Secret scan + hook tests (gitleaks) | On PRs, scans the PR's commits; on `main`, scans the **full** history. A backup for hooks that weren't installed or were skipped. Then `scripts/test-hooks.sh` checks that the hooks block fake credentials (also safe to run locally) |
 | Shell lint | `shellcheck` on the hook and setup scripts |
-| App checks | `npm run lint`, `typecheck` and `test` once a `package.json` exists (skipped until then; expects npm with a committed `package-lock.json` at the repo root) |
+| App checks | `npm run lint`, `typecheck`, `test` and `build` for the Next.js app |
 
 CI installs a pinned gitleaks (`GITLEAKS_VERSION` + `GITLEAKS_SHA256` in `ci.yml`); update both together.
 
