@@ -25,7 +25,7 @@
 
 **What's still a placeholder** (labeled on the page)
 - the puzzles: only three sample practice images; daily puzzles aren't built yet (the start screen says so)
-- the scoring values are placeholders until we playtest (#21); this one isn't labeled on the page
+- the scoring values are placeholders until we playtest (#21); `/play` says "Prototype: point values are still being tuned" (#38)
 
 **What we tried / learned**
 - Stacked PRs (each PR built on the previous one) let us keep working while reviews were pending. They need to be merged in order, using merge commits (squash breaks the stack).
@@ -78,6 +78,6 @@ Owners match the GitHub issue assignees. In priority order:
 | Done | Merge the guessing screen (#25), then the integration PR that adds the viewer and real puzzles to `/play` (#35, part of #19) | Jacky (#25), Darian (#35) | Both merged Nov 10; CI green on `main`; `/play` shows real images |
 | Done | Live score and final score screen (#16, merged: #37) | Ethan | Component tests; full playthrough |
 | High | Deploy the playable game from `main` (#19) | Jacky (deploy owner) | Live URL plays all three images end to end |
-| Medium | Puzzle follow-ups: neutral image file names (#36), start more zoomed in (#34), visible image credits before the deploy | Joseph | Loader tests; credits shown on the live site |
+| Medium | Puzzle follow-ups: neutral image file names (#36), start more zoomed in (#34). Image credits are already shown after each round (#35) | Joseph | Loader tests; the answer can't be read from file names or ids |
 | Medium | Normalize punctuation in guesses (#29) | Jacky | Unit tests for curly apostrophes, hyphens and periods |
 | Medium | Playtest, then settle the open gameplay decisions (#21) | Everyone | Decisions recorded in `PROJECT_BRIEF.md` and `ScoringConfig` |
