@@ -19,8 +19,8 @@ type LoadState = "loading" | "loaded" | "error";
  * `revealLevel` (#10). It only displays: it doesn't track score or change the
  * level. The Zoom out button (#11) asks the round logic for the next level.
  *
- * Render it with `key={puzzle.id}` so a new image doesn't animate from the
- * previous image's zoom.
+ * A new `imageUrl` starts fresh (loading, 4:3, no animation from the previous
+ * image's crop), with or without a new `key`.
  */
 export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageViewerProps) {
   const { imageUrl, reveal } = puzzle;
@@ -30,14 +30,20 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
 
   // Size the frame to the image's own shape once it loads, so the focus point
   // (a fraction of the image) maps exactly onto the frame. 4:3 until then.
-  const [aspect, setAspect] = useState(4 / 3);
-  const [load, setLoad] = useState<LoadState>("loading");
+  // Each result is tagged with the URL it belongs to, so a new imageUrl starts
+  // fresh ("loading", 4:3) even without a new `key`.
+  const [result, setResult] = useState<{ url: string; load: LoadState; aspect: number }>({
+    url: imageUrl,
+    load: "loading",
+    aspect: 4 / 3,
+  });
+  const current = result.url === imageUrl ? result : { load: "loading" as const, aspect: 4 / 3 };
+  const { load, aspect } = current;
   const img = useRef<HTMLImageElement>(null);
 
-  function measure(el: HTMLImageElement) {
+  function measure(el: HTMLImageElement, url: string) {
     if (el.naturalWidth > 0 && el.naturalHeight > 0) {
-      setAspect(el.naturalWidth / el.naturalHeight);
-      setLoad("loaded");
+      setResult({ url, load: "loaded", aspect: el.naturalWidth / el.naturalHeight });
     }
   }
 
@@ -46,8 +52,8 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
   useEffect(() => {
     const el = img.current;
     if (!el?.complete) return;
-    if (el.naturalWidth > 0) measure(el);
-    else setLoad("error");
+    if (el.naturalWidth > 0) measure(el, imageUrl);
+    else setResult({ url: imageUrl, load: "error", aspect: 4 / 3 });
   }, [imageUrl]);
 
   const caption = showFull ? "Full image" : `Zoom level ${level + 1} of ${levels}`;
@@ -68,14 +74,15 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
           // full-resolution file.
           // eslint-disable-next-line @next/next/no-img-element
           <img
+            key={imageUrl}
             ref={img}
             src={imageUrl}
             // Never put the answer in alt text: screen readers (and anyone
             // inspecting the page) would get it for free.
             alt={`Mystery image, ${caption.toLowerCase()}`}
             draggable={false}
-            onLoad={(e) => measure(e.currentTarget)}
-            onError={() => setLoad("error")}
+            onLoad={(e) => measure(e.currentTarget, imageUrl)}
+            onError={() => setResult({ url: imageUrl, load: "error", aspect: 4 / 3 })}
             onContextMenu={(e) => e.preventDefault()}
             className="absolute inset-0 h-full w-full origin-top-left select-none transition-transform duration-500 ease-out motion-reduce:transition-none"
             style={{ transform }}
