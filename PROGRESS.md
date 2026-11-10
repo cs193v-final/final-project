@@ -27,7 +27,8 @@
 **What we tried / learned**
 - Stacked PRs (each PR built on the previous one) let us keep working while reviews were pending. They need to be merged in order, using merge commits (squash breaks the stack).
 - A project's first `vercel deploy` goes to **Production**, not Preview. We now always pass `--target=preview`.
-- TODO (each person): one thing you learned.
+- **Darian:** what a merge queue is. Instead of a PR merging right away when it's approved, it joins a line (the queue), and GitHub merges the PRs one at a time. This is useful because CI normally tests our PRs against `main` as it was when we branched off, and that can be bad if other edits have landed on `main` since then. A merge queue fixes this by retesting each new PR in the line, so if one fails, it gets kicked out of the queue before it can break `main`. It's essentially a small form of insurance, so PRs that pass on their own don't break `main` together.
+- TODO (Jacky, Joseph, Ethan): one thing you learned.
 
 ## 2. Changes from the proposal
 
@@ -51,7 +52,7 @@
 | Person | Work (with links) |
 |---|---|
 | **Jacky** (`Hombobow`) | Repo, Vercel and Neon setup (#3); gitleaks hooks (#5); CI (#7); course requirements summary (#1); guess checking (#22, closes #12); round logic (#23, closes #13); Next.js scaffold (#24, closes #9); guessing UI (#25, closes #14). Created the Week 8 issues (#9–#21). |
-| **Darian** (`darian07-o`) | Project brief and shared interfaces (#8); `AGENTS.md` rules for coding agents; reviewed every PR so far (#1, #3, #5, #7) with change requests that we fixed. TODO (Darian): add or correct. |
+| **Darian** (`darian07-o`) | Project brief and shared interfaces (#8), updated as code lands (#28); `AGENTS.md` rules for coding agents; agreed the `RevealLevel` interface (#22); image viewer with the initial crop (#30, closes #10); Zoom out button (#31, closes #11); reviewed every PR so far (#1, #3, #5, #7 with change requests that we fixed; #22–#25). |
 | **Joseph** (`Joseph-G-McD`) | TODO (Joseph). Assigned: puzzle data (#17), start screen (#18). |
 | **Ethan** (`ethanyng`) | TODO (Ethan). Assigned: scoring (#15), score screens (#16). |
 
