@@ -2,19 +2,19 @@
 
 > **Zoom Out** is a working title; the repo doesn't have a project name yet.
 > This brief is for every teammate and every teammate's coding agent. Read it before you start work.
-> Last updated: Nov 9, 2026.
+> Last updated: Nov 10, 2026.
 
 ## Status at a glance
 
 | Area | Status |
 |---|---|
-| Game code (viewer, guessing, scoring, puzzles) | **Not started.** There is no app code in the repo yet. |
+| Game code (viewer, guessing, scoring, puzzles) | **In progress.** Merged: guess checking (#22) and the round state machine (#23), as framework-free logic in `src/game/`, plus the Next.js scaffold (#24) with a placeholder home page. Guess UI is in review (#25). Viewer (#10, #11), scoring (#15, #16) and puzzle data (#17) are not started. |
 | Framework / language | **Chosen (#9):** Next.js 16 + React 19 + TypeScript, Tailwind CSS, Vitest. See `AGENTS.md` → Stack. |
 | Hosting + database | **Set up.** Vercel project + Neon Postgres (dev / preview / prod), merged in #3. See `README.md` for local env setup. |
 | Secret-scanning hooks + CI | **Set up.** gitleaks hooks (#5) and GitHub Actions CI (#7) are merged. Run `scripts/install-gitleaks.sh` after cloning. |
 | Course requirements summary | **Done.** [`INSTRUCTIONS.md`](INSTRUCTIONS.md), merged in #1. |
 
-Everything under "Project overview" and "Week 8 milestone" below is **planned**, not built.
+Everything under "Project overview" below is **planned**, not built. The Week 8 checklist notes what's already in code.
 
 ---
 
@@ -39,9 +39,9 @@ A playable prototype to test the core gameplay before we build the daily-challen
 
 - [ ] An image starts with a tight crop
 - [ ] A **Zoom out** button reveals more, step by step
-- [ ] Guess submission, with correct answers recognized
+- [ ] Guess submission, with correct answers recognized *(logic merged in #22 and #23; UI in review in #25)*
 - [ ] The score updates as you play
-- [ ] Moving to the next image after a correct answer or a skip
+- [ ] Moving to the next image after a correct answer or a skip *(logic merged in #23; UI in review in #25)*
 - [ ] A final score screen
 
 Checkpoint 1 also requires `PROGRESS.md`, `TECHNICAL.md` and an updated `README.md` on `main` (see `INSTRUCTIONS.md`).
@@ -65,7 +65,7 @@ These are starting ownership areas, not fences. **Everyone** writes code, opens 
 
 ## Shared interfaces
 
-There's no app code yet, so there are no existing conventions. **Everything in this section is a PROPOSAL.** It's a minimal starting point to argue about, not a decision. It's written as TypeScript, which the app uses (Next.js, #9).
+These types now live in code in [`src/game/types.ts`](src/game/types.ts) (#22). **That file is the source of truth;** this section summarizes it. Each type is marked with its status: **PROPOSAL** until its owner has signed off, otherwise the PR where it was settled.
 
 The interface owner (table above) makes the final call. Change these only through a PR that the affected owners review.
 
@@ -79,7 +79,7 @@ Puzzle data (Joseph) ──► Image viewer (Darian) ──RevealLevel──┐
                                         └──── round ends ────────────► RoundResult ──► Final score screen
 ```
 
-### `Puzzle` (owner: Joseph): PROPOSAL
+### `Puzzle` (owner: Joseph): PROPOSAL, in code unchanged, awaiting Joseph's review
 
 ```ts
 type Puzzle = {
@@ -97,25 +97,29 @@ type Puzzle = {
 
 The prototype loads three puzzles from a static file (e.g. `puzzles/sample.json`). Where daily puzzles will live is an open decision.
 
-### `RevealLevel` (owner: Darian): PROPOSAL
+### `RevealLevel` (owner: Darian): agreed in #22
 
-- An integer from `0` (tightest crop) to `zoomLevels.length - 1` (full image).
-- The viewer takes `puzzle.reveal` plus the current level and renders the crop. Clicking **Zoom out** asks the round logic to go up one level. The viewer doesn't track score.
+- `type RevealLevel = number`: an integer from `0` (tightest crop) to `zoomLevels.length - 1` (full image).
+- The viewer takes `puzzle.reveal` plus the current level and renders the crop. The viewer doesn't track score.
+- With the round logic (#23): **Zoom out** dispatches `{ type: "reveal" }`, and the viewer renders `game.round.revealLevel`. Disable the button when `revealLevel === maxRevealLevel` (the round rejects it as `fully-revealed`).
 
-### `GuessOutcome` and round states (owner: Jacky): PROPOSAL
+### `GuessOutcome` and round states (owner: Jacky): in code since #22 and #23
 
 ```ts
 type GuessOutcome =
-  | { kind: "correct"; matched: string }  // which accepted answer matched
-  | { kind: "incorrect"; normalizedGuess: string };
+  | { kind: "correct"; matched: string }  // which answer matched, as written in the puzzle
+  | { kind: "incorrect"; normalizedGuess: string }
+  | { kind: "empty" };                     // blank guess: ignored, not counted as wrong (added in #22)
 
 type RoundState = "playing" | "correct" | "skipped";
 // playing → correct | skipped → next puzzle; after the last puzzle → final score screen
 ```
 
-Normalization for the prototype: trim, collapse inner whitespace, lowercase. Typo tolerance is an open decision.
+Normalization for the prototype (#22): Unicode NFKC, trim, collapse inner whitespace, lowercase. Accents are kept, so "café" ≠ "cafe". Typo tolerance is an open decision (#21); `checkGuess` takes a pluggable `matcher` so it can be added without changing callers.
 
-### `ScoringEvent` (emitted by Jacky, consumed by Ethan): PROPOSAL
+The round state machine is `step(game, action)` in `src/game/round.ts` (#23). Actions are `reveal`, `guess`, `skip` and `next`. Invalid actions are rejected with a reason instead of throwing.
+
+### `ScoringEvent` (emitted by Jacky, consumed by Ethan): PROPOSAL, in code unchanged, awaiting Ethan's review
 
 ```ts
 type ScoringEvent =
@@ -125,7 +129,7 @@ type ScoringEvent =
   | { type: "skip"; puzzleId: string };
 ```
 
-### `ScoringConfig` and `RoundResult` (owner: Ethan): PROPOSAL
+### `ScoringConfig` and `RoundResult` (owner: Ethan): PROPOSAL, not in code yet
 
 ```ts
 type ScoringConfig = {          // values are placeholders for playtesting, NOT decided
