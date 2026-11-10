@@ -30,13 +30,14 @@
 - A project's first `vercel deploy` goes to **Production**, not Preview. We now always pass `--target=preview`.
 - **Darian:** I learned that Next.js has an image tag that saves loading time by sending a small copy of the image that is just big enough to fit the box on the page. This is fine for a full image, but it caused problems when zooming in: a small corner of the already small copy would be blown up, and there wouldn't be enough pixels to fill the box sharply, so the zoomed-in image looked pixelated. To fix this, the viewer uses a different tag (`<img>`), which loads the full-size image and then zooms in from there. The tradeoff is that bigger files load slower.
 - **Ethan:** a fine-grained GitHub token's resource owner has to be the organization itself. My first token was owned by my personal account, so it could read our repo but not push to it.
-- TODO (Jacky, Joseph): one thing you learned.
+- **Joseph:** I learned that picking images for puzzles is all about the texture. A good one looks like an abstract pattern up close (think giraffes or strawberries) but is obvious once you zoom out. The only way to tell was to render all the zoom levels and look at it myself.
+- TODO (Jacky): one thing you learned.
 
 ## 2. Changes from the proposal
 
 - TODO (team): compare with the proposal's Week 8 goals.
   - Draft: the planned Week 8 milestone is the three-image practice game (brief, "Week 8 milestone").
-  - So far: the setup, game logic and guessing UI are done or in review. The image viewer, puzzle data and scoring aren't started yet.
+  - So far: the setup, game logic and guessing UI are done or in review. The image viewer (#30, #31), puzzle data (#32), start screen (#33) and scoring (#27) are in review.
 - Scope: no change to the idea. Live multiplayer stays out of scope (it was already out in the brief).
 - TODO (team): any other changes in idea or scope.
 
@@ -55,7 +56,7 @@
 |---|---|
 | **Jacky** (`Hombobow`) | Repo, Vercel and Neon setup (#3); gitleaks hooks (#5); CI (#7); course requirements summary (#1); guess checking (#22, closes #12); round logic (#23, closes #13); Next.js scaffold (#24, closes #9); guessing UI (#25, closes #14). Created the Week 8 issues (#9–#21). |
 | **Darian** (`darian07-o`) | Project brief and shared interfaces (#8), updated as code lands (#28); `AGENTS.md` rules for coding agents; agreed the `RevealLevel` interface (#22); image viewer with the initial crop (#30, closes #10); Zoom out button (#31, closes #11); reviewed every PR so far (#1, #3, #5, #7 with change requests that we fixed; #22–#25). |
-| **Joseph** (`Joseph-G-McD`) | TODO (Joseph). Assigned: puzzle data (#17), start screen (#18). |
+| **Joseph** (`Joseph-G-McD`) | Puzzle data and loader (#32, closes #17): finalized the `Puzzle` format, three sample puzzles with CC BY-SA photos from Wikimedia Commons (credits recorded in the data), a loader that names the bad field when data is wrong, and 42 tests. Start screen with how-to-play steps (#33, closes #18). Reviewed and approved #30 and #31 after merging them with #32 and checking every zoom level in Chrome. |
 | **Ethan** (`ethanyng`) | Scoring rules (#27, closes #15): `ScoringConfig` with placeholder values in one file, per-image scoring with a breakdown, a running total for the live score, and 19 unit tests (including a full game through the round logic). Reviewed and approved #22. I noticed punctuation in guesses isn't normalized (e.g. curly apostrophes), thought through the trade-offs, and postponed the fix to #29 so we could keep progress smooth and focus on the main features. Next: live score and final score screen (#16). |
 
 ### Week 9 priorities (TODO, team: confirm owners and order)
