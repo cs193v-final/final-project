@@ -1,0 +1,47 @@
+[
+  {
+    "id": "giraffe",
+    "imageUrl": "/puzzles/giraffe.jpg",
+    "answer": "Giraffe",
+    "acceptedAnswers": ["Giraffes"],
+    "reveal": {
+      "focus": { "x": 0.4, "y": 0.66 },
+      "zoomLevels": [10, 5, 2.5, 1]
+    },
+    "credit": {
+      "source": "Luca Galuzzi, via Wikimedia Commons",
+      "license": "CC BY-SA 2.5",
+      "url": "https://commons.wikimedia.org/wiki/File:Giraffe_Ithala_KZN_South_Africa_Luca_Galuzzi_2004.JPG"
+    }
+  },
+  {
+    "id": "strawberry",
+    "imageUrl": "/puzzles/strawberry.jpg",
+    "answer": "Strawberry",
+    "acceptedAnswers": ["Strawberries"],
+    "reveal": {
+      "focus": { "x": 0.36, "y": 0.55 },
+      "zoomLevels": [10, 5, 2.5, 1]
+    },
+    "credit": {
+      "source": "Dllu, via Wikimedia Commons",
+      "license": "CC BY-SA 4.0",
+      "url": "https://commons.wikimedia.org/wiki/File:Big_strawberry_small_strawberry.jpg"
+    }
+  },
+  {
+    "id": "golden-gate-bridge",
+    "imageUrl": "/puzzles/golden-gate-bridge.jpg",
+    "answer": "Golden Gate Bridge",
+    "acceptedAnswers": ["Golden Gate"],
+    "reveal": {
+      "focus": { "x": 0.428, "y": 0.62 },
+      "zoomLevels": [10, 5, 2.5, 1]
+    },
+    "credit": {
+      "source": "Frank Schulenburg, via Wikimedia Commons",
+      "license": "CC BY-SA 4.0",
+      "url": "https://commons.wikimedia.org/wiki/File:Golden_Gate_Bridge_as_seen_from_Marshall%E2%80%99s_Beach,_March_2018.jpg"
+    }
+  }
+]

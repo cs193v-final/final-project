@@ -5,7 +5,7 @@
 // copied here unchanged so the guessing and round logic can compile; their
 // owners make the final call.
 
-/** Owner: Joseph. Copied unchanged from the brief's proposal. */
+/** Owner: Joseph. Finalized in #17 unchanged from the brief; validated by `parsePuzzle` in `puzzles.ts`. */
 export type Puzzle = {
   id: string;
   imageUrl: string; // file in the app's static assets, or a URL
