@@ -1,4 +1,6 @@
-import type { MouseEvent } from "react";
+"use client";
+
+import { useId, type MouseEvent } from "react";
 import type { Round } from "../../game/round";
 
 export type ZoomOutButtonProps = {
@@ -11,6 +13,22 @@ export type ZoomOutButtonProps = {
 /** True while the round is being played and there's more of the image to show. */
 export function canZoomOut(round: ZoomOutButtonProps["round"]): boolean {
   return round.state === "playing" && round.revealLevel < round.maxRevealLevel;
+}
+
+/**
+ * What a click does: ask for the next level when there is one, otherwise
+ * ignore it. Separate from the component so it can be tested without a DOM.
+ */
+export function handleZoomOutClick(
+  round: ZoomOutButtonProps["round"],
+  onZoomOut: () => void,
+  event: Pick<MouseEvent, "preventDefault">,
+): void {
+  if (!canZoomOut(round)) {
+    event.preventDefault();
+    return;
+  }
+  onZoomOut();
 }
 
 function hint(round: ZoomOutButtonProps["round"]): string {
@@ -30,22 +48,13 @@ function hint(round: ZoomOutButtonProps["round"]): string {
  */
 export function ZoomOutButton({ round, onZoomOut }: ZoomOutButtonProps) {
   const enabled = canZoomOut(round);
-  // Fixed id: there is one Zoom out button per page.
-  const hintId = "zoom-out-hint";
-
-  function onClick(event: MouseEvent<HTMLButtonElement>) {
-    if (!enabled) {
-      event.preventDefault();
-      return;
-    }
-    onZoomOut();
-  }
+  const hintId = useId();
 
   return (
     <div className="flex items-center justify-center gap-3">
       <button
         type="button"
-        onClick={onClick}
+        onClick={(event) => handleZoomOutClick(round, onZoomOut, event)}
         aria-disabled={!enabled}
         aria-describedby={hintId}
         className="rounded-lg border border-zinc-300 bg-white px-4 py-2 font-medium text-zinc-900 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-white dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:focus-visible:outline-zinc-100 dark:aria-disabled:hover:bg-zinc-900"
