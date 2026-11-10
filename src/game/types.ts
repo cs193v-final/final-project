@@ -44,3 +44,26 @@ export type ScoringEvent =
   | { type: "wrongGuess"; puzzleId: string }
   | { type: "correct"; puzzleId: string; revealLevel: RevealLevel }
   | { type: "skip"; puzzleId: string };
+
+/**
+ * Owner: Ethan. Point values for scoring. Unchanged from the brief's proposal.
+ * The values in use live in `scoring-config.ts`; they're placeholders for
+ * playtesting (#21), not decided.
+ */
+export type ScoringConfig = {
+  basePoints: number;
+  revealPenalty: number; // per reveal step
+  wrongGuessPenalty: number; // per wrong guess
+  minPoints: number; // floor for a correct answer
+  skipPoints: number;
+};
+
+/** Owner: Ethan. The score for one finished round. Unchanged from the brief's proposal. */
+export type RoundResult = {
+  puzzleId: string;
+  outcome: "correct" | "skipped";
+  revealLevelReached: number;
+  wrongGuesses: number;
+  points: number;
+  breakdown: { base: number; revealPenalty: number; wrongGuessPenalty: number };
+};
