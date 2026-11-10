@@ -12,9 +12,10 @@
   - CI on every PR: secret scan, hook tests, shell lint, lint, typecheck, unit tests and build. All three CI checks are required, and a merge queue is on.
   - gitleaks pre-commit and pre-push hooks block secrets before they leave a laptop.
 - **Hosting:** a Vercel project plus three separate Neon Postgres databases (dev / preview / prod). Live site: https://final-project-theta-hazel.vercel.app (currently the placeholder home page).
-- **Game logic** (in review: #22, #23):
+- **Game logic** (in review: #22, #23, #27):
   - guess checking (ignores case, extra spaces and look-alike characters; supports alternate answers)
   - a round state machine (zoom out, guess, skip, next, end of game) that emits scoring events
+  - scoring: points per image with a breakdown, and a running total (values are placeholders for playtesting)
   - covered by unit tests
 - **Next.js app** (in review: #24).
 - **Guessing screen** (draft: #25): a `/play` page where you can play through three rounds of guessing and skipping.
@@ -28,7 +29,8 @@
 - Stacked PRs (each PR built on the previous one) let us keep working while reviews were pending. They need to be merged in order, using merge commits (squash breaks the stack).
 - A project's first `vercel deploy` goes to **Production**, not Preview. We now always pass `--target=preview`.
 - **Darian:** what a merge queue is. Instead of a PR merging right away when it's approved, it joins a line (the queue), and GitHub merges the PRs one at a time. This is useful because CI normally tests our PRs against `main` as it was when we branched off, and that can be bad if other edits have landed on `main` since then. A merge queue fixes this by retesting each new PR in the line, so if one fails, it gets kicked out of the queue before it can break `main`. It's essentially a small form of insurance, so PRs that pass on their own don't break `main` together.
-- TODO (Jacky, Joseph, Ethan): one thing you learned.
+- **Ethan:** a fine-grained GitHub token's resource owner has to be the organization itself. My first token was owned by my personal account, so it could read our repo but not push to it.
+- TODO (Jacky, Joseph): one thing you learned.
 
 ## 2. Changes from the proposal
 
@@ -54,7 +56,7 @@
 | **Jacky** (`Hombobow`) | Repo, Vercel and Neon setup (#3); gitleaks hooks (#5); CI (#7); course requirements summary (#1); guess checking (#22, closes #12); round logic (#23, closes #13); Next.js scaffold (#24, closes #9); guessing UI (#25, closes #14). Created the Week 8 issues (#9–#21). |
 | **Darian** (`darian07-o`) | Project brief and shared interfaces (#8), updated as code lands (#28); `AGENTS.md` rules for coding agents; agreed the `RevealLevel` interface (#22); image viewer with the initial crop (#30, closes #10); Zoom out button (#31, closes #11); reviewed every PR so far (#1, #3, #5, #7 with change requests that we fixed; #22–#25). |
 | **Joseph** (`Joseph-G-McD`) | TODO (Joseph). Assigned: puzzle data (#17), start screen (#18). |
-| **Ethan** (`ethanyng`) | TODO (Ethan). Assigned: scoring (#15), score screens (#16). |
+| **Ethan** (`ethanyng`) | Scoring rules (#27, closes #15): `ScoringConfig` with placeholder values in one file, per-image scoring with a breakdown, a running total for the live score, and 19 unit tests (including a full game through the round logic). Reviewed and approved #22. I noticed punctuation in guesses isn't normalized (e.g. curly apostrophes), thought through the trade-offs, and postponed the fix to #29 so we could keep progress smooth and focus on the main features. Next: live score and final score screen (#16). |
 
 ### Week 9 priorities (TODO, team: confirm owners and order)
 
@@ -63,7 +65,7 @@
 | High | Merge the in-review PRs in order: #22 → #24 → #23 → #25 | Jacky (author), Darian (review) | All four merged; CI green on `main` |
 | High | Image viewer with initial crop (#10) and zoom out (#11) | Darian | Component tests; manual check on desktop and phone |
 | High | Puzzle data and three real puzzles with licensed images (#17) | Joseph | Loader tests; image credits recorded |
-| High | Scoring rules (#15) | Ethan | Unit tests for every scoring event |
+| High | Scoring rules (#15, in review: #27) | Ethan | Unit tests for every scoring event |
 | Medium | Live score and final score screen (#16) | Ethan | Component tests; full playthrough |
 | Medium | Start screen (#18) | Joseph | Manual check; links into `/play` |
 | High | Put it all together and deploy from `main` (#19) | Everyone (Jacky deploys) | Live URL plays all three images end to end |
