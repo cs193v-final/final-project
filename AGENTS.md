@@ -17,7 +17,9 @@ Rules for any coding agent working in this repo. Keep this file short. Project c
 ## Layout
 - `src/app/`: routes (App Router). `page.tsx` is currently a **placeholder** home page.
 - `src/game/`: framework-independent game logic (types, guess checking, round state). No React or Next imports here, so it stays unit-testable. Tests sit next to the code as `*.test.ts`.
+- `src/components/`: React components (`src/components/game/` for game UI). Mark files that use state or events with `"use client"`.
 - `public/`: static files (puzzle images go here or in a subfolder).
+- **Tests:** Vitest. Logic tests run in Node. Component tests use React Testing Library and start with `// @vitest-environment jsdom`; jest-dom matchers (`toHaveFocus`, ...) are set up in `src/test/setup.ts`. Query by role and label, like a user would.
 - Import from `src` with the `@/` alias (`@/game/guess`).
 
 <!-- BEGIN:nextjs-agent-rules -->

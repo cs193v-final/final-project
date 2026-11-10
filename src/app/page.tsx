@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 // PLACEHOLDER home page from the scaffold (#9). The start screen (#18) and the
 // game screens (#10, #11, #14, #16) replace this.
 export default function Home() {
@@ -11,6 +13,12 @@ export default function Home() {
         A daily image-guessing game. Each image starts zoomed in. Guess what it is, or zoom out to
         see more. Every reveal costs points.
       </p>
+      <Link
+        href="/play"
+        className="rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+      >
+        Try the guessing prototype
+      </Link>
     </main>
   );
 }
