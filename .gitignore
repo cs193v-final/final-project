@@ -1,4 +1,26 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+/build
+next-env.d.ts
+*.tsbuildinfo
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+
+# vercel
 .vercel
+
+# env files: real values only in .env.local; the template is committed
 .env*
 !.env.example
-node_modules/

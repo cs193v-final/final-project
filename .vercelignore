@@ -14,3 +14,7 @@ scripts/test-hooks.sh
 
 # Course notes
 INSTRUCTIONS.md
+
+# Build output and dependencies; Vercel installs and builds remotely
+node_modules/
+.next/

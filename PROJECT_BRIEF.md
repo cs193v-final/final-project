@@ -9,7 +9,7 @@
 | Area | Status |
 |---|---|
 | Game code (viewer, guessing, scoring, puzzles) | **Not started.** There is no app code in the repo yet. |
-| Framework / language | **Not chosen.** CI assumes Node 24 + npm (`lint`, `typecheck`, `test` scripts). |
+| Framework / language | **Chosen (#9):** Next.js 16 + React 19 + TypeScript, Tailwind CSS, Vitest. See `AGENTS.md` → Stack. |
 | Hosting + database | **Set up.** Vercel project + Neon Postgres (dev / preview / prod), merged in #3. See `README.md` for local env setup. |
 | Secret-scanning hooks + CI | **Set up.** gitleaks hooks (#5) and GitHub Actions CI (#7) are merged. Run `scripts/install-gitleaks.sh` after cloning. |
 | Course requirements summary | **Done.** [`INSTRUCTIONS.md`](INSTRUCTIONS.md), merged in #1. |
@@ -65,7 +65,7 @@ These are starting ownership areas, not fences. **Everyone** writes code, opens 
 
 ## Shared interfaces
 
-There's no app code yet, so there are no existing conventions. **Everything in this section is a PROPOSAL.** It's a minimal starting point to argue about, not a decision. It's written as TypeScript because CI expects a `typecheck` script; adapt it once we pick a framework.
+There's no app code yet, so there are no existing conventions. **Everything in this section is a PROPOSAL.** It's a minimal starting point to argue about, not a decision. It's written as TypeScript, which the app uses (Next.js, #9).
 
 The interface owner (table above) makes the final call. Change these only through a PR that the affected owners review.
 
@@ -154,7 +154,6 @@ Keep `ScoringConfig` in one place so playtesting tweaks are a one-line change.
 
 | Decision | Notes |
 |---|---|
-| Framework / language | Nothing chosen. CI (#7) and Vercel (#3) assume a Node/npm web app. |
 | Scoring values | Base points, reveal and wrong-guess penalties, the minimum, and what a skip earns. |
 | Wrong-guess rules | Flat penalty? Increasing? A guess limit per image? |
 | Number of reveal steps | Same for every image, or set per puzzle? |
