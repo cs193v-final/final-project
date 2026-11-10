@@ -28,7 +28,7 @@
 **What we tried / learned**
 - Stacked PRs (each PR built on the previous one) let us keep working while reviews were pending. They need to be merged in order, using merge commits (squash breaks the stack).
 - A project's first `vercel deploy` goes to **Production**, not Preview. We now always pass `--target=preview`.
-- **Darian:** what a merge queue is. Instead of a PR merging right away when it's approved, it joins a line (the queue), and GitHub merges the PRs one at a time. This is useful because CI normally tests our PRs against `main` as it was when we branched off, and that can be bad if other edits have landed on `main` since then. A merge queue fixes this by retesting each new PR in the line, so if one fails, it gets kicked out of the queue before it can break `main`. It's essentially a small form of insurance, so PRs that pass on their own don't break `main` together.
+- TODO (Darian): one thing you learned.
 - **Ethan:** a fine-grained GitHub token's resource owner has to be the organization itself. My first token was owned by my personal account, so it could read our repo but not push to it.
 - TODO (Jacky, Joseph): one thing you learned.
 
