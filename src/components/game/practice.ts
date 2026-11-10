@@ -5,8 +5,10 @@ import type { Puzzle, ScoringEvent } from "@/game/types";
 export type Feedback =
   | { kind: "none" }
   | { kind: "empty" } // submitted a blank guess
-  | { kind: "incorrect"; guess: string } // the normalized guess
-  | { kind: "correct"; answer: string } // the answer that matched, as written in the puzzle
+  /** `guess` is the normalized guess; `wrongGuesses` is the round's count so far. */
+  | { kind: "incorrect"; guess: string; wrongGuesses: number }
+  /** `answer` is the canonical answer; `matched` is the accepted answer that matched, as written in the puzzle. */
+  | { kind: "correct"; answer: string; matched: string }
   | { kind: "skipped"; answer: string }; // the canonical answer, revealed after skipping
 
 export type PracticeState = {
@@ -45,8 +47,12 @@ export function practiceReducer(state: PracticeState, action: PracticeAction): P
     case "guess":
       feedback =
         result.outcome?.kind === "correct"
-          ? { kind: "correct", answer: result.outcome.matched }
-          : { kind: "incorrect", guess: result.outcome?.kind === "incorrect" ? result.outcome.normalizedGuess : action.guess };
+          ? { kind: "correct", answer: currentPuzzle(result.game).answer, matched: result.outcome.matched }
+          : {
+              kind: "incorrect",
+              guess: result.outcome?.kind === "incorrect" ? result.outcome.normalizedGuess : action.guess,
+              wrongGuesses: result.game.round.wrongGuesses,
+            };
       break;
     case "skip":
       feedback = { kind: "skipped", answer: currentPuzzle(result.game).answer };

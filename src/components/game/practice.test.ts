@@ -27,7 +27,7 @@ describe("practiceReducer", () => {
 
   it("a wrong guess shows the normalized guess and records a wrongGuess event", () => {
     const s = run({ type: "guess", guess: "  The LOUVRE " });
-    expect(s.feedback).toEqual({ kind: "incorrect", guess: "the louvre" });
+    expect(s.feedback).toEqual({ kind: "incorrect", guess: "the louvre", wrongGuesses: 1 });
     expect(s.events).toEqual([{ type: "wrongGuess", puzzleId: "p1" }]);
     expect(s.game.round.state).toBe("playing");
   });
@@ -38,9 +38,9 @@ describe("practiceReducer", () => {
     expect(s.events).toEqual([]);
   });
 
-  it("a correct guess shows the matched answer", () => {
+  it("a correct guess shows the canonical answer and what matched", () => {
     const s = run({ type: "guess", guess: "eiffel tower" });
-    expect(s.feedback).toEqual({ kind: "correct", answer: "Eiffel Tower" });
+    expect(s.feedback).toEqual({ kind: "correct", answer: "Eiffel Tower", matched: "Eiffel Tower" });
     expect(s.game.round.state).toBe("correct");
   });
 
@@ -58,7 +58,7 @@ describe("practiceReducer", () => {
 
   it("reveal keeps the current feedback and records the event", () => {
     const s = run({ type: "guess", guess: "louvre" }, { type: "reveal" });
-    expect(s.feedback).toEqual({ kind: "incorrect", guess: "louvre" });
+    expect(s.feedback).toEqual({ kind: "incorrect", guess: "louvre", wrongGuesses: 1 });
     expect(s.events.at(-1)).toEqual({ type: "reveal", puzzleId: "p1", revealLevel: 1 });
   });
 

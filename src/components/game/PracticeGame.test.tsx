@@ -30,9 +30,18 @@ describe("PracticeGame guessing", () => {
     const { user, input, status } = setup();
     expect(input()).toHaveFocus();
     await user.type(input(), "  Bay  Bridge {Enter}");
-    expect(status()).toHaveTextContent("“bay bridge” isn't it.");
+    expect(status()).toHaveTextContent("“bay bridge” isn't it (1 wrong guess).");
     expect(screen.getByText("1 wrong guess")).toBeInTheDocument();
     expect(input()).toHaveValue("");
+  });
+
+  it("changes the announced text when the same wrong guess is repeated", async () => {
+    const { user, input, status } = setup();
+    await user.type(input(), "bay bridge{Enter}");
+    const first = status().textContent;
+    await user.type(input(), "bay bridge{Enter}");
+    expect(status().textContent).not.toBe(first);
+    expect(status()).toHaveTextContent("(2 wrong guesses)");
   });
 
   it("asks for a guess on blank input without counting it", async () => {
@@ -44,10 +53,10 @@ describe("PracticeGame guessing", () => {
     expect(input()).toHaveValue("   ");
   });
 
-  it("accepts an alternate answer, then focuses Next image", async () => {
+  it("accepts an alternate answer, shows the real answer, then focuses Next image", async () => {
     const { user, input, status } = setup();
     await user.type(input(), "golden gate{Enter}");
-    expect(status()).toHaveTextContent("Correct! It's Golden Gate.");
+    expect(status()).toHaveTextContent("Correct! It's Golden Gate Bridge (you said Golden Gate).");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next image" })).toHaveFocus();
   });

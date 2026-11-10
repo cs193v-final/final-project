@@ -20,10 +20,16 @@ function feedbackText(feedback: Feedback): string {
       return "";
     case "empty":
       return "Type a guess first.";
-    case "incorrect":
-      return `“${feedback.guess}” isn't it. Try again, zoom out, or skip.`;
+    case "incorrect": {
+      // The count makes each wrong guess change the live region's text, so a
+      // screen reader announces a repeated guess too.
+      const n = feedback.wrongGuesses;
+      return `“${feedback.guess}” isn't it (${n} wrong ${n === 1 ? "guess" : "guesses"}). Try again, zoom out, or skip.`;
+    }
     case "correct":
-      return `Correct! It's ${feedback.answer}.`;
+      return feedback.matched === feedback.answer
+        ? `Correct! It's ${feedback.answer}.`
+        : `Correct! It's ${feedback.answer} (you said ${feedback.matched}).`;
     case "skipped":
       return `Skipped. It was ${feedback.answer}.`;
   }
