@@ -8,7 +8,7 @@
 
 | Area | Status |
 |---|---|
-| Game code (viewer, guessing, scoring, puzzles) | **In progress.** Merged: guess checking (#22) and the round state machine (#23), as framework-free logic in `src/game/`, plus the Next.js scaffold (#24) with a placeholder home page. Guess UI is in review (#25). Viewer (#10, #11), scoring (#15, #16) and puzzle data (#17) are not started. |
+| Game code (viewer, guessing, scoring, puzzles) | **In progress.** Merged: the Next.js scaffold (#24); guess checking (#22), the round state machine (#23), scoring (#27) and the puzzle loader (#32), as framework-free logic in `src/game/`; the three sample puzzles (#32); the image viewer (#30), the Zoom out button (#31) and the start screen (#33). In review: the guess UI and `/play` page (#25). Not started: the live score and final score screen (#16), and wiring everything into one playable game and deploying it (#19). |
 | Framework / language | **Chosen (#9):** Next.js 16 + React 19 + TypeScript, Tailwind CSS, Vitest. See `AGENTS.md` → Stack. |
 | Hosting + database | **Set up.** Vercel project + Neon Postgres (dev / preview / prod), merged in #3. See `README.md` for local env setup. |
 | Secret-scanning hooks + CI | **Set up.** gitleaks hooks (#5) and GitHub Actions CI (#7) are merged. Run `scripts/install-gitleaks.sh` after cloning. |
@@ -37,12 +37,12 @@ A **daily image-guessing game**. Each image starts tightly zoomed in. Players ei
 
 A playable prototype to test the core gameplay before we build the daily-challenge system:
 
-- [ ] An image starts with a tight crop
-- [ ] A **Zoom out** button reveals more, step by step
+- [ ] An image starts with a tight crop *(viewer merged in #30, puzzle data in #32; not in the playable game yet, #19)*
+- [ ] A **Zoom out** button reveals more, step by step *(button merged in #31; not in the playable game yet, #19)*
 - [ ] Guess submission, with correct answers recognized *(logic merged in #22 and #23; UI in review in #25)*
-- [ ] The score updates as you play
+- [ ] The score updates as you play *(scoring logic merged in #27; live display not started, #16)*
 - [ ] Moving to the next image after a correct answer or a skip *(logic merged in #23; UI in review in #25)*
-- [ ] A final score screen
+- [ ] A final score screen *(not started, #16)*
 
 Checkpoint 1 also requires `PROGRESS.md`, `TECHNICAL.md` and an updated `README.md` on `main` (see `INSTRUCTIONS.md`).
 
@@ -56,16 +56,14 @@ These are starting ownership areas, not fences. **Everyone** writes code, opens 
 |---|---|---|---|
 | **Darian** (`darian07-o`) | Image viewer + reveal controls | Image display and initial crop; progressive zoom-out steps and the reveal button; expose the current reveal level for scoring; works on desktop and mobile | `RevealLevel` |
 | **Jacky** (`Hombobow`) | Guess validation + round progression | Guess submission and answer checking; normalization (case, whitespace); round states, correct answers, skips, advancing. Coordinates with Joseph (accepted answers) and Ethan (scoring events) | `GuessOutcome`, round states, emits `ScoringEvent` |
-| **Ethan** (`ethanyng`)* | Scoring + results | Points earned and deductions for reveals and wrong guesses; per-round and total scores; final score screen; keep scoring rules configurable during playtesting | `ScoringConfig`, `RoundResult` |
-| **Joseph** (`Joseph-G-McD`)* | Puzzle data + game entry | Puzzle data format; load the three sample puzzles; accepted answers and crop/reveal settings in the data; start screen and instructions; record image sources and usage permissions | `Puzzle` |
-
-\* Not yet added to the GitHub repo.
+| **Ethan** (`ethanyng`) | Scoring + results | Points earned and deductions for reveals and wrong guesses; per-round and total scores; final score screen; keep scoring rules configurable during playtesting | `ScoringConfig`, `RoundResult` |
+| **Joseph** (`Joseph-G-McD`) | Puzzle data + game entry | Puzzle data format; load the three sample puzzles; accepted answers and crop/reveal settings in the data; start screen and instructions; record image sources and usage permissions | `Puzzle` |
 
 ---
 
 ## Shared interfaces
 
-These types now live in code in [`src/game/types.ts`](src/game/types.ts) (#22). **That file is the source of truth;** this section summarizes it. Each type is marked with its status: **PROPOSAL** until its owner has signed off, otherwise the PR where it was settled.
+These types now live in code in [`src/game/types.ts`](src/game/types.ts) (#22). **That file is the source of truth;** this section summarizes it. Each type is marked with the PR where it was settled. All six are in code now, and none is still a proposal.
 
 The interface owner (table above) makes the final call. Change these only through a PR that the affected owners review.
 
@@ -79,7 +77,7 @@ Puzzle data (Joseph) ──► Image viewer (Darian) ──RevealLevel──┐
                                         └──── round ends ────────────► RoundResult ──► Final score screen
 ```
 
-### `Puzzle` (owner: Joseph): PROPOSAL, in code unchanged, awaiting Joseph's review
+### `Puzzle` (owner: Joseph): finalized in #32, unchanged from the proposal
 
 ```ts
 type Puzzle = {
@@ -95,13 +93,14 @@ type Puzzle = {
 };
 ```
 
-The prototype loads three puzzles from a static file (e.g. `puzzles/sample.json`). Where daily puzzles will live is an open decision.
+The three practice puzzles are in `src/puzzles/sample.json`, with images in `public/puzzles/`. Import them as `SAMPLE_PUZZLES` from `src/puzzles/index.ts`. They're checked by `parsePuzzles` in `src/game/puzzles.ts` when the module loads, so bad data fails the tests and the build with a `PuzzleDataError` that names the field. Where daily puzzles will live is an open decision.
 
 ### `RevealLevel` (owner: Darian): agreed in #22
 
 - `type RevealLevel = number`: an integer from `0` (tightest crop) to `zoomLevels.length - 1` (full image).
 - The viewer takes `puzzle.reveal` plus the current level and renders the crop. The viewer doesn't track score.
-- With the round logic (#23): **Zoom out** dispatches `{ type: "reveal" }`, and the viewer renders `game.round.revealLevel`. Disable the button when `revealLevel === maxRevealLevel` (the round rejects it as `fully-revealed`).
+- With the round logic (#23): **Zoom out** dispatches `{ type: "reveal" }`, and the viewer renders `game.round.revealLevel`. At `maxRevealLevel` the round rejects a reveal as `fully-revealed`.
+- In code: `ImageViewer` (#30) takes `puzzle`, `revealLevel` and `showFull` (show the whole image once the round is over). The crop math is framework-free in `src/game/crop.ts`. `ZoomOutButton` (#31) takes the round and an `onZoomOut` callback. When it can't zoom out, it's `aria-disabled` rather than `disabled`, so keyboard focus stays on it.
 
 ### `GuessOutcome` and round states (owner: Jacky): in code since #22 and #23
 
@@ -119,7 +118,7 @@ Normalization for the prototype (#22): Unicode NFKC, trim, collapse inner whites
 
 The round state machine is `step(game, action)` in `src/game/round.ts` (#23). Actions are `reveal`, `guess`, `skip` and `next`. Invalid actions are rejected with a reason instead of throwing.
 
-### `ScoringEvent` (emitted by Jacky, consumed by Ethan): PROPOSAL, in code unchanged, awaiting Ethan's review
+### `ScoringEvent` (emitted by Jacky, consumed by Ethan): in code since #22, used unchanged by scoring (#27)
 
 ```ts
 type ScoringEvent =
@@ -129,7 +128,7 @@ type ScoringEvent =
   | { type: "skip"; puzzleId: string };
 ```
 
-### `ScoringConfig` and `RoundResult` (owner: Ethan): PROPOSAL, not in code yet
+### `ScoringConfig` and `RoundResult` (owner: Ethan): in code since #27, unchanged from the proposal
 
 ```ts
 type ScoringConfig = {          // values are placeholders for playtesting, NOT decided
@@ -150,7 +149,7 @@ type RoundResult = {
 };
 ```
 
-Keep `ScoringConfig` in one place so playtesting tweaks are a one-line change.
+The values in use are in `src/game/scoring-config.ts`, and that's the only place to change them. They're placeholders for playtesting (#21): 100 base, −20 per zoom-out, −10 per wrong guess, a floor of 10 for a correct answer, and 0 for a skip. `validateScoringConfig` rejects a floor above the base and a skip worth more than the floor. `scoreRound` and `scoreGame` in `src/game/scoring.ts` turn `ScoringEvent`s into `RoundResult`s and a total. For the live score, use `pointsIfCorrect(game.round.revealLevel, game.round.wrongGuesses)`.
 
 ---
 
