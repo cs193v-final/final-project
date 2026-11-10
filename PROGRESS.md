@@ -12,17 +12,18 @@
   - CI on every PR: secret scan, hook tests, shell lint, lint, typecheck, unit tests and build. All three CI checks are required, and a merge queue is on.
   - gitleaks pre-commit and pre-push hooks block secrets before they leave a laptop.
 - **Hosting:** a Vercel project plus three separate Neon Postgres databases (dev / preview / prod). Live site: https://final-project-theta-hazel.vercel.app (currently the placeholder home page).
-- **Game logic** (in review: #22, #23, #27):
+- **Game logic** (merged: #22, #23; scoring in review: #27):
   - guess checking (ignores case, extra spaces and look-alike characters; supports alternate answers)
   - a round state machine (zoom out, guess, skip, next, end of game) that emits scoring events
   - scoring: points per image with a breakdown, and a running total (values are placeholders for playtesting)
   - covered by unit tests
-- **Next.js app** (in review: #24).
-- **Guessing screen** (draft: #25): a `/play` page where you can play through three rounds of guessing and skipping.
+- **Next.js app** (merged: #24).
+- **Puzzle data** (merged: #32): three sample puzzles with licensed photos and a loader that checks the data.
+- **Guessing screen** (in review: #25): a `/play` page where you can play through three rounds of guessing and skipping.
 
 **What's still a placeholder** (labeled on the page)
 - the image and zoom-out area
-- the three sample answers (no images yet)
+- the three answers on `/play` (no images yet). The real puzzles (#32) and the viewer (#30, #31) get wired in during #19.
 - the final score screen
 
 **What we tried / learned**
@@ -37,7 +38,7 @@
 
 - TODO (team): compare with the proposal's Week 8 goals.
   - Draft: the planned Week 8 milestone is the three-image practice game (brief, "Week 8 milestone").
-  - So far: the setup, game logic and guessing UI are done or in review. The image viewer (#30, #31), puzzle data (#32), start screen (#33) and scoring (#27) are in review.
+  - So far: the setup, game logic and guessing UI are done or in review. Puzzle data (#32) is merged. The image viewer (#30, #31), start screen (#33) and scoring (#27) are in review.
 - Scope: no change to the idea. Live multiplayer stays out of scope (it was already out in the brief).
 - TODO (team): any other changes in idea or scope.
 
@@ -63,9 +64,9 @@
 
 | Priority | Work | Owner | How we'll check it's done |
 |---|---|---|---|
-| High | Merge the in-review PRs in order: #22 → #24 → #23 → #25 | Jacky (author), Darian (review) | All four merged; CI green on `main` |
-| High | Image viewer with initial crop (#10) and zoom out (#11) | Darian | Component tests; manual check on desktop and phone |
-| High | Puzzle data and three real puzzles with licensed images (#17) | Joseph | Loader tests; image credits recorded |
+| High | Merge the remaining in-review PRs: #25, #27, #30, #31, then #33 (needs `/play` from #25) | Each author; Darian and others review | All merged; CI green on `main` |
+| High | Image viewer with initial crop (#10) and zoom out (#11), in review: #30, #31 | Darian | Component tests; manual check on desktop and phone |
+| High | Puzzle data and three real puzzles with licensed images (#17), **done: #32**. Follow-ups from review: neutral file names and ids, and visible image credits before the deploy | Joseph | Loader tests; image credits shown on the live site |
 | High | Scoring rules (#15, in review: #27) | Ethan | Unit tests for every scoring event |
 | Medium | Live score and final score screen (#16) | Ethan | Component tests; full playthrough |
 | Medium | Start screen (#18) | Joseph | Manual check; links into `/play` |

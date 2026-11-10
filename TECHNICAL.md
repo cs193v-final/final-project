@@ -1,6 +1,6 @@
 # Technical Overview
 
-> **Draft** as of Nov 10, 2026. Some of the code described here is still in review (#22–#25) and reaches `main` when those PRs merge. **TODO** items need a teammate's input.
+> **Draft** as of Nov 10, 2026. Some of the code described here is still in review (#25, #27, #30, #31, #33) and reaches `main` when those PRs merge. **TODO** items need a teammate's input.
 
 ## 1. Main pieces
 
@@ -11,8 +11,11 @@ How a turn works today: **player clicks or types → the React page sends an act
 | Web app (Next.js) | `src/app/` | Pages: `/` (placeholder home) and `/play` (practice game). |
 | Game logic | `src/game/` | Plain TypeScript with no React or Next.js, so it's easy to test. `guess.ts` normalizes and checks guesses. `round.ts` is the round state machine (zoom out / guess / skip / next) and produces scoring events. `types.ts` holds the shared types from the brief. |
 | Game UI | `src/components/game/` | `PracticeGame` holds the game state (`useReducer`). `GuessPanel` is the guess box, feedback and buttons. |
-| Puzzle data | `src/app/play/placeholder-puzzles.ts` | **Placeholder:** three answers, no images. Replaced by real puzzle data in #17. |
-| Image viewer, scoring, score screens | (planned) | #10/#11 (Darian), #15/#16 (Ethan). |
+| Puzzle data | `src/puzzles/sample.json`, `src/game/puzzles.ts`, `public/puzzles/` | Three sample puzzles with CC BY-SA photos and credits (#32). `puzzles.ts` checks the data and names the bad field when something is wrong. |
+| Placeholder puzzles | `src/app/play/placeholder-puzzles.ts` (#25) | **Placeholder:** three answers with no images, used by `/play` until the real puzzles are wired in (#19). |
+| Image viewer | `src/components/game/ImageViewer.tsx`, `ZoomOutButton.tsx`, crop math in `src/game/crop.ts` | In review (#30, #31, Darian). Shows the tight crop and steps out one zoom level at a time. |
+| Scoring | `src/game/scoring.ts`, values in `scoring-config.ts` | In review (#27, Ethan). Turns scoring events into points with a breakdown. |
+| Score screens | (planned) | #16 (Ethan). |
 | CI and secret scanning | `.github/workflows/ci.yml`, `.githooks/` | Checks every PR. Blocks secrets at commit, push and in CI. |
 
 ## 2. Tools and services
@@ -31,7 +34,7 @@ How a turn works today: **player clicks or types → the React page sends an act
 ## 3. Stored information
 
 - **Nothing is stored yet.** Game state lives in the browser's memory and resets on reload.
-- Puzzles are a static file shipped with the app.
+- Puzzles are a static JSON file plus images in `public/puzzles/`, shipped with the app.
 - Later (open decision): daily progress, streaks, and possibly puzzles and accounts. Where and how they're stored is undecided (#21 and the brief's open decisions).
 
 ## 4. Secrets and user information
