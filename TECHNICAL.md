@@ -1,6 +1,6 @@
 # Technical Overview
 
-> As of Nov 10, 2026. The guessing screen (#25) and its integration with the viewer and real puzzles (#35) are still in review. Everything else described here is on `main`.
+> As of Nov 10, 2026. Everything described here is on `main`, except the score screens (#37, approved and waiting to merge).
 
 ## 1. Main pieces
 
@@ -8,14 +8,13 @@ How a turn works today: **player clicks or types → the React page sends an act
 
 | Piece | Where | What it does |
 |---|---|---|
-| Web app (Next.js) | `src/app/` | Pages: `/` (start screen, `src/components/StartScreen.tsx`) and `/play` (practice game, in review: #25). |
+| Web app (Next.js) | `src/app/` | Pages: `/` (start screen, `src/components/StartScreen.tsx`) and `/play` (the practice game, #25 and #35). |
 | Game logic | `src/game/` | Plain TypeScript with no React or Next.js, so it's easy to test. `guess.ts` normalizes and checks guesses. `round.ts` is the round state machine (zoom out / guess / skip / next) and produces scoring events. `types.ts` holds the shared types from the brief. |
-| Game UI | `src/components/game/` | `PracticeGame` holds the game state (`useReducer`). `GuessPanel` is the guess box, feedback and buttons (in review: #25). |
+| Game UI | `src/components/game/` | `PracticeGame` holds the game state (`useReducer`). `GuessPanel` is the guess box, feedback and buttons (#25). |
 | Puzzle data | `src/puzzles/sample.json`, `src/game/puzzles.ts`, `public/puzzles/` | Three sample puzzles with CC BY-SA photos and credits (#32). `puzzles.ts` checks the data and names the bad field when something is wrong. |
-| Placeholder puzzles | `src/app/play/placeholder-puzzles.ts` (#25) | **Placeholder:** three answers with no images, used by `/play` until #35 switches it to the real puzzles. |
 | Image viewer | `src/components/game/ImageViewer.tsx`, `ZoomOutButton.tsx`, crop math in `src/game/crop.ts` | Shows the tight crop and steps out one zoom level at a time (#30, #31). Added to `/play` in #35. |
 | Scoring | `src/game/scoring.ts`, values in `scoring-config.ts` | Turns scoring events into points with a breakdown (#27). |
-| Score screens | `src/components/game/LiveScore.tsx`, `FinalScore.tsx` | In review (#37, Ethan). The running total and what the current image is worth while playing; a final screen with each image's points math. |
+| Score screens | `src/components/game/LiveScore.tsx`, `FinalScore.tsx` | Approved, waiting to merge (#37, Ethan). The running total and what the current image is worth while playing; a final screen with each image's points math. |
 | CI and secret scanning | `.github/workflows/ci.yml`, `.githooks/` | Checks every PR. Blocks secrets at commit, push and in CI. |
 
 ## 2. Tools and services

@@ -21,11 +21,11 @@
 - **Puzzle data** (merged: #32): three sample puzzles with licensed photos and a loader that checks the data.
 - **Image viewer and Zoom out button** (merged: #30, #31).
 - **Start screen** with how-to-play steps (merged: #33).
-- **Guessing screen** (in review: #25): a `/play` page where you can play through three rounds of guessing and skipping. #35 (in review, stacked on #25) puts the viewer and the real puzzles into it.
+- **Playable practice game** (merged: #25, #35): `/play` runs the three sample puzzles. Each image starts zoomed in; you zoom out, guess or skip, then move on to the next image.
 
 **What's still a placeholder** (labeled on the page)
-- the image area and the three answers on `/play` (no images yet), until #25 and #35 merge
-- the final score screen (built and in review: #37)
+- the final score screen (built and approved in #37, waiting to merge)
+- the live site still shows the old placeholder home page until the next deploy
 
 **What we tried / learned**
 - Stacked PRs (each PR built on the previous one) let us keep working while reviews were pending. They need to be merged in order, using merge commits (squash breaks the stack).
@@ -40,9 +40,9 @@
 **Week 8 goal in the proposal:** "a three-image prototype with working guesses, zoom-out controls, and scoring", to test whether the core game is fun before adding daily challenges, saved progress and result sharing.
 
 - **Where we are against that goal:**
-  - Merged on `main`: guess checking (#22), round logic (#23), the Next.js app (#24), scoring rules (#27), the image viewer (#30), the zoom-out button (#31), puzzle data with three sample puzzles (#32) and the start screen (#33).
-  - Still open: the guessing screen that ties the pieces together on `/play` (#25), and the live score and final score screen (#16; built and in review as #37, stacked on #25 and #35).
-  - So all the parts exist and are tested, but the full playable flow isn't on `main` yet. Integrating it and deploying it (#19) is our first Week 9 priority.
+  - Merged on `main`: guess checking (#22), round logic (#23), the Next.js app (#24), the guessing screen (#25), scoring rules (#27), the image viewer (#30), the zoom-out button (#31), puzzle data with three sample puzzles (#32), the start screen (#33) and the integration that puts them together on `/play` (#35).
+  - Still open: the live score and final score screen (#16; built and approved as #37, waiting to merge), and deploying the playable game to the live site (#19).
+  - So guesses, zoom-out and scoring all work together on `main`; showing the score on screen and deploying are the last steps for the Week 8 goal.
 - **Division of work:** unchanged from the proposal (Darian: viewer and zoom-out; Jacky: guessing and rounds; Ethan: scoring and the score screen; Joseph: puzzle data and the start screen). On top of that, Jacky set up the infrastructure (hosting, database, CI, secret scanning, the app scaffold) and Darian wrote the project brief and shared interfaces.
 - **Idea and scope:** no change. Still a daily five-image game with a practice mode, spoiler-free sharing and a content editor; live multiplayer stays out of scope. The brief adds details the proposal didn't spell out: alternate accepted answers, typo handling, streaks and a score breakdown.
 - **Name:** the proposal's working title was "Crumbscope". The app currently says "Zoom Out", also a working title. We haven't picked a final name.
@@ -75,8 +75,8 @@ Owners match the GitHub issue assignees. In priority order:
 
 | Priority | Work | Owner | How we'll check it's done |
 |---|---|---|---|
-| High | Merge the guessing screen (#25), then the integration PR that adds the viewer and real puzzles to `/play` (#35, part of #19) | Jacky (#25), Darian (#35) | Both merged; CI green on `main`; `/play` shows real images |
-| High | Live score and final score screen (#16, in review: #37) | Ethan | Component tests; full playthrough |
+| Done | Merge the guessing screen (#25), then the integration PR that adds the viewer and real puzzles to `/play` (#35, part of #19) | Jacky (#25), Darian (#35) | Both merged Nov 10; CI green on `main`; `/play` shows real images |
+| High | Live score and final score screen (#16, approved: #37) | Ethan | Component tests; full playthrough |
 | High | Deploy the playable game from `main` (#19) | Jacky (deploy owner) | Live URL plays all three images end to end |
 | Medium | Puzzle follow-ups: neutral image file names (#36), start more zoomed in (#34), visible image credits before the deploy | Joseph | Loader tests; credits shown on the live site |
 | Medium | Normalize punctuation in guesses (#29) | Jacky | Unit tests for curly apostrophes, hyphens and periods |
