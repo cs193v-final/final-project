@@ -87,13 +87,35 @@ describe("PracticeGame guessing", () => {
     expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
   });
 
-  it("the placeholder zoom out is disabled at the full image", async () => {
+  it("zoom out steps the viewer to the full image, then stays focused but does nothing", async () => {
     const { user } = setup();
-    const zoom = screen.getByRole("button", { name: "Zoom out (placeholder)" });
-    expect(screen.getByText("Reveal level 1 of 3")).toBeInTheDocument();
+    const zoom = screen.getByRole("button", { name: "Zoom out" });
+    expect(screen.getByText("Zoom level 1 of 3")).toBeInTheDocument();
     await user.click(zoom);
+    expect(screen.getByText("Zoom level 2 of 3")).toBeInTheDocument();
     await user.click(zoom);
-    expect(screen.getByText("Reveal level 3 of 3")).toBeInTheDocument();
-    expect(zoom).toBeDisabled();
+    expect(screen.getByText("Zoom level 3 of 3")).toBeInTheDocument();
+    expect(screen.getByText("Showing the full image")).toBeInTheDocument();
+    expect(zoom).toHaveAttribute("aria-disabled", "true");
+    await user.click(zoom);
+    expect(screen.getByText("Zoom level 3 of 3")).toBeInTheDocument();
+    expect(zoom).toHaveFocus();
+  });
+
+  it("shows the full image and the photo credit once the round is over", async () => {
+    const { user, input } = setup();
+    expect(screen.queryByText(/Photo:/)).not.toBeInTheDocument();
+    await user.type(input(), "golden gate{Enter}");
+    expect(screen.getByText("Full image")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zoom out" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Photo: test \(CC0\)/)).toBeInTheDocument();
+  });
+
+  it("starts the next image at its tightest crop", async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole("button", { name: "Zoom out" }));
+    await user.click(screen.getByRole("button", { name: "Skip this image" }));
+    await user.click(screen.getByRole("button", { name: "Next image" }));
+    expect(screen.getByText("Zoom level 1 of 3")).toBeInTheDocument();
   });
 });

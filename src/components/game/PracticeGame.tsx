@@ -4,11 +4,13 @@ import { useReducer, type ReactNode } from "react";
 import { currentPuzzle } from "@/game/round";
 import type { Puzzle } from "@/game/types";
 import { GuessPanel } from "./GuessPanel";
+import { ImageViewer } from "./ImageViewer";
 import { initPractice, practiceReducer } from "./practice";
+import { ZoomOutButton } from "./ZoomOutButton";
 
 /**
- * The three-image practice game. For now only the guessing part is real (#14);
- * the image viewer (#10, #11) and the score screens (#16) are placeholders.
+ * The three-image practice game: the image viewer and Zoom out (#10, #11) and
+ * guessing (#14). The score screens (#16) are still placeholders.
  */
 export function PracticeGame({ puzzles }: { puzzles: readonly Puzzle[] }) {
   const [state, dispatch] = useReducer(practiceReducer, puzzles, initPractice);
@@ -38,20 +40,18 @@ export function PracticeGame({ puzzles }: { puzzles: readonly Puzzle[] }) {
         Image {game.index + 1} of {game.puzzles.length}
       </p>
 
-      <div className="flex aspect-[4/3] w-full max-w-md flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-zinc-300 p-4 text-center dark:border-zinc-700">
-        <Placeholder>Image viewer comes in #10 and #11</Placeholder>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Reveal level {round.revealLevel + 1} of {round.maxRevealLevel + 1}
-        </p>
-        {round.state === "playing" && (
-          <button
-            type="button"
-            onClick={() => dispatch({ type: "reveal" })}
-            disabled={round.revealLevel >= round.maxRevealLevel}
-            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-zinc-700"
-          >
-            Zoom out (placeholder)
-          </button>
+      <div className="flex w-full max-w-md flex-col items-center gap-3">
+        {/* key: each image starts at its own tight crop, with no zoom animation from the last one. */}
+        <ImageViewer
+          key={puzzle.id}
+          puzzle={puzzle}
+          revealLevel={round.revealLevel}
+          showFull={round.state !== "playing"}
+        />
+        {round.state === "playing" ? (
+          <ZoomOutButton round={round} onZoomOut={() => dispatch({ type: "reveal" })} />
+        ) : (
+          <Credit credit={puzzle.credit} />
         )}
       </div>
 
@@ -73,5 +73,24 @@ function Placeholder({ children }: { children: ReactNode }) {
     <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
       Placeholder: {children}
     </span>
+  );
+}
+
+/**
+ * Image source and license, required by CC BY-SA. Shown only after the round,
+ * because the source and file name often give the answer away.
+ */
+function Credit({ credit }: { credit: Puzzle["credit"] }) {
+  const source = credit.url ? (
+    <a href={credit.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+      {credit.source}
+    </a>
+  ) : (
+    credit.source
+  );
+  return (
+    <p className="text-center text-xs text-zinc-600 dark:text-zinc-400">
+      Photo: {source} ({credit.license})
+    </p>
   );
 }
