@@ -90,17 +90,16 @@ describe("scoreGame", () => {
       ["p3", "skipped", 0],
     ]);
     expect(score.total).toBe(170);
-    expect(score.current).toBeUndefined();
   });
 
   it("starts at zero with no events", () => {
     expect(scoreGame([], CONFIG)).toEqual({ rounds: [], total: 0 });
   });
 
-  it("reports the round in progress for the live score", () => {
+  it("leaves a round that hasn't ended out of the total", () => {
     const score = scoreGame([correct("p1", 0), reveal("p2", 1), wrong("p2")], CONFIG);
+    expect(score.rounds.map((r) => r.puzzleId)).toEqual(["p1"]);
     expect(score.total).toBe(100);
-    expect(score.current).toEqual({ puzzleId: "p2", revealLevel: 1, wrongGuesses: 1, pointsIfCorrect: 70 });
   });
 
   it("rejects a new puzzle's events before the previous round ended", () => {
@@ -126,6 +125,10 @@ describe("validateScoringConfig", () => {
   });
   it("rejects a floor above the base", () => {
     expect(() => validateScoringConfig({ ...CONFIG, minPoints: 200 })).toThrow(/minPoints/);
+  });
+  it("rejects a skip worth more than the worst correct answer", () => {
+    expect(() => validateScoringConfig({ ...CONFIG, skipPoints: 50 })).toThrow(/skipPoints/);
+    expect(() => validateScoringConfig({ ...CONFIG, skipPoints: 10 })).not.toThrow();
   });
   it("is checked before scoring", () => {
     expect(() => scoreRound([correct("p1", 0)], { ...CONFIG, minPoints: 200 })).toThrow(/minPoints/);

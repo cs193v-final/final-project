@@ -15,12 +15,17 @@ export function validateScoringConfig(config: ScoringConfig): void {
   if (config.minPoints > config.basePoints) {
     throw new Error("ScoringConfig.minPoints can't be more than basePoints");
   }
+  if (config.skipPoints > config.minPoints) {
+    // Otherwise skipping would beat a hard-won correct answer.
+    throw new Error("ScoringConfig.skipPoints can't be more than minPoints");
+  }
 }
 
 /**
  * Points a correct answer would earn right now, at this reveal level and
  * wrong-guess count. Used for finished rounds, and by the live score (#16) to
- * show what the current image is still worth.
+ * show what the current image is still worth:
+ * `pointsIfCorrect(game.round.revealLevel, game.round.wrongGuesses)`.
  */
 export function pointsIfCorrect(
   revealLevel: number,
@@ -110,29 +115,19 @@ export function scoreRound(
   };
 }
 
-/** The round being played, if the last round hasn't ended yet. */
-export type RoundInProgress = {
-  puzzleId: string;
-  revealLevel: number;
-  wrongGuesses: number;
-  /** What a correct answer would earn right now. */
-  pointsIfCorrect: number;
-};
-
 export type GameScore = {
   /** Finished rounds, in play order. */
   rounds: RoundResult[];
   /** Running total: the sum of `rounds[].points`. */
   total: number;
-  /** Set while the latest round is still being played. */
-  current?: RoundInProgress;
 };
 
 /**
  * Score a whole game from every ScoringEvent so far, in order (what
  * `practiceReducer` collects in `state.events`). Safe to call after every
- * action for a live score: an unfinished last round shows up as `current`
- * instead of throwing.
+ * action: events from a round that hasn't ended yet are left out of the
+ * total. For what the current image is still worth, use `pointsIfCorrect`
+ * with the round state; events alone can't tell a new round has started.
  */
 export function scoreGame(
   events: readonly ScoringEvent[],
@@ -154,23 +149,5 @@ export function scoreGame(
   }
 
   const total = rounds.reduce((sum, round) => sum + round.points, 0);
-  const [first] = pending;
-  if (first === undefined) return { rounds, total };
-
-  let revealLevel = 0;
-  let wrongGuesses = 0;
-  for (const event of pending) {
-    if (event.type === "reveal") revealLevel = Math.max(revealLevel, event.revealLevel);
-    if (event.type === "wrongGuess") wrongGuesses += 1;
-  }
-  return {
-    rounds,
-    total,
-    current: {
-      puzzleId: first.puzzleId,
-      revealLevel,
-      wrongGuesses,
-      pointsIfCorrect: pointsIfCorrect(revealLevel, wrongGuesses, config),
-    },
-  };
+  return { rounds, total };
 }
