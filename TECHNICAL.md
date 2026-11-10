@@ -1,6 +1,6 @@
 # Technical Overview
 
-> **Draft** as of Nov 10, 2026. Some of the code described here is still in review (#25, #27, #30, #31, #33) and reaches `main` when those PRs merge. **TODO** items need a teammate's input.
+> As of Nov 10, 2026. The guessing screen (#25) and its integration with the viewer and real puzzles (#35) are still in review. Everything else described here is on `main`.
 
 ## 1. Main pieces
 
@@ -8,13 +8,13 @@ How a turn works today: **player clicks or types → the React page sends an act
 
 | Piece | Where | What it does |
 |---|---|---|
-| Web app (Next.js) | `src/app/` | Pages: `/` (placeholder home) and `/play` (practice game). |
+| Web app (Next.js) | `src/app/` | Pages: `/` (start screen, `src/components/StartScreen.tsx`) and `/play` (practice game, in review: #25). |
 | Game logic | `src/game/` | Plain TypeScript with no React or Next.js, so it's easy to test. `guess.ts` normalizes and checks guesses. `round.ts` is the round state machine (zoom out / guess / skip / next) and produces scoring events. `types.ts` holds the shared types from the brief. |
-| Game UI | `src/components/game/` | `PracticeGame` holds the game state (`useReducer`). `GuessPanel` is the guess box, feedback and buttons. |
+| Game UI | `src/components/game/` | `PracticeGame` holds the game state (`useReducer`). `GuessPanel` is the guess box, feedback and buttons (in review: #25). |
 | Puzzle data | `src/puzzles/sample.json`, `src/game/puzzles.ts`, `public/puzzles/` | Three sample puzzles with CC BY-SA photos and credits (#32). `puzzles.ts` checks the data and names the bad field when something is wrong. |
-| Placeholder puzzles | `src/app/play/placeholder-puzzles.ts` (#25) | **Placeholder:** three answers with no images, used by `/play` until the real puzzles are wired in (#19). |
-| Image viewer | `src/components/game/ImageViewer.tsx`, `ZoomOutButton.tsx`, crop math in `src/game/crop.ts` | In review (#30, #31, Darian). Shows the tight crop and steps out one zoom level at a time. |
-| Scoring | `src/game/scoring.ts`, values in `scoring-config.ts` | In review (#27, Ethan). Turns scoring events into points with a breakdown. |
+| Placeholder puzzles | `src/app/play/placeholder-puzzles.ts` (#25) | **Placeholder:** three answers with no images, used by `/play` until #35 switches it to the real puzzles. |
+| Image viewer | `src/components/game/ImageViewer.tsx`, `ZoomOutButton.tsx`, crop math in `src/game/crop.ts` | Shows the tight crop and steps out one zoom level at a time (#30, #31). Added to `/play` in #35. |
+| Scoring | `src/game/scoring.ts`, values in `scoring-config.ts` | Turns scoring events into points with a breakdown (#27). |
 | Score screens | (planned) | #16 (Ethan). |
 | CI and secret scanning | `.github/workflows/ci.yml`, `.githooks/` | Checks every PR. Blocks secrets at commit, push and in CI. |
 
@@ -48,7 +48,7 @@ How a turn works today: **player clicks or types → the React page sends an act
 - **Encrypting database contents:**
   - Connections to Neon require TLS (`sslmode=require&channel_binding=require`).
   - Neon encrypts stored data at rest.
-  - Before we store anything about users, we'll encrypt sensitive fields in the app before saving them. If we add accounts, passwords will be hashed and salted, never stored as-is. TODO (team): confirm this plan when persistence is designed.
+  - Before we store anything about users, we'll encrypt sensitive fields in the app before saving them. If we add accounts, passwords will be hashed and salted, never stored as-is. We'll revisit this plan when we design what gets stored.
 
 ## 5. Open questions
 
@@ -59,4 +59,5 @@ How a turn works today: **player clicks or types → the React page sends an act
 | Number of reveal steps; typo tolerance | Decide after the playtest. The code already accepts a pluggable answer matcher. |
 | Image sourcing and licenses | Joseph to pick sources with clear licenses and record credits per puzzle (#17) |
 | Daily reset time and time zone | Decide before building the daily challenge (Week 9+) |
-| TODO (team) | Anything else we don't understand yet |
+| Keeping the code easy to change with four people working at once | Fewer stacked PRs, smaller PRs merged sooner, and asking staff for advice (see `PROGRESS.md` §3) |
+| How to make the game more interesting and grow its scope | Playtest first, then pick features (daily challenge, streaks, sharing) based on what players enjoy |

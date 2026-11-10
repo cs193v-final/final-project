@@ -1,6 +1,6 @@
 # Progress Report: Checkpoint 1
 
-> **Draft.** Facts come from the repo, PRs and issues as of Nov 10, 2026. Every **TODO** must be replaced in each person's own words before the deadline (24 hours before our Week 8 meeting).
+> Facts come from the repo, PRs and issues as of Nov 10, 2026.
 
 **Project:** Zoom Out (working title), a daily image-guessing game. Each image starts zoomed in. Players guess, or zoom out to see more, and every reveal costs points. Full plan: [`PROJECT_BRIEF.md`](PROJECT_BRIEF.md).
 
@@ -12,18 +12,19 @@
   - CI on every PR: secret scan, hook tests, shell lint, lint, typecheck, unit tests and build. All three CI checks are required, and a merge queue is on.
   - gitleaks pre-commit and pre-push hooks block secrets before they leave a laptop.
 - **Hosting:** a Vercel project plus three separate Neon Postgres databases (dev / preview / prod). Live site: https://final-project-theta-hazel.vercel.app (currently the placeholder home page).
-- **Game logic** (merged: #22, #23; scoring in review: #27):
+- **Game logic** (merged: #22, #23, #27):
   - guess checking (ignores case, extra spaces and look-alike characters; supports alternate answers)
   - a round state machine (zoom out, guess, skip, next, end of game) that emits scoring events
   - scoring: points per image with a breakdown, and a running total (values are placeholders for playtesting)
   - covered by unit tests
 - **Next.js app** (merged: #24).
 - **Puzzle data** (merged: #32): three sample puzzles with licensed photos and a loader that checks the data.
-- **Guessing screen** (in review: #25): a `/play` page where you can play through three rounds of guessing and skipping.
+- **Image viewer and Zoom out button** (merged: #30, #31).
+- **Start screen** with how-to-play steps (merged: #33).
+- **Guessing screen** (in review: #25): a `/play` page where you can play through three rounds of guessing and skipping. #35 (in review, stacked on #25) puts the viewer and the real puzzles into it.
 
 **What's still a placeholder** (labeled on the page)
-- the image and zoom-out area
-- the three answers on `/play` (no images yet). The real puzzles (#32) and the viewer (#30, #31) get wired in during #19.
+- the image area and the three answers on `/play` (no images yet), until #25 and #35 merge
 - the final score screen
 
 **What we tried / learned**
@@ -51,7 +52,11 @@
 - **Vercel free tier:** only the project owner (Jacky) can deploy. Every deploy goes through one person.
 - **Repo admin settings:** our coding agents' GitHub tokens can't change repo rules (by design). Ruleset changes are done by hand on GitHub.
 - **Open gameplay decisions (#21):** scoring values, wrong-guess rules, number of reveal steps, typo tolerance. We plan to decide after a first playtest.
-- TODO (team): where we'd like help from staff.
+- **Where we'd like help from staff:**
+  - Advice on next steps, and ideas for improving our CI/CD process.
+  - Where we went wrong in setting up the codebase.
+  - How to keep the codebase easy to update and easy for four people to work on at the same time. Stacked PRs and merge conflicts (e.g. #25 vs #33 in `page.tsx`) slowed us down.
+  - How to make the game more interesting and grow its scope beyond the basic daily puzzle.
 
 ## 4. Team contributions and next steps
 
@@ -64,15 +69,15 @@
 | **Joseph** (`Joseph-G-McD`) | Puzzle data and loader (#32, closes #17): finalized the `Puzzle` format, three sample puzzles with CC BY-SA photos from Wikimedia Commons (credits recorded in the data), a loader that names the bad field when data is wrong, and 42 tests. Start screen with how-to-play steps (#33, closes #18). Reviewed and approved #30 and #31 after merging them with #32 and checking every zoom level in Chrome. |
 | **Ethan** (`ethanyng`) | Scoring rules (#27, closes #15): `ScoringConfig` with placeholder values in one file, per-image scoring with a breakdown, a running total for the live score, and 20 unit tests (including a full game through the round logic). Reviewed and approved #22. I noticed punctuation in guesses isn't normalized (e.g. curly apostrophes), thought through the trade-offs, and postponed the fix to #29 so we could keep progress smooth and focus on the main features. Next: live score and final score screen (#16). |
 
-### Week 9 priorities (TODO, team: confirm owners and order)
+### Week 9 priorities
+
+Owners match the GitHub issue assignees. In priority order:
 
 | Priority | Work | Owner | How we'll check it's done |
 |---|---|---|---|
-| High | Merge the remaining in-review PRs: #25, #27, #30, #31, then #33 (needs `/play` from #25) | Each author; Darian and others review | All merged; CI green on `main` |
-| High | Image viewer with initial crop (#10) and zoom out (#11), in review: #30, #31 | Darian | Component tests; manual check on desktop and phone |
-| High | Puzzle data and three real puzzles with licensed images (#17), **done: #32**. Follow-ups from review: neutral file names and ids, and visible image credits before the deploy | Joseph | Loader tests; image credits shown on the live site |
-| High | Scoring rules (#15, in review: #27) | Ethan | Unit tests for every scoring event |
-| Medium | Live score and final score screen (#16) | Ethan | Component tests; full playthrough |
-| Medium | Start screen (#18) | Joseph | Manual check; links into `/play` |
-| High | Put it all together and deploy from `main` (#19) | Everyone (Jacky deploys) | Live URL plays all three images end to end |
-| Medium | Settle the open gameplay decisions after a playtest (#21) | Everyone | Decisions recorded in `PROJECT_BRIEF.md` |
+| High | Merge the guessing screen (#25), then the integration PR that adds the viewer and real puzzles to `/play` (#35, part of #19) | Jacky (#25), Darian (#35) | Both merged; CI green on `main`; `/play` shows real images |
+| High | Live score and final score screen (#16) | Ethan | Component tests; full playthrough |
+| High | Deploy the playable game from `main` (#19) | Jacky (deploy owner) | Live URL plays all three images end to end |
+| Medium | Puzzle follow-ups: neutral image file names (#36), start more zoomed in (#34), visible image credits before the deploy | Joseph | Loader tests; credits shown on the live site |
+| Medium | Normalize punctuation in guesses (#29) | Jacky | Unit tests for curly apostrophes, hyphens and periods |
+| Medium | Playtest, then settle the open gameplay decisions (#21) | Everyone | Decisions recorded in `PROJECT_BRIEF.md` and `ScoringConfig` |
