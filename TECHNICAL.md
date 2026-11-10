@@ -1,6 +1,6 @@
 # Technical Overview
 
-> As of Nov 10, 2026. Everything described here is on `main`, except the score screens (#37, approved and waiting to merge).
+> As of Nov 10, 2026. Everything described here is on `main` and deployed to the live site.
 
 ## 1. Main pieces
 
@@ -14,7 +14,7 @@ How a turn works today: **player clicks or types → the React page sends an act
 | Puzzle data | `src/puzzles/sample.json`, `src/game/puzzles.ts`, `public/puzzles/` | Three sample puzzles with CC BY-SA photos and credits (#32). `puzzles.ts` checks the data and names the bad field when something is wrong. |
 | Image viewer | `src/components/game/ImageViewer.tsx`, `ZoomOutButton.tsx`, crop math in `src/game/crop.ts` | Shows the tight crop and steps out one zoom level at a time (#30, #31). Added to `/play` in #35. |
 | Scoring | `src/game/scoring.ts`, values in `scoring-config.ts` | Turns scoring events into points with a breakdown (#27). |
-| Score screens | `src/components/game/LiveScore.tsx`, `FinalScore.tsx` | Approved, waiting to merge (#37, Ethan). The running total and what the current image is worth while playing; a final screen with each image's points math. |
+| Score screens | `src/components/game/LiveScore.tsx`, `FinalScore.tsx` | #37 (Ethan). The running total and what the current image is worth while playing; a final screen with each image's points math. |
 | CI and secret scanning | `.github/workflows/ci.yml`, `.githooks/` | Checks every PR. Blocks secrets at commit, push and in CI. |
 
 ## 2. Tools and services
