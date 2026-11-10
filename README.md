@@ -2,7 +2,7 @@
 
 CS193V final project: **Zoom Out**, a daily image-guessing game.
 
-**Live site:** https://final-project-theta-hazel.vercel.app (currently a placeholder page; the game is in progress). Setup steps are under [Running your own copy](#running-your-own-copy).
+**Live site:** https://final-project-theta-hazel.vercel.app (a three-image practice prototype; open **Start practice**). Setup steps are under [Running your own copy](#running-your-own-copy).
 
 **New to the project?** Read [PROJECT_BRIEF.md](PROJECT_BRIEF.md) for what we're building, who owns what, and how the pieces fit together. Coding agents: see [AGENTS.md](AGENTS.md).
 
