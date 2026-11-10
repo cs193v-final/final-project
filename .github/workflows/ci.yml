@@ -58,10 +58,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # NOTE: this expects the app at the repo root, using npm with a committed
-      # package-lock.json (needed by `cache: npm` and `npm ci`). Adjust if the
-      # app lands in a subdirectory or uses pnpm. Also replace npm init's default
-      # "test" script, which always fails.
+      # The Next.js app lives at the repo root and uses npm with a committed
+      # package-lock.json (needed by `cache: npm` and `npm ci`).
       - name: Detect app
         id: detect
         run: |
@@ -80,3 +78,5 @@ jobs:
         run: npm run typecheck --if-present
       - if: steps.detect.outputs.present == 'true'
         run: npm test --if-present
+      - if: steps.detect.outputs.present == 'true'
+        run: npm run build --if-present
