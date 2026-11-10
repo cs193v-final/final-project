@@ -40,7 +40,6 @@
 ## 3. Problems and questions
 
 - **Vercel free tier:** only the project owner (Jacky) can deploy. Every deploy goes through one person.
-- **Team access:** Ethan joined the GitHub repo late, so his work (#15, #16) starts in Week 9.
 - **Repo admin settings:** our coding agents' GitHub tokens can't change repo rules (by design). Ruleset changes are done by hand on GitHub.
 - **Open gameplay decisions (#21):** scoring values, wrong-guess rules, number of reveal steps, typo tolerance. We plan to decide after a first playtest.
 - TODO (team): where we'd like help from staff.
