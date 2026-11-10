@@ -28,7 +28,7 @@
 **What we tried / learned**
 - Stacked PRs (each PR built on the previous one) let us keep working while reviews were pending. They need to be merged in order, using merge commits (squash breaks the stack).
 - A project's first `vercel deploy` goes to **Production**, not Preview. We now always pass `--target=preview`.
-- TODO (Darian): one thing you learned.
+- **Darian:** I learned that Next.js has an image tag that saves loading time by sending a small copy of the image that is just big enough to fit the box on the page. This is fine for a full image, but it caused problems when zooming in: a small corner of the already small copy would be blown up, and there wouldn't be enough pixels to fill the box sharply, so the zoomed-in image looked pixelated. To fix this, the viewer uses a different tag (`<img>`), which loads the full-size image and then zooms in from there. The tradeoff is that bigger files load slower.
 - **Ethan:** a fine-grained GitHub token's resource owner has to be the organization itself. My first token was owned by my personal account, so it could read our repo but not push to it.
 - TODO (Jacky, Joseph): one thing you learned.
 
