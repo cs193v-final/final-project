@@ -2,6 +2,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { pointsIfCorrect } from "@/game/scoring";
+import { SCORING_CONFIG } from "@/game/scoring-config";
 import type { Puzzle } from "@/game/types";
 import { PracticeGame } from "./PracticeGame";
 
@@ -117,5 +119,45 @@ describe("PracticeGame guessing", () => {
     await user.click(screen.getByRole("button", { name: "Skip this image" }));
     await user.click(screen.getByRole("button", { name: "Next image" }));
     expect(screen.getByText("Zoom level 1 of 3")).toBeInTheDocument();
+  });
+});
+
+describe("PracticeGame score (#16)", () => {
+  // Expected numbers come from the live config, so tuning it doesn't break this test.
+  const worth = (revealLevel: number, wrongGuesses: number) => pointsIfCorrect(revealLevel, wrongGuesses);
+
+  it("updates the live score as you play and ends on the final score screen", async () => {
+    const { user, input } = setup();
+    expect(screen.getByText(/^Score/)).toHaveTextContent("Score 0");
+    expect(screen.getByText(/now/)).toHaveTextContent(`Worth ${worth(0, 0)} points now`);
+
+    await user.click(screen.getByRole("button", { name: "Zoom out" }));
+    expect(screen.getByText(/now/)).toHaveTextContent(`Worth ${worth(1, 0)} points now`);
+
+    await user.type(input(), "bay bridge{Enter}");
+    expect(screen.getByText(/now/)).toHaveTextContent(`Worth ${worth(1, 1)} points now`);
+
+    await user.type(input(), "golden gate{Enter}");
+    const first = worth(1, 1);
+    expect(screen.getByText(/for this image/)).toHaveTextContent(`+${first} points for this image`);
+    expect(screen.getByText(/^Score/)).toHaveTextContent(`Score ${first}`);
+
+    await user.click(screen.getByRole("button", { name: "Next image" }));
+    await user.click(screen.getByRole("button", { name: "Skip this image" }));
+    expect(screen.getByText(/for this image/)).toHaveTextContent(`+${SCORING_CONFIG.skipPoints} points`);
+
+    await user.click(screen.getByRole("button", { name: "See results" }));
+    expect(screen.getByRole("heading", { name: "Practice complete" })).toHaveFocus();
+    const total = first + SCORING_CONFIG.skipPoints;
+    expect(screen.getByText(/You scored/)).toHaveTextContent(
+      `You scored ${total} out of ${SCORING_CONFIG.basePoints * PUZZLES.length}`,
+    );
+    const [one, two] = screen.getAllByRole("listitem");
+    expect(one).toHaveTextContent("Golden Gate Bridge ✓ correct");
+    expect(one).toHaveTextContent("1 zoom-out, 1 wrong guess");
+    expect(two).toHaveTextContent("Big Ben skipped");
+
+    await user.click(screen.getByRole("button", { name: "Play again" }));
+    expect(screen.getByText(/^Score/)).toHaveTextContent("Score 0");
   });
 });
