@@ -25,7 +25,7 @@
 
 **What's still a placeholder** (labeled on the page)
 - the image area and the three answers on `/play` (no images yet), until #25 and #35 merge
-- the final score screen
+- the final score screen (built and in review: #37)
 
 **What we tried / learned**
 - Stacked PRs (each PR built on the previous one) let us keep working while reviews were pending. They need to be merged in order, using merge commits (squash breaks the stack).
@@ -41,7 +41,7 @@
 
 - **Where we are against that goal:**
   - Merged on `main`: guess checking (#22), round logic (#23), the Next.js app (#24), scoring rules (#27), the image viewer (#30), the zoom-out button (#31), puzzle data with three sample puzzles (#32) and the start screen (#33).
-  - Still open: the guessing screen that ties the pieces together on `/play` (#25), and the live score and final score screen (#16, which builds on #25).
+  - Still open: the guessing screen that ties the pieces together on `/play` (#25), and the live score and final score screen (#16; built and in review as #37, stacked on #25 and #35).
   - So all the parts exist and are tested, but the full playable flow isn't on `main` yet. Integrating it and deploying it (#19) is our first Week 9 priority.
 - **Division of work:** unchanged from the proposal (Darian: viewer and zoom-out; Jacky: guessing and rounds; Ethan: scoring and the score screen; Joseph: puzzle data and the start screen). On top of that, Jacky set up the infrastructure (hosting, database, CI, secret scanning, the app scaffold) and Darian wrote the project brief and shared interfaces.
 - **Idea and scope:** no change. Still a daily five-image game with a practice mode, spoiler-free sharing and a content editor; live multiplayer stays out of scope. The brief adds details the proposal didn't spell out: alternate accepted answers, typo handling, streaks and a score breakdown.
@@ -67,7 +67,7 @@
 | **Jacky** (`Hombobow`) | Repo, Vercel and Neon setup (#3); gitleaks hooks (#5); CI (#7); course requirements summary (#1); guess checking (#22, closes #12); round logic (#23, closes #13); Next.js scaffold (#24, closes #9); guessing UI (#25, closes #14). Created the Week 8 issues (#9–#21). |
 | **Darian** (`darian07-o`) | Project brief and shared interfaces (#8), updated as code lands (#28); `AGENTS.md` rules for coding agents; agreed the `RevealLevel` interface (#22); image viewer with the initial crop (#30, closes #10); Zoom out button (#31, closes #11); reviewed every PR so far (#1, #3, #5, #7 with change requests that we fixed; #22–#25). |
 | **Joseph** (`Joseph-G-McD`) | Puzzle data and loader (#32, closes #17): finalized the `Puzzle` format, three sample puzzles with CC BY-SA photos from Wikimedia Commons (credits recorded in the data), a loader that names the bad field when data is wrong, and 42 tests. Start screen with how-to-play steps (#33, closes #18). Reviewed and approved #30 and #31 after merging them with #32 and checking every zoom level in Chrome. |
-| **Ethan** (`ethanyng`) | Scoring rules (#27, closes #15): `ScoringConfig` with placeholder values in one file, per-image scoring with a breakdown, a running total for the live score, and 20 unit tests (including a full game through the round logic). Reviewed and approved #22. I noticed punctuation in guesses isn't normalized (e.g. curly apostrophes), thought through the trade-offs, and postponed the fix to #29 so we could keep progress smooth and focus on the main features. Next: live score and final score screen (#16). |
+| **Ethan** (`ethanyng`) | Scoring rules (#27, closes #15): `ScoringConfig` with placeholder values in one file, per-image scoring with a breakdown, a running total for the live score, and 20 unit tests (including a full game through the round logic). Reviewed and approved #22. I noticed punctuation in guesses isn't normalized (e.g. curly apostrophes), thought through the trade-offs, and postponed the fix to #29 so we could keep progress smooth and focus on the main features. Live score and final score screen (#37, closes #16, in review): the running total and what each image is worth while playing, and a final screen with each image's points math. Also reviewed #25, #28, #30, #31, #33 and #35, and opened #36 after spotting that puzzle filenames give away the answers. |
 
 ### Week 9 priorities
 
@@ -76,7 +76,7 @@ Owners match the GitHub issue assignees. In priority order:
 | Priority | Work | Owner | How we'll check it's done |
 |---|---|---|---|
 | High | Merge the guessing screen (#25), then the integration PR that adds the viewer and real puzzles to `/play` (#35, part of #19) | Jacky (#25), Darian (#35) | Both merged; CI green on `main`; `/play` shows real images |
-| High | Live score and final score screen (#16) | Ethan | Component tests; full playthrough |
+| High | Live score and final score screen (#16, in review: #37) | Ethan | Component tests; full playthrough |
 | High | Deploy the playable game from `main` (#19) | Jacky (deploy owner) | Live URL plays all three images end to end |
 | Medium | Puzzle follow-ups: neutral image file names (#36), start more zoomed in (#34), visible image credits before the deploy | Joseph | Loader tests; credits shown on the live site |
 | Medium | Normalize punctuation in guesses (#29) | Jacky | Unit tests for curly apostrophes, hyphens and periods |

@@ -15,7 +15,7 @@ How a turn works today: **player clicks or types → the React page sends an act
 | Placeholder puzzles | `src/app/play/placeholder-puzzles.ts` (#25) | **Placeholder:** three answers with no images, used by `/play` until #35 switches it to the real puzzles. |
 | Image viewer | `src/components/game/ImageViewer.tsx`, `ZoomOutButton.tsx`, crop math in `src/game/crop.ts` | Shows the tight crop and steps out one zoom level at a time (#30, #31). Added to `/play` in #35. |
 | Scoring | `src/game/scoring.ts`, values in `scoring-config.ts` | Turns scoring events into points with a breakdown (#27). |
-| Score screens | (planned) | #16 (Ethan). |
+| Score screens | `src/components/game/LiveScore.tsx`, `FinalScore.tsx` | In review (#37, Ethan). The running total and what the current image is worth while playing; a final screen with each image's points math. |
 | CI and secret scanning | `.github/workflows/ci.yml`, `.githooks/` | Checks every PR. Blocks secrets at commit, push and in CI. |
 
 ## 2. Tools and services
