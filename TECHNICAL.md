@@ -54,9 +54,9 @@ How a turn works today: **player clicks or types → the React page sends an act
 | Question | Next step |
 |---|---|
 | Database is set up but not connected | Decide what daily progress and streaks need to store, then add a server-side data layer using `DATABASE_URL` |
-| Scoring values and wrong-guess rules (#21) | Playtest the three-image prototype, then fix values in `ScoringConfig` (#15) |
+| Scoring values and wrong-guess rules (#21) | Playtest the three-image prototype (notes in `PLAYTEST.md`), then change the values in `src/game/scoring-config.ts` |
 | Number of reveal steps; typo tolerance | Decide after the playtest. The code already accepts a pluggable answer matcher. |
-| Image sourcing and licenses | Joseph to pick sources with clear licenses and record credits per puzzle (#17) |
+| Image sourcing and licenses | The three sample photos are CC BY-SA, with credits in the data (#32) and shown after each round (#35). Open: where to source daily puzzles, and neutral file names so they don't give the answer away (#36) |
 | Daily reset time and time zone | Decide before building the daily challenge (Week 9+) |
 | Keeping the code easy to change with four people working at once | Fewer stacked PRs, smaller PRs merged sooner, and asking staff for advice (see `PROGRESS.md` §3) |
 | How to make the game more interesting and grow its scope | Playtest first, then pick features (daily challenge, streaks, sharing) based on what players enjoy |
