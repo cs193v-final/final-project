@@ -32,7 +32,7 @@
 - **Darian:** I learned that Next.js has an image tag that saves loading time by sending a small copy of the image that is just big enough to fit the box on the page. This is fine for a full image, but it caused problems when zooming in: a small corner of the already small copy would be blown up, and there wouldn't be enough pixels to fill the box sharply, so the zoomed-in image looked pixelated. To fix this, the viewer uses a different tag (`<img>`), which loads the full-size image and then zooms in from there. The tradeoff is that bigger files load slower.
 - **Ethan:** a fine-grained GitHub token's resource owner has to be the organization itself. My first token was owned by my personal account, so it could read our repo but not push to it.
 - **Joseph:** I learned that picking images for puzzles is all about the texture. A good one looks like an abstract pattern up close (think giraffes or strawberries) but is obvious once you zoom out. The only way to tell was to render all the zoom levels and look at it myself.
-- TODO (Jacky): one thing you learned.
+- **Jacky:** I learned that there is so much that goes into setting up a proper codebase, such as setting up the repo, getting access tokens for everyone, setting up the repo with gitleaks, CI and merge queues, and also setting up the database with Neon and Vercel. I also learned that the initial commits take a while, especially when you need approval for everything.
 
 ## 2. Changes from the proposal
 
