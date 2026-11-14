@@ -38,10 +38,16 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Never force-push a branch someone else is working on, and never rewrite `main` history.
 - Keep changes focused. Don't reformat or refactor unrelated files.
 
+## Issues, PRs and tests (TA feedback, Checkpoint 1)
+- **Every issue** has at least one **assignee** (a specific person, tagged by GitHub handle) and exactly one **`priority: high|medium|low`** label.
+- **Big PRs need an assignee** besides the author: shared interfaces, new dependencies, CI/config, database schema, or many files. Assign at least one teammate and request their review.
+- **Tests are the spec.** New logic ships with tests that describe what it should do. A PR that changes behavior updates or adds tests.
+
 ## Secrets
 - Real values go **only** in `.env.local` (git-ignored). Never put real values in `.env.example`, code, docs or commits.
 - After cloning, run `scripts/install-gitleaks.sh` to turn on the secret-scanning hooks. Do this on every computer you commit from.
 - Never bypass the hooks with `--no-verify`.
+- **Data stays server-side.** Only server code (Route Handlers, Server Actions, Server Components) talks to the database. Never give a database variable a `NEXT_PUBLIC_` prefix, and never send stored data to a client that isn't allowed to see it.
 
 ## Shared interfaces
 - `Puzzle`, `RevealLevel`, `GuessOutcome`, `ScoringEvent`, `ScoringConfig` and `RoundResult` are shared between owners (see the brief).

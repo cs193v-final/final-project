@@ -77,7 +77,30 @@ Owners match the GitHub issue assignees. In priority order:
 |---|---|---|---|
 | Done | Merge the guessing screen (#25), then the integration PR that adds the viewer and real puzzles to `/play` (#35, part of #19) | Jacky (#25), Darian (#35) | Both merged Nov 10; CI green on `main`; `/play` shows real images |
 | Done | Live score and final score screen (#16, merged: #37) | Ethan | Component tests; full playthrough |
-| High | Deploy the playable game from `main` (#19) | Jacky (deploy owner) | Live URL plays all three images end to end |
+| Done | Deploy the playable game from `main` (#19) | Jacky (deploy owner) | Live URL plays all three images end to end |
 | Medium | Puzzle follow-ups: neutral image file names (#36), start more zoomed in (#34). Image credits are already shown after each round (#35) | Joseph | Loader tests; the answer can't be read from file names or ids |
 | Medium | Normalize punctuation in guesses (#29) | Jacky | Unit tests for curly apostrophes, hyphens and periods |
 | Medium | Playtest, then settle the open gameplay decisions (#21) | Everyone | Decisions recorded in `PROJECT_BRIEF.md` and `ScoringConfig` |
+
+## 5. Feedback from the Checkpoint 1 check-in (Nov 11)
+
+- **Issues:** tag a specific person on every issue, and give every issue a priority. Now a rule in `AGENTS.md`, and the issue template prompts for both.
+- **PRs:** a big change gets at least one teammate assigned. Now in `AGENTS.md` and the PR template.
+- **Design specifications:** write them as tests. New behavior ships with tests that describe it.
+- **By Checkpoint 2:** the whole project is set up, and all data is protected so it can't be accessed by anyone who shouldn't see it.
+- **Design heuristics:**
+  - Accessibility: colors must work for colorblind players. Never show right/wrong with color alone; pair it with text or an icon, and check contrast.
+  - Usability standards: a way back (home/back button) and a way to retry. `/play` has **Play again** on the final screen but no way back to the start screen yet.
+- **Design testing:**
+  - Define four features in the user flow (e.g. a leaderboard).
+  - Each of us has one test user and plays the entire flow end to end.
+  - Make sure the backend works end to end, not just the UI.
+  - **We have no end-to-end browser tests yet.** Our tests are unit and component tests (Vitest, jsdom). Next: add Playwright tests that play the whole flow in a real browser (start screen → `/play` → guess, zoom out, skip → final score → Play again), and run them in CI.
+- **Cheating:** have a plan to stop it. Today the answers are sent to the browser with the puzzles (`/play` passes the puzzle data, answers included, to a client component), so anyone can read them in the page source. Guess checking will need to move to the server before scores count (leaderboard, daily streaks). See also #36.
+- **Fun / game feel:** how do we make it fun? Give satisfying feedback in the moment, especially when someone gets it right, e.g. the screen shakes. Today a guess only changes a line of text ("Correct! It's …" / "… isn't it"). Keep it accessible: respect the "reduce motion" setting, and don't rely on color or motion alone.
+- **Return play:** how do we keep people coming back? Daily games are habit-forming: the game takes a little while to learn, and once you have it, you come back every day.
+- **Identity:** what makes this Crumbscope (the proposal's name)? We need a clear identity, not just a name.
+- **Question to think about: how do we configure scoring and the design we've built so far?**
+  - Today: all point values live in one file, `src/game/scoring-config.ts` (base 100, −20 per zoom-out, −10 per wrong guess, floor 10, skip 0). They're placeholders, and changing them means a code change and a redeploy.
+  - Still to decide (#21): who tunes the values, whether they can change without a deploy (e.g. stored per puzzle or per day), and which other design choices (zoom steps, starting crop, number of images) should be configurable the same way.
+
