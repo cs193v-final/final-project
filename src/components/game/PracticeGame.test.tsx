@@ -116,6 +116,101 @@ describe("PracticeGame start and resume (#54)", () => {
   });
 });
 
+/** A promise the test resolves by hand, to hold a Server Action "in flight". */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+describe("PracticeGame while a move is on its way to the server", () => {
+  it("ignores a second Zoom out click until the first one's result arrives", async () => {
+    const { user, server } = await setup();
+    const realAct = server.act.getMockImplementation()!;
+    const gate = deferred<void>();
+    server.act.mockImplementationOnce(async (gameId, action) => {
+      await gate.promise;
+      return realAct(gameId, action);
+    });
+
+    const zoom = screen.getByRole("button", { name: "Zoom out" });
+    await user.click(zoom);
+    expect(zoom).toHaveAttribute("aria-disabled", "true");
+    await user.click(zoom);
+    expect(server.act).toHaveBeenCalledTimes(1);
+
+    gate.resolve();
+    expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
+    expect(zoom).toHaveAttribute("aria-disabled", "false");
+    expect(server.act).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a second guess, Skip and Next while a guess is pending, and keeps the typed text", async () => {
+    const { user, input, server } = await setup();
+    const realAct = server.act.getMockImplementation()!;
+    const gate = deferred<void>();
+    server.act.mockImplementationOnce(async (gameId, action) => {
+      await gate.promise;
+      return realAct(gameId, action);
+    });
+
+    await user.type(input(), "bay bridge{Enter}");
+    expect(screen.getByRole("button", { name: "Guess" })).toHaveAttribute("aria-disabled", "true");
+    await user.type(input(), "big ben{Enter}");
+    await user.click(screen.getByRole("button", { name: "Skip this image" }));
+    expect(server.act).toHaveBeenCalledTimes(1);
+    expect(input()).toHaveValue("big ben"); // not sent, not lost
+
+    gate.resolve();
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("(1 wrong guess)"));
+    expect(screen.getByRole("button", { name: "Guess" })).toHaveAttribute("aria-disabled", "false");
+  });
+
+  it("starts only one new game when Play again is clicked twice", async () => {
+    const { user, server } = await setup();
+    for (let i = 0; i < PUZZLES.length; i++) {
+      await user.click(await screen.findByRole("button", { name: "Skip this image" }));
+      await user.click(await screen.findByRole("button", { name: /Next image|See results/ }));
+    }
+    const again = await screen.findByRole("button", { name: "Play again" });
+    await user.dblClick(again);
+    expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
+    expect(server.start).toHaveBeenCalledTimes(2); // the first game, and one more
+  });
+});
+
+describe("PracticeGame when a Server Action fails outright (offline, or a redeploy)", () => {
+  it("shows the problem instead of hanging on the first load, and Try again starts the game", async () => {
+    const user = userEvent.setup();
+    const server = backend();
+    const realStart = server.start.getMockImplementation()!;
+    server.start.mockRejectedValueOnce(new Error("Failed to find Server Action"));
+    render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach the server.");
+    expect(screen.queryByText("Starting a new game…")).not.toBeInTheDocument();
+    server.start.mockImplementation(realStart);
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
+  });
+
+  it("keeps the game on screen, offers a reload, and lets the player try the move again", async () => {
+    const { user, server } = await setup();
+    server.act.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const zoom = screen.getByRole("button", { name: "Zoom out" });
+    await user.click(zoom);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach the server.");
+    expect(screen.getByRole("button", { name: "Reload the page" })).toBeInTheDocument();
+    expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
+    expect(zoom).toHaveAttribute("aria-disabled", "false");
+
+    await user.click(zoom);
+    expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
 describe("PracticeGame guessing", () => {
   it("submits with Enter, shows a wrong guess, counts it and clears the input", async () => {
     const { user, input, status } = await setup();
