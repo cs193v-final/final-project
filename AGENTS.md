@@ -20,6 +20,7 @@ Rules for any coding agent working in this repo. Keep this file short. Project c
 - `src/components/`: React components (`src/components/game/` for game UI). Mark files that use state or events with `"use client"`.
 - `public/`: static files (puzzle images go here or in a subfolder).
 - **Tests:** Vitest. Logic tests run in Node. Component tests use React Testing Library and start with `// @vitest-environment jsdom`; jest-dom matchers (`toHaveFocus`, ...) are set up in `src/test/setup.ts`. Query by role and label, like a user would.
+- **End-to-end tests:** Playwright specs in `e2e/` play the real app in headless Chromium, on a desktop and a phone viewport (`playwright.config.ts`). Take answers and points from the puzzle data and `SCORING_CONFIG`, not hard-coded values. `@playwright/test` is pinned to the course container's `playwright --version`, whose Chromium is preinstalled, so don't run `playwright install` there. On your own computer, run `npx playwright install chromium` once.
 - Import from `src` with the `@/` alias (`@/game/guess`).
 
 <!-- BEGIN:nextjs-agent-rules -->
@@ -57,9 +58,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## Commands
 - Install: `npm ci` (Node 24, pinned in `package.json` `engines` so Vercel matches CI).
 - Dev server: `npm run dev`. In this course's container, bind IPv4 so the browser can reach it: `npm run dev -- -H 127.0.0.1`.
-- Lint: `npm run lint`. Typecheck: `npm run typecheck`. Tests: `npm test` (`npm run test:watch` while working). Build: `npm run build`.
+- Lint: `npm run lint`. Typecheck: `npm run typecheck`. Tests: `npm test` (`npm run test:watch` while working). End-to-end: `npm run test:e2e` (starts the dev server itself). Build: `npm run build`.
 - Test the secret-scanning hooks: `scripts/test-hooks.sh`.
-- CI (`.github/workflows/ci.yml`) runs a secret scan, the hook tests, `shellcheck`, then `lint`, `typecheck`, `test` and `build` on every PR.
+- CI (`.github/workflows/ci.yml`) runs a secret scan, the hook tests, `shellcheck`, then `lint`, `typecheck`, `test` and `build`, and the Playwright end-to-end tests, on every PR.
 
 ## Before opening a PR
 - Run lint, typecheck and tests, if they exist.
