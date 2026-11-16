@@ -2,7 +2,23 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { Round } from "@/game/round";
+import { SHAKE, SHAKE_TIMING, useAnimateOn } from "./motion";
 import type { Feedback } from "./practice";
+
+/**
+ * Icon shown before the message, so right and wrong never rely on color alone
+ * (#48). Decorative: the message text already says "Correct!" or "isn't it".
+ */
+function feedbackIcon(feedback: Feedback): string | null {
+  switch (feedback.kind) {
+    case "correct":
+      return "✓";
+    case "incorrect":
+      return "✗";
+    default:
+      return null;
+  }
+}
 
 export type GuessPanelProps = {
   round: Round;
@@ -58,7 +74,16 @@ export function GuessPanel({ round, feedback, isLastRound, onGuess, onSkip, onNe
     if (guess.trim() !== "") setGuess("");
   }
 
+  // Shake the guess box on each wrong guess. Every wrong guess makes a new
+  // feedback object, so a repeated guess shakes again (#48).
+  const guessRow = useAnimateOn<HTMLDivElement>(
+    feedback.kind === "incorrect" ? feedback : null,
+    SHAKE,
+    SHAKE_TIMING,
+  );
+
   const message = feedbackText(feedback);
+  const icon = feedbackIcon(feedback);
   const tone =
     feedback.kind === "correct"
       ? "text-emerald-700 dark:text-emerald-400"
@@ -73,7 +98,7 @@ export function GuessPanel({ round, feedback, isLastRound, onGuess, onSkip, onNe
           <label htmlFor={inputId} className="text-sm font-medium">
             What is it?
           </label>
-          <div className="flex gap-2">
+          <div ref={guessRow} data-guess-row className="flex gap-2">
             <input
               id={inputId}
               name="guess"
@@ -121,8 +146,17 @@ export function GuessPanel({ round, feedback, isLastRound, onGuess, onSkip, onNe
         </button>
       )}
       {/* Always rendered so screen readers announce changes to it. */}
-      <p role="status" aria-live="polite" className={`min-h-6 ${tone}`}>
-        {message}
+      <p
+        role="status"
+        aria-live="polite"
+        className={`flex min-h-6 items-start gap-2 ${tone} ${feedback.kind === "correct" ? "font-semibold" : ""}`}
+      >
+        {icon && (
+          <span aria-hidden="true" data-feedback-icon className="font-bold">
+            {icon}
+          </span>
+        )}
+        <span>{message}</span>
       </p>
     </section>
   );

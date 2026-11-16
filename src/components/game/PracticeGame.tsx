@@ -4,9 +4,11 @@ import { useReducer } from "react";
 import { currentPuzzle } from "@/game/round";
 import { scoreGame } from "@/game/scoring";
 import type { Puzzle } from "@/game/types";
+import { Confetti } from "./Confetti";
 import { FinalScore } from "./FinalScore";
 import { GuessPanel } from "./GuessPanel";
 import { ImageViewer } from "./ImageViewer";
+import { POP, POP_TIMING, useAnimateOn } from "./motion";
 import { initPractice, practiceReducer } from "./practice";
 import { RoundValue, ScoreHeader } from "./LiveScore";
 import { ZoomOutButton } from "./ZoomOutButton";
@@ -22,6 +24,10 @@ export function PracticeGame({ puzzles }: { puzzles: readonly Puzzle[] }) {
   const { round } = game;
   // Finished rounds and the running total, from the round logic's scoring events (#27).
   const score = scoreGame(state.events);
+  const solved = !game.finished && round.state === "correct";
+  // Pop the image once per solved puzzle (#48). Called before the early
+  // return below so the hooks run in the same order every render.
+  const imageBox = useAnimateOn<HTMLDivElement>(solved ? puzzle.id : null, POP, POP_TIMING);
 
   if (game.finished) {
     return <FinalScore puzzles={game.puzzles} score={score} onPlayAgain={() => dispatch({ type: "restart" })} />;
@@ -36,13 +42,17 @@ export function PracticeGame({ puzzles }: { puzzles: readonly Puzzle[] }) {
       <ScoreHeader index={game.index} count={game.puzzles.length} total={score.total} />
 
       <div className="flex w-full max-w-md flex-col items-center gap-3">
-        {/* key: each image starts at its own tight crop, with no zoom animation from the last one. */}
-        <ImageViewer
-          key={puzzle.id}
-          puzzle={puzzle}
-          revealLevel={round.revealLevel}
-          showFull={round.state !== "playing"}
-        />
+        <div ref={imageBox} data-image-box className="relative flex w-full justify-center">
+          {/* key: each image starts at its own tight crop, with no zoom animation from the last one. */}
+          <ImageViewer
+            key={puzzle.id}
+            puzzle={puzzle}
+            revealLevel={round.revealLevel}
+            showFull={round.state !== "playing"}
+          />
+          {/* Mounts fresh each time a puzzle is solved ("Next image" unmounts it), so it plays once per solve. */}
+          {solved && <Confetti />}
+        </div>
         {round.state === "playing" ? (
           <ZoomOutButton round={round} onZoomOut={() => dispatch({ type: "reveal" })} />
         ) : (
