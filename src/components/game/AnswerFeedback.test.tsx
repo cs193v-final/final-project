@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { Puzzle } from "@/game/types";
+import { fakeAnimate, fakeMotionSetting, removeFakeAnimate } from "@/test/fakeMotion";
 import { Confetti } from "./Confetti";
 import { PracticeGame } from "./PracticeGame";
 
@@ -22,34 +23,21 @@ function puzzle(id: string, answer: string): Puzzle {
 }
 const PUZZLES = [puzzle("p1", "Golden Gate Bridge"), puzzle("p2", "Big Ben")];
 
-/** jsdom has no matchMedia; stand in for the player's motion setting. */
-function setReducedMotion(reduce: boolean) {
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn((query: string) => ({
-      matches: reduce && query === "(prefers-reduced-motion: reduce)",
-      media: query,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    })),
-  );
-}
-
-// jsdom has no Web Animations API either. Record which element each animation ran on.
 let animate: Mock;
 beforeEach(() => {
-  animate = vi.fn(() => ({ cancel: vi.fn() }));
-  HTMLElement.prototype.animate = animate as unknown as HTMLElement["animate"];
+  animate = fakeAnimate();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
-  delete (HTMLElement.prototype as Partial<HTMLElement>).animate;
+  removeFakeAnimate();
 });
 
 /** The elements animations were played on, in order. */
 function animated(): HTMLElement[] {
   return animate.mock.contexts as HTMLElement[];
 }
+const shakes = () => animated().filter((el) => el.hasAttribute("data-guess-row"));
+const pops = () => animated().filter((el) => el.hasAttribute("data-image-box"));
 
 function setup() {
   const user = userEvent.setup();
@@ -62,25 +50,36 @@ function setup() {
 }
 
 describe("answer feedback with motion allowed", () => {
-  beforeEach(() => setReducedMotion(false));
+  beforeEach(() => {
+    fakeMotionSetting(false);
+  });
 
   it("shakes the guess box on a wrong guess and marks it with ✗ as well as text", async () => {
     const { user, input, status, icon, confetti } = setup();
     await user.type(input(), "bay bridge{Enter}");
 
     expect(animated()).toHaveLength(1);
-    expect(animated()[0]).toHaveAttribute("data-guess-row");
+    expect(shakes()).toHaveLength(1);
     expect(icon()).toHaveTextContent("✗");
     expect(icon()).toHaveAttribute("aria-hidden", "true");
     expect(status()).toHaveTextContent("“bay bridge” isn't it");
     expect(confetti()).not.toBeInTheDocument();
   });
 
+  it("keeps keyboard focus in the guess box through the shake", async () => {
+    const { user, input } = setup();
+    await user.type(input(), "bay bridge{Enter}");
+    expect(input()).toHaveFocus();
+    // The player can type the next guess straight away.
+    await user.keyboard("golden gate bridge{Enter}");
+    expect(screen.getByRole("status")).toHaveTextContent("Correct!");
+  });
+
   it("shakes again for every wrong guess, even the same one", async () => {
     const { user, input } = setup();
     await user.type(input(), "bay bridge{Enter}");
     await user.type(input(), "bay bridge{Enter}");
-    expect(animated().filter((el) => el.hasAttribute("data-guess-row"))).toHaveLength(2);
+    expect(shakes()).toHaveLength(2);
   });
 
   it("doesn't shake again when you zoom out after a wrong guess", async () => {
@@ -97,16 +96,38 @@ describe("answer feedback with motion allowed", () => {
     expect(confetti()).toBeInTheDocument();
     // Decorative only: hidden from screen readers, which hear the status text.
     expect(confetti()).toHaveAttribute("aria-hidden", "true");
-    expect(animated().some((el) => el.hasAttribute("data-image-box"))).toBe(true);
+    expect(pops()).toHaveLength(1);
+    expect(shakes()).toHaveLength(0);
     expect(icon()).toHaveTextContent("✓");
     expect(status()).toHaveTextContent("Correct! It's Golden Gate Bridge.");
   });
 
-  it("clears the confetti on the next image", async () => {
+  it("keeps the confetti free of text, so it can never show an answer", async () => {
+    const { user, input, confetti } = setup();
+    await user.type(input(), "golden gate bridge{Enter}");
+    expect(confetti()?.textContent).toBe("");
+  });
+
+  it("pops once per solved image, and again for the next one", async () => {
+    const { user, input } = setup();
+    await user.type(input(), "golden gate bridge{Enter}");
+    expect(pops()).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "Next image" }));
+    expect(pops()).toHaveLength(1);
+
+    await user.type(input(), "big ben{Enter}");
+    expect(pops()).toHaveLength(2);
+  });
+
+  it("clears the confetti on the next image, and shows it again for the next solve", async () => {
     const { user, input, confetti } = setup();
     await user.type(input(), "golden gate bridge{Enter}");
     await user.click(screen.getByRole("button", { name: "Next image" }));
     expect(confetti()).not.toBeInTheDocument();
+
+    await user.type(input(), "big ben{Enter}");
+    expect(confetti()).toBeInTheDocument();
   });
 
   it("doesn't celebrate or shake on a skip or a blank guess", async () => {
@@ -118,12 +139,20 @@ describe("answer feedback with motion allowed", () => {
     expect(icon()).not.toBeInTheDocument();
     expect(animated()).toHaveLength(0);
   });
+
+  it("has no confetti on the final score screen", async () => {
+    const { user, input, confetti } = setup();
+    await user.type(input(), "golden gate bridge{Enter}");
+    await user.click(screen.getByRole("button", { name: "Next image" }));
+    await user.type(input(), "big ben{Enter}");
+    await user.click(screen.getByRole("button", { name: "See results" }));
+    expect(confetti()).not.toBeInTheDocument();
+  });
 });
 
 describe("answer feedback with reduced motion", () => {
-  beforeEach(() => setReducedMotion(true));
-
   it("plays no animation and no confetti, but keeps the icons and text", async () => {
+    fakeMotionSetting(true);
     const { user, input, status, icon, confetti } = setup();
 
     await user.type(input(), "bay bridge{Enter}");
@@ -137,6 +166,17 @@ describe("answer feedback with reduced motion", () => {
     expect(animate).not.toHaveBeenCalled();
     expect(confetti()).not.toBeInTheDocument();
   });
+
+  it("removes the confetti at once if the player turns on reduced motion mid-celebration", async () => {
+    const setting = fakeMotionSetting(false);
+    const { user, input, status, confetti } = setup();
+    await user.type(input(), "golden gate bridge{Enter}");
+    expect(confetti()).toBeInTheDocument();
+
+    setting.set(true);
+    expect(confetti()).not.toBeInTheDocument();
+    expect(status()).toHaveTextContent("Correct!");
+  });
 });
 
 describe("Confetti", () => {
@@ -145,7 +185,6 @@ describe("Confetti", () => {
   });
 
   it("plays in a browser without matchMedia, which has no motion setting to respect", () => {
-    // Older browsers without matchMedia also lack the setting, so there's nothing to respect.
     const { container } = render(<Confetti />);
     expect(container.querySelector("[data-confetti]")).toBeInTheDocument();
   });
