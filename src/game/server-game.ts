@@ -217,6 +217,11 @@ export function toGameView(game: StoredGame, puzzles: readonly Puzzle[]): GameVi
       // single full image that the browser crops, so this is still the full
       // image (and its file name can name the answer).
       imageSrc: puzzle.imageUrl,
+      // TODO(#57): drop with the field. Copied field by field, like everything here.
+      reveal: {
+        focus: { x: puzzle.reveal.focus.x, y: puzzle.reveal.focus.y },
+        zoomLevels: [...puzzle.reveal.zoomLevels],
+      },
       wrongGuesses: r.wrongGuesses,
       pointsAvailable: pointsIfCorrect(r.revealLevel, r.wrongGuesses, state.scoring),
       // TODO(#56): read `puzzle.aiSolvedLevel` once #52 adds it to `Puzzle`.

@@ -117,6 +117,13 @@ export type PublicRound = {
   revealLevel: RevealLevel;
   levelCount: number;
   imageSrc: string; // Darian (#57): the image for revealLevel ONLY
+  /**
+   * TEMPORARY (#54 → #57, Darian): while each puzzle has one full image,
+   * `imageSrc` is that image and the browser crops it with this (focus point
+   * and zoom per level; no answer in it). Remove once `imageSrc` is the
+   * per-level image.
+   */
+  reveal?: Puzzle["reveal"];
   wrongGuesses: number;
   pointsAvailable: number;
   aiSolvedLevel: RevealLevel | null; // Darian (Beat the AI, #56); null = the AI never got it

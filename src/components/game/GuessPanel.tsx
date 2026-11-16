@@ -5,7 +5,7 @@ import type { Round } from "@/game/round";
 import type { Feedback } from "./practice";
 
 export type GuessPanelProps = {
-  round: Round;
+  round: Pick<Round, "state" | "wrongGuesses">;
   feedback: Feedback;
   /** True on the last image, so the button after the round says "See results". */
   isLastRound: boolean;
@@ -36,8 +36,8 @@ function feedbackText(feedback: Feedback): string {
 }
 
 /**
- * Guess input, feedback and round controls (#14). Render it with
- * `key={round.puzzleId}` so the input resets for each image.
+ * Guess input, feedback and round controls (#14). Render it with a key per
+ * image (e.g. `key={round.position}`) so the input resets for each image.
  */
 export function GuessPanel({ round, feedback, isLastRound, onGuess, onSkip, onNext }: GuessPanelProps) {
   const [guess, setGuess] = useState("");

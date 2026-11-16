@@ -99,6 +99,7 @@ describe("startGame", () => {
         revealLevel: 0,
         levelCount: puzzles[0]!.reveal.zoomLevels.length,
         imageSrc: puzzles[0]!.imageUrl,
+        reveal: puzzles[0]!.reveal,
         wrongGuesses: 0,
         pointsAvailable: 100,
         aiSolvedLevel: null,

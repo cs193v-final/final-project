@@ -1,78 +1,107 @@
 import { describe, expect, it } from "vitest";
-import type { Puzzle } from "@/game/types";
-import { initPractice, practiceReducer, type PracticeAction, type PracticeState } from "./practice";
+import type { GameView, PublicRound } from "@/game/types";
+import { feedbackFor, finalScoreLabels, learnAnswer, NO_FEEDBACK, type Feedback } from "./practice";
 
-function puzzle(id: string, answer: string): Puzzle {
+function round(overrides: Partial<PublicRound> = {}): PublicRound {
   return {
-    id,
-    imageUrl: "",
-    answer,
-    acceptedAnswers: [],
-    reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [4, 2, 1] },
-    credit: { source: "test", license: "CC0" },
+    position: 1,
+    puzzleCount: 2,
+    state: "playing",
+    revealLevel: 0,
+    levelCount: 3,
+    imageSrc: "/img/1.jpg",
+    wrongGuesses: 0,
+    pointsAvailable: 100,
+    aiSolvedLevel: null,
+    ...overrides,
   };
 }
-const PUZZLES = [puzzle("p1", "Eiffel Tower"), puzzle("p2", "Big Ben")];
 
-function run(...actions: PracticeAction[]): PracticeState {
-  return actions.reduce(practiceReducer, initPractice(PUZZLES));
+function view(r: PublicRound | null, extra: Partial<GameView> = {}): GameView {
+  return {
+    gameId: "g1",
+    pack: { id: "pk", kind: "practice", title: "Practice", theme: "Mixed" },
+    round: r,
+    results: [],
+    total: 0,
+    finished: r === null,
+    ...extra,
+  };
 }
 
-describe("practiceReducer", () => {
-  it("starts with no feedback and no events", () => {
-    const s = initPractice(PUZZLES);
-    expect(s.feedback).toEqual({ kind: "none" });
-    expect(s.events).toEqual([]);
+const ENDED = { answer: "Eiffel Tower", credit: { source: "test", license: "CC0" } };
+const WRONG: Feedback = { kind: "incorrect", guess: "louvre", wrongGuesses: 1 };
+
+describe("feedbackFor", () => {
+  it("a wrong guess shows the normalized guess and the round's wrong-guess count", () => {
+    const v = view(round({ wrongGuesses: 1 }), { lastOutcome: { kind: "incorrect", normalizedGuess: "the louvre" } });
+    expect(feedbackFor({ type: "guess", guess: "  The LOUVRE " }, v, NO_FEEDBACK)).toEqual({
+      kind: "incorrect",
+      guess: "the louvre",
+      wrongGuesses: 1,
+    });
   });
 
-  it("a wrong guess shows the normalized guess and records a wrongGuess event", () => {
-    const s = run({ type: "guess", guess: "  The LOUVRE " });
-    expect(s.feedback).toEqual({ kind: "incorrect", guess: "the louvre", wrongGuesses: 1 });
-    expect(s.events).toEqual([{ type: "wrongGuess", puzzleId: "p1" }]);
-    expect(s.game.round.state).toBe("playing");
+  it("a correct guess shows the answer the server revealed and what matched", () => {
+    const v = view(round({ state: "correct", ...ENDED }), { lastOutcome: { kind: "correct", matched: "Eiffel Tower" } });
+    expect(feedbackFor({ type: "guess", guess: "eiffel tower" }, v, NO_FEEDBACK)).toEqual({
+      kind: "correct",
+      answer: "Eiffel Tower",
+      matched: "Eiffel Tower",
+    });
   });
 
-  it("a blank guess shows a hint without an event", () => {
-    const s = run({ type: "guess", guess: "   " });
-    expect(s.feedback).toEqual({ kind: "empty" });
-    expect(s.events).toEqual([]);
+  it("skipping shows the answer the server revealed", () => {
+    const v = view(round({ state: "skipped", ...ENDED }));
+    expect(feedbackFor({ type: "skip" }, v, WRONG)).toEqual({ kind: "skipped", answer: "Eiffel Tower" });
   });
 
-  it("a correct guess shows the canonical answer and what matched", () => {
-    const s = run({ type: "guess", guess: "eiffel tower" });
-    expect(s.feedback).toEqual({ kind: "correct", answer: "Eiffel Tower", matched: "Eiffel Tower" });
-    expect(s.game.round.state).toBe("correct");
+  it("next clears the feedback", () => {
+    expect(feedbackFor({ type: "next" }, view(round({ position: 2 })), { kind: "skipped", answer: "x" })).toEqual(NO_FEEDBACK);
   });
 
-  it("skipping reveals the answer", () => {
-    const s = run({ type: "skip" });
-    expect(s.feedback).toEqual({ kind: "skipped", answer: "Eiffel Tower" });
-    expect(s.events).toEqual([{ type: "skip", puzzleId: "p1" }]);
+  it("reveal keeps the current feedback", () => {
+    const v = view(round({ revealLevel: 1, wrongGuesses: 1 }));
+    expect(feedbackFor({ type: "reveal" }, v, WRONG)).toBe(WRONG);
   });
 
-  it("next clears the feedback and moves on", () => {
-    const s = run({ type: "skip" }, { type: "next" });
-    expect(s.feedback).toEqual({ kind: "none" });
-    expect(s.game.round.puzzleId).toBe("p2");
+  it("rebuilds the feedback from the view alone after a refresh", () => {
+    expect(feedbackFor(null, view(round()), WRONG)).toEqual(NO_FEEDBACK);
+    expect(
+      feedbackFor(null, view(round({ wrongGuesses: 2 }), { lastOutcome: { kind: "incorrect", normalizedGuess: "x" } }), NO_FEEDBACK),
+    ).toEqual({ kind: "incorrect", guess: "x", wrongGuesses: 2 });
+    expect(feedbackFor(null, view(round({ state: "skipped", ...ENDED })), NO_FEEDBACK)).toEqual({
+      kind: "skipped",
+      answer: "Eiffel Tower",
+    });
+    expect(feedbackFor(null, view(null), WRONG)).toEqual(NO_FEEDBACK);
+  });
+});
+
+describe("learnAnswer and finalScoreLabels", () => {
+  const result = (puzzleId: string) => ({
+    puzzleId,
+    outcome: "skipped" as const,
+    revealLevelReached: 0,
+    wrongGuesses: 0,
+    points: 0,
+    breakdown: { base: 0, revealPenalty: 0, wrongGuessPenalty: 0 },
   });
 
-  it("reveal keeps the current feedback and records the event", () => {
-    const s = run({ type: "guess", guess: "louvre" }, { type: "reveal" });
-    expect(s.feedback).toEqual({ kind: "incorrect", guess: "louvre", wrongGuesses: 1 });
-    expect(s.events.at(-1)).toEqual({ type: "reveal", puzzleId: "p1", revealLevel: 1 });
+  it("remembers each answer once the server reveals it, and nothing while playing", () => {
+    let known = learnAnswer({}, view(round()));
+    expect(known).toEqual({});
+    known = learnAnswer(known, view(round({ state: "skipped", ...ENDED })));
+    known = learnAnswer(known, view(round({ position: 2, state: "correct", answer: "Big Ben" })));
+    expect(known).toEqual({ 1: "Eiffel Tower", 2: "Big Ben" });
+    expect(learnAnswer(known, view(round({ state: "skipped", ...ENDED })))).toBe(known);
   });
 
-  it("ignores rejected actions without changing state", () => {
-    const after = run({ type: "skip" });
-    expect(practiceReducer(after, { type: "guess", guess: "x" })).toBe(after);
-    const start = initPractice(PUZZLES);
-    expect(practiceReducer(start, { type: "next" })).toBe(start);
-  });
-
-  it("restart starts over with the same puzzles", () => {
-    const s = run({ type: "skip" }, { type: "next" }, { type: "skip" }, { type: "next" }, { type: "restart" });
-    expect(s.game.finished).toBe(false);
-    expect(s.game.round.puzzleId).toBe("p1");
-    expect(s.events).toEqual([]);
+  it("labels each finished round with its answer, or its number if this tab never saw it", () => {
+    const finished = view(null, { results: [result("a"), result("b")] });
+    expect(finalScoreLabels(finished, { 1: "Eiffel Tower" })).toEqual([
+      { id: "a", answer: "Eiffel Tower" },
+      { id: "b", answer: "Image 2" },
+    ]);
   });
 });
