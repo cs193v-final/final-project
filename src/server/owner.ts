@@ -13,7 +13,6 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { cookies, headers } from "next/headers";
 
-import { isLoopbackHost } from "@/db";
 import type { GameOwner } from "@/game/server-game";
 
 import { getCurrentUser } from "./current-user";
@@ -40,23 +39,26 @@ export function isOwnerToken(value: string | undefined): value is string {
   return value !== undefined && TOKEN.test(value);
 }
 
-/** The hostname from a `Host` header ("127.0.0.1:3100", "[::1]:3000", "example.com"). */
-export function hostnameOf(hostHeader: string | null): string {
-  if (!hostHeader) return "";
-  if (hostHeader.startsWith("[")) return hostHeader.slice(0, hostHeader.indexOf("]") + 1);
-  return hostHeader.split(":")[0] ?? "";
+/**
+ * Whether the request reached us over https, from `X-Forwarded-Proto`. Next
+ * sets that header from the connection when a proxy (e.g. Vercel) hasn't, so
+ * plain `next dev` / `next start` report "http". With a proxy chain the
+ * first value is the client's. Unknown means https, the safe default.
+ */
+export function isHttpsRequest(forwardedProto: string | null): boolean {
+  const first = forwardedProto?.split(",")[0]?.trim().toLowerCase();
+  return first === undefined || first === "" ? true : first === "https";
 }
 
 /**
- * Cookie options for the owner cookie. `Secure` everywhere except when the
- * site is served from this machine (localhost / 127.0.0.1 / ::1), which is
- * plain http in `npm run dev` and in the e2e tests' `next start`. A deployed
- * site is never reached through a loopback host.
+ * Cookie options for the owner cookie. `Secure` whenever the request came in
+ * over https; on plain http (local dev, e2e, testing from a phone on the LAN)
+ * a Secure cookie would be dropped by the browser, so it's left off there.
  */
-export function ownerCookieOptions(hostHeader: string | null) {
+export function ownerCookieOptions(forwardedProto: string | null) {
   return {
     httpOnly: true,
-    secure: !isLoopbackHost(hostnameOf(hostHeader)),
+    secure: isHttpsRequest(forwardedProto),
     sameSite: "lax" as const,
     path: "/",
     maxAge: MAX_AGE_SECONDS,
@@ -79,7 +81,7 @@ export async function currentOrNewOwner(): Promise<GameOwner> {
   const owner = await currentOwner();
   if (owner) return owner;
   const token = newOwnerToken();
-  const host = (await headers()).get("host");
-  (await cookies()).set(OWNER_COOKIE, token, ownerCookieOptions(host));
+  const proto = (await headers()).get("x-forwarded-proto");
+  (await cookies()).set(OWNER_COOKIE, token, ownerCookieOptions(proto));
   return { anonId: hashOwnerToken(token) };
 }

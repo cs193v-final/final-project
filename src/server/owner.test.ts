@@ -3,22 +3,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // A stand-in for the request's cookies and headers (next/headers only works inside a request).
 const jar = new Map<string, { value: string; options?: unknown }>();
-let host: string | null = "zoom-out.example.com";
+let requestHeaders: Record<string, string> = {};
 
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (jar.has(name) ? { name, value: jar.get(name)!.value } : undefined),
     set: (name: string, value: string, options: unknown) => jar.set(name, { value, options }),
   }),
-  headers: async () => new Headers(host ? { host } : {}),
+  headers: async () => new Headers(requestHeaders),
 }));
 
-const { currentOrNewOwner, currentOwner, hashOwnerToken, hostnameOf, isOwnerToken, newOwnerToken, OWNER_COOKIE, ownerCookieOptions } =
+const { currentOrNewOwner, currentOwner, hashOwnerToken, isHttpsRequest, isOwnerToken, newOwnerToken, OWNER_COOKIE, ownerCookieOptions } =
   await import("./owner");
 
 beforeEach(() => {
   jar.clear();
-  host = "zoom-out.example.com";
+  // What Next passes on for a deployed site behind Vercel's proxy.
+  requestHeaders = { host: "zoom-out.example.com", "x-forwarded-proto": "https" };
 });
 
 describe("owner tokens", () => {
@@ -45,29 +46,24 @@ describe("owner tokens", () => {
 });
 
 describe("ownerCookieOptions", () => {
-  it("is httpOnly, SameSite=Lax, Path=/ and Secure on a real host", () => {
-    expect(ownerCookieOptions("zoom-out.example.com")).toEqual({
+  it("is httpOnly, SameSite=Lax, Path=/ and Secure over https", () => {
+    expect(ownerCookieOptions("https")).toEqual({
       httpOnly: true,
       secure: true,
       sameSite: "lax",
       path: "/",
       maxAge: 365 * 24 * 60 * 60,
     });
-    expect(ownerCookieOptions(null).secure).toBe(true);
   });
 
-  it("drops Secure only for plain-http development on this machine", () => {
-    for (const h of ["localhost:3000", "127.0.0.1:3100", "[::1]:3000", "localhost"]) {
-      expect(ownerCookieOptions(h).secure, h).toBe(false);
-    }
-    expect(ownerCookieOptions("localhost.example.com").secure).toBe(true);
-  });
-
-  it("reads the hostname from a Host header", () => {
-    expect(hostnameOf("127.0.0.1:3100")).toBe("127.0.0.1");
-    expect(hostnameOf("[::1]:3000")).toBe("[::1]");
-    expect(hostnameOf("example.com")).toBe("example.com");
-    expect(hostnameOf(null)).toBe("");
+  it("decides Secure from the protocol, using the first X-Forwarded-Proto value", () => {
+    expect(isHttpsRequest("https")).toBe(true);
+    expect(isHttpsRequest("HTTPS")).toBe(true);
+    expect(isHttpsRequest("http")).toBe(false);
+    expect(isHttpsRequest("https, http")).toBe(true); // client → proxy was https
+    expect(isHttpsRequest("http,https")).toBe(false);
+    expect(isHttpsRequest(null)).toBe(true); // unknown: the safe default
+    expect(isHttpsRequest("")).toBe(true);
   });
 });
 
@@ -87,13 +83,22 @@ describe("currentOwner / currentOrNewOwner", () => {
     expect(jar.get(OWNER_COOKIE)!.value).toBe(cookie.value);
   });
 
+  it.each([
+    ["https on a deployed site", { host: "zoom-out.example.com", "x-forwarded-proto": "https" }, true],
+    ["http from another device on the LAN", { host: "192.168.1.20:3000", "x-forwarded-proto": "http" }, false],
+    ["http on localhost", { host: "localhost:3000", "x-forwarded-proto": "http" }, false],
+    ["https through a proxy chain", { host: "127.0.0.1:3000", "x-forwarded-proto": "https,http" }, true],
+  ])("sets a cookie the browser keeps: %s", async (_name, headers, secure) => {
+    requestHeaders = headers;
+    await currentOrNewOwner();
+    expect(jar.get(OWNER_COOKIE)!.options).toMatchObject({ secure });
+  });
+
   it("ignores a tampered cookie and replaces it on the next start", async () => {
     jar.set(OWNER_COOKIE, { value: "not-a-token" });
     expect(await currentOwner()).toBeNull();
-    host = "127.0.0.1:3100";
     const owner = await currentOrNewOwner();
     expect(jar.get(OWNER_COOKIE)!.value).not.toBe("not-a-token");
-    expect(jar.get(OWNER_COOKIE)!.options).toMatchObject({ secure: false });
     expect(owner).toEqual({ anonId: hashOwnerToken(jar.get(OWNER_COOKIE)!.value) });
   });
 });
