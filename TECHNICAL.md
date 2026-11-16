@@ -4,18 +4,28 @@
 
 ## 1. Main pieces
 
-How a turn works today: **player clicks or types → the React page sends an action → the game logic returns the new state plus scoring events → the page re-renders.** Everything runs in the browser. There's no server code or database access yet.
+How a turn works (#54): **player clicks or types → the browser calls a Server Action with a `GameAction` → the game service on the server loads the game from Postgres, applies the action with the round logic, scores it, and saves it → the browser gets back a `GameView` and re-renders.** The browser never has the answers: `GameView` has no answer or accepted answers until the round has ended, and scores are worked out only on the server.
+
+```
+browser (PracticeGame)                          server
+  GameAction ──► Server Action (src/app/play/actions.ts)
+                   └─► src/server/games.ts      owner from the cookie, practice pack, error codes
+                         └─► src/game/server-game.ts   round.ts + guess.ts + scoring.ts, builds the GameView
+                               └─► PgGameStore (src/db/games.ts) ──► Postgres `games`
+  GameView  ◄────────────────────────────────────┘ (or an error code: not-found / invalid / conflict / unavailable)
+```
 
 | Piece | Where | What it does |
 |---|---|---|
-| Web app (Next.js) | `src/app/` | Pages: `/` (start screen, `src/components/StartScreen.tsx`) and `/play` (the practice game, #25 and #35). |
-| Game logic | `src/game/` | Plain TypeScript with no React or Next.js, so it's easy to test. `guess.ts` normalizes and checks guesses. `round.ts` is the round state machine (zoom out / guess / skip / next) and produces scoring events. `types.ts` holds the shared types from the brief. |
-| Game UI | `src/components/game/` | `PracticeGame` holds the game state (`useReducer`). `GuessPanel` is the guess box, feedback and buttons (#25). |
+| Web app (Next.js) | `src/app/` | Pages: `/` (start screen, `src/components/StartScreen.tsx`) and `/play` (the practice game, #25 and #35). `/play?game=<id>` resumes a game after a refresh. |
+| Game logic | `src/game/` | Plain TypeScript with no React or Next.js, so it's easy to test. `guess.ts` normalizes and checks guesses. `round.ts` is the round state machine (zoom out / guess / skip / next) and produces scoring events. `types.ts` holds the shared types from the brief. Runs on the server only, since #54. |
+| Server-side games | `src/game/server-game.ts`, `src/server/`, `src/app/play/actions.ts` | #54. `server-game.ts` is the framework-free service (`startGame` / `act` / `getGame`, the `GameView` projection, input checks). `src/server/games.ts` wires it to the database, the practice pack and the owner cookie (`src/server/owner.ts`). The Server Actions are the only way the browser reaches it. |
+| Game UI | `src/components/game/` | `PracticeGame` renders the `GameView` it gets from the server and sends `GameAction`s; it imports no puzzle data and no game logic (`src/components/client-imports.test.ts` checks). `GuessPanel` is the guess box, feedback and buttons (#25). |
 | Puzzle data | `src/puzzles/sample.json`, `src/game/puzzles.ts`, `public/puzzles/` | Three sample puzzles with CC BY-SA photos and credits (#32). `puzzles.ts` checks the data and names the bad field when something is wrong. |
 | Image viewer | `src/components/game/ImageViewer.tsx`, `ZoomOutButton.tsx`, crop math in `src/game/crop.ts` | Shows the tight crop and steps out one zoom level at a time (#30, #31). Added to `/play` in #35. |
 | Scoring | `src/game/scoring.ts`, values in `scoring-config.ts` | Turns scoring events into points with a breakdown (#27). |
 | Score screens | `src/components/game/LiveScore.tsx`, `FinalScore.tsx` | #37 (Ethan). The running total and what the current image is worth while playing; a final screen with each image's points math. |
-| Database schema | `src/db/schema.ts`, migrations in `drizzle/`, client in `src/db/index.ts` | Tables for accounts, packs, puzzles, the daily schedule and server-side games (#47). Not used by any page yet. See [Database](#database-47). |
+| Database | `src/db/schema.ts`, migrations in `drizzle/`, client in `src/db/index.ts`, game store in `src/db/games.ts` | Tables for accounts, packs, puzzles, the daily schedule and server-side games (#47). `/play` stores its games in `games` (#54). See [Database](#database-47). |
 | CI and secret scanning | `.github/workflows/ci.yml`, `.githooks/` | Checks every PR. Blocks secrets at commit, push and in CI. |
 
 ## 2. Tools and services
@@ -27,16 +37,19 @@ How a turn works today: **player clicks or types → the React page sends an act
 | **Vitest + React Testing Library** | Unit tests and component tests |
 | **ESLint** | Linting (Next.js rules) |
 | **Vercel** | Hosting. One deploy owner (Jacky) because of free-tier limits. |
-| **Neon Postgres** | Database. Three separate projects (dev / preview / prod). Schema and migrations exist (#47); no page queries it yet. |
+| **Neon Postgres** | Database. Three separate projects (dev / preview / prod). `/play` keeps its games there (#54). |
+| **node-postgres (`pg`)** | Only for a Postgres on the same machine: the CI e2e job's service container, or a local Postgres for e2e runs. Also what `drizzle-kit migrate` uses. See "How the app connects" below. |
 | **Drizzle ORM + drizzle-kit** | Typed queries and SQL migrations (#47). Why: see [Database](#database-47). |
 | **PGlite** | In-memory Postgres for tests: the migrations are applied to it in `npm test`, no network needed |
-| **GitHub Actions** | CI: secret scan, hook tests, shellcheck, lint, typecheck, tests, build |
+| **Playwright** | End-to-end tests in a real (headless) browser, against a real Postgres (`e2e/`) |
+| **GitHub Actions** | CI: secret scan, hook tests, shellcheck, lint, typecheck, tests, build, and the e2e tests with a Postgres service container |
 | **gitleaks** | Secret scanning in git hooks and CI |
 
 ## 3. Stored information
 
-- **Nothing is stored yet.** Game state lives in the browser's memory and resets on reload. The tables below exist (#47) but no feature writes to them yet.
-- Puzzles are a static JSON file plus images in `public/puzzles/`, shipped with the app.
+- **Games** (#54): every practice game is a row in `games`: the round state, every scoring event and the scoring config it started with (`state`, JSON), plus `revision`, `total` and `finished_at`, which the store keeps in sync. No answers: puzzles are referenced by id. `game_rounds` isn't written yet, because its rows reference `puzzles` and the practice puzzles are still in code (#52).
+- **Who owns a game:** a logged-in user (`user_id`, once accounts exist, #53), or an anonymous owner cookie. On the first game the server sets `zo_owner`: a random 32-byte token (base64url), `HttpOnly`, `SameSite=Lax`, `Path=/`, one year, and `Secure` unless the site is served from localhost / 127.0.0.1 (plain http in dev and e2e). Only its SHA-256 is used as the owner id and stored (`anon_owner_hash`), so the database can't be used to act on someone's games. Anyone without the cookie, or with another one, gets "not found" for that game. Whether anonymous players may play the *daily* puzzles is still open (#54, #62); today only the practice pack exists.
+- **Puzzles** are still a static JSON file plus images in `public/puzzles/`, shipped with the app but read only by server code since #54. They move to the database with packs (#52). Until then, and until per-level images (#57), the image path (`/puzzles/giraffe.jpg`) and the puzzle ids in finished rounds' results still name some answers.
 - Later (open decision): daily progress, streaks, and possibly puzzles and accounts. Where and how they're stored is undecided (#21 and the brief's open decisions).
 
 ### Database (#47)
@@ -59,7 +72,15 @@ Every timestamp is `timestamptz`. Lobbies come later (#67).
 
 **Why Drizzle.** The schema is TypeScript, so queries are type-checked against it. Migrations are plain SQL files that drizzle-kit generates from the schema, so a reviewer reads exactly what will run. The runtime is small and has a first-class Neon driver, which suits Vercel functions. Prisma needs a generated client and its own schema language, and its migrations are harder to review. Kysely has no schema-to-migration tool, and raw SQL leaves every query untyped.
 
-**How the app connects.** Only `src/db/index.ts` creates the client, and it imports `server-only`, so a Client Component that imports it fails the build. `getDb()` connects on first use with the pooled `DATABASE_URL` through Neon's HTTP driver; `next build` doesn't need the variable. ESLint and `src/db/boundary.test.ts` stop components, `src/game/` and `"use client"` files from importing `@/db`.
+**How the app connects.** Only `src/db/index.ts` creates the client, and it imports `server-only`, so a Client Component that imports it fails the build. `getDb()` connects on first use with the pooled `DATABASE_URL`; `next build` doesn't need the variable. ESLint and `src/db/boundary.test.ts` stop components, `src/game/` and `"use client"` files from importing `@/db`.
+
+The driver depends on the host in `DATABASE_URL` (#54):
+- **Neon** (any other host: dev, preview, production): Neon's HTTP driver, one HTTP request per query, nothing to keep open between serverless invocations.
+- **localhost / 127.x / ::1**: node-postgres (`pg`) over TCP. Neon's HTTP driver only talks to Neon's HTTP endpoint, so it can't reach the plain Postgres in the CI e2e job or on a laptop. We picked this over running Neon's WebSocket proxy next to a local Postgres: one small, standard dependency, no extra container, and the same code path for CI and local runs. A loopback database never leaves the machine, so it doesn't need TLS.
+
+Neither driver's extras are used (`db.batch` is Neon-only; interactive transactions are `pg`-only), so writes that must happen together are one SQL statement. A game save is `UPDATE games ... WHERE id = $1 AND revision = $2` (plus a CTE for `game_rounds`); when no row matches, another request saved first and the server re-reads the game and retries the action once; if that loses too, the browser reloads the game and tells the player.
+
+**Running /play locally and the e2e tests.** `/play` needs a migrated database in `DATABASE_URL`. `npm run dev` reads your dev Neon database from `.env.local`. Or use a Postgres on your machine (`DATABASE_URL=postgresql://postgres@127.0.0.1:5432/zoomout`, then `DATABASE_URL_UNPOOLED=<same> npm run db:migrate`); a variable set in the shell wins over `.env.local`. `npm run test:e2e` starts the app with the same environment. CI does exactly this with a `postgres` service container.
 
 **Changing the schema.** Edit `src/db/schema.ts`, run `npm run db:generate`, and commit the new file in `drizzle/` with the change. Never edit a migration that has run anywhere; add a new one. `npm test` applies every migration to an empty in-memory Postgres (PGlite) and fails if the schema and the migrations disagree.
 
@@ -80,7 +101,7 @@ If a migration fails partway, don't edit it; fix forward with a new migration, o
   - **Preview and production:** only in Vercel as **sensitive** environment variables. Never in files, chat or commits.
   - `.env.example` shows the variable names with placeholder values only.
 - **Leak protection:** gitleaks pre-commit and pre-push hooks, plus a required CI secret scan on every PR. Custom rules catch Postgres URLs, `PGPASSWORD` and `.env` files. If a secret ever leaks, we rotate it first (steps are in `README.md`).
-- **User information:** none collected yet. No accounts, no names, no emails. When accounts land (#53), the database stores a username and a password hash only, and sessions only as token hashes.
+- **User information:** no accounts, names or emails yet. The only thing that identifies a visitor is the anonymous owner cookie (#54): a random token, stored on the server only as its SHA-256. When accounts land (#53), the database stores a username and a password hash only, and sessions only as token hashes; `getCurrentUser()` in `src/server/current-user.ts` is where #53 plugs in.
 - **Encrypting database contents:**
   - Connections to Neon require TLS (`sslmode=require&channel_binding=require`).
   - Neon encrypts stored data at rest.
@@ -90,7 +111,7 @@ If a migration fails partway, don't edit it; fix forward with a new migration, o
 
 | Question | Next step |
 |---|---|
-| Schema is in the repo (#47) but nothing queries it yet | Packs and the seed script (#52), then server-side games (#54). Anonymous play and image storage are still open. |
+| Puzzles are still in code, and image paths and sample ids name answers | Packs and the seed script (#52) move puzzles to the database with opaque ids; per-level images (#57) stop sending the full image. Then remove the masking in `e2e/practice.spec.ts` and the `.fails` in `server-game.test.ts`. Anonymous play for daily packs is still open. |
 | Scoring values and wrong-guess rules (#21) | Playtest the three-image prototype (notes in `PLAYTEST.md`), then change the values in `src/game/scoring-config.ts` |
 | Number of reveal steps; typo tolerance | Decide after the playtest. The code already accepts a pluggable answer matcher. |
 | Image sourcing and licenses | The three sample photos are CC BY-SA, with credits in the data (#32) and shown after each round (#35). Open: where to source daily puzzles, and neutral file names so they don't give the answer away (#36) |
