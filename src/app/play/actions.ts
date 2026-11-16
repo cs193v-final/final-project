@@ -1,8 +1,8 @@
 "use server";
 
 // Server Actions for /play (#54). Each one is a public POST endpoint, so every
-// argument is treated as untrusted (`actOnGame` validates the action with
-// `parseGameAction`, and the owner comes from the cookie, never the client).
+// argument is treated as untrusted (the game service validates the action
+// with `parseGameAction`, and the owner comes from the cookie, never the client).
 // They return only a `GameResult`: a `GameView` or an error code.
 //
 // Server Actions rather than Route Handlers: they're only called from our own

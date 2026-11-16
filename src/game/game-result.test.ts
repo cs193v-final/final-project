@@ -1,7 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import { runGameCall } from "./game-result.ts";
-import { GameConflictError, GameNotFoundError, InvalidGameActionError } from "./server-game.ts";
-import type { GameView } from "./types.ts";
+import { SAMPLE_PUZZLES } from "../puzzles/index.ts";
+import {
+  act,
+  GameConflictError,
+  GameNotFoundError,
+  getGame,
+  InvalidGameActionError,
+  MemoryGameStore,
+  puzzleSourceFrom,
+  startGame,
+  type GameDeps,
+  type GameStore,
+  type StoredGame,
+} from "./server-game.ts";
+import type { GameAction, GameView, Pack, ScoringConfig } from "./types.ts";
 
 const VIEW: GameView = {
   gameId: "g1",
@@ -27,16 +40,10 @@ describe("runGameCall", () => {
     expect(log).not.toHaveBeenCalled();
   });
 
-  it("retries once after a conflict, re-running the call (which re-reads the game)", async () => {
+  it("reports a conflict without running the call again", async () => {
     const call = vi.fn<() => Promise<GameView>>().mockRejectedValueOnce(new GameConflictError("g1")).mockResolvedValue(VIEW);
-    expect(await runGameCall(call)).toEqual({ ok: true, view: VIEW });
-    expect(call).toHaveBeenCalledTimes(2);
-  });
-
-  it("reports a conflict if the retry loses too", async () => {
-    const call = vi.fn<() => Promise<GameView>>().mockRejectedValue(new GameConflictError("g1"));
     expect(await runGameCall(call)).toEqual({ ok: false, error: "conflict" });
-    expect(call).toHaveBeenCalledTimes(2);
+    expect(call).toHaveBeenCalledTimes(1);
   });
 
   it("logs anything else on the server and returns only `unavailable`", async () => {
@@ -45,5 +52,56 @@ describe("runGameCall", () => {
     const result = await runGameCall(() => Promise.reject(secret), log);
     expect(result).toEqual({ ok: false, error: "unavailable" });
     expect(log).toHaveBeenCalledWith(secret);
+  });
+});
+
+describe("two tabs acting on the same game at once", () => {
+  const CONFIG: ScoringConfig = { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 };
+  const PUZZLES = SAMPLE_PUZZLES.map((p, i) => ({ ...p, id: `p${i + 1}`, imageUrl: `/img/p${i + 1}.jpg` }));
+  const PACK: Pack = { id: "pk", kind: "practice", title: "Practice", theme: "Mixed", puzzleIds: PUZZLES.map((p) => p.id) };
+  const OWNER = { anonId: "owner" };
+
+  /** A store whose reads all wait until `readers` of them have happened, so both requests read the same revision. */
+  function raceStore(inner: GameStore, readers: number): GameStore {
+    let waiting: (() => void)[] = [];
+    return {
+      create: (game) => inner.create(game),
+      save: (game: StoredGame) => inner.save(game),
+      async get(id) {
+        const game = await inner.get(id);
+        await new Promise<void>((resolve) => {
+          waiting.push(resolve);
+          if (waiting.length === readers) {
+            waiting.forEach((r) => r());
+            waiting = [];
+          }
+        });
+        return game;
+      },
+    };
+  }
+
+  it.each<[string, GameAction]>([
+    ["skip", { type: "skip" }],
+    ["reveal", { type: "reveal" }],
+    ["wrong guess", { type: "guess", guess: "zzz wrong" }],
+  ])("%s from both: one is applied, the other gets `conflict` and isn't applied", async (_name, action) => {
+    const inner = new MemoryGameStore();
+    const plain: GameDeps = { games: inner, puzzles: puzzleSourceFrom(PUZZLES) };
+    const { gameId } = await startGame(plain, PACK, OWNER, CONFIG);
+
+    const racing: GameDeps = { games: raceStore(inner, 2), puzzles: plain.puzzles };
+    const results = await Promise.all([
+      runGameCall(() => act(racing, gameId, OWNER, action)),
+      runGameCall(() => act(racing, gameId, OWNER, action)),
+    ]);
+
+    expect(results.map((r) => (r.ok ? "ok" : r.error)).sort()).toEqual(["conflict", "ok"]);
+    const stored = (await inner.get(gameId))!;
+    expect(stored.revision).toBe(1);
+    expect(stored.state.events).toHaveLength(1); // applied exactly once
+    // Still on the first image: nobody skipped (or zoomed, or guessed on) a round they hadn't seen.
+    const view = await getGame(plain, gameId, OWNER);
+    expect(view.round?.position).toBe(1);
   });
 });

@@ -15,12 +15,11 @@ import {
   act,
   GameNotFoundError,
   getGame,
-  parseGameAction,
   puzzleSourceFrom,
   startGame,
   type GameDeps,
 } from "@/game/server-game";
-import type { Pack } from "@/game/types";
+import type { GameAction, Pack } from "@/game/types";
 import { SAMPLE_PUZZLES } from "@/puzzles";
 
 import { currentOrNewOwner, currentOwner } from "./owner";
@@ -73,14 +72,15 @@ export async function startPracticeGame(): Promise<GameResult> {
 /**
  * Apply one action from the browser to the current owner's game. Both
  * arguments are untrusted. A game that doesn't exist and one that belongs to
- * someone else both give `not-found`.
+ * someone else both give `not-found`. `act` validates the action
+ * (`parseGameAction`, the one validation path): a bad one gives `invalid`.
+ * A conflict (another tab saved first) gives `conflict` and is not retried.
  */
 export async function actOnGame(gameId: unknown, action: unknown): Promise<GameResult> {
   return runGameCall(async () => {
-    const parsed = parseGameAction(action); // InvalidGameActionError → "invalid"
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();
-    return act(deps(getDb()), gameId, owner, parsed);
+    return act(deps(getDb()), gameId, owner, action as GameAction);
   });
 }
 
