@@ -21,7 +21,16 @@ export { schema };
  */
 export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 
-let db: Db | undefined;
+type Cached = { url: string; db: Db };
+
+/**
+ * Where the client is kept. In production, this module. In development (and
+ * tests) on `globalThis`: hot reload re-runs this module, and a module-level
+ * node-postgres Pool would leak its connections on every edit. Keyed by URL so
+ * a changed `DATABASE_URL` gets a new client.
+ */
+const devCache = globalThis as typeof globalThis & { __zoomOutDb?: Cached };
+let prodCache: Cached | undefined;
 
 /**
  * True when a connection string points at this machine (localhost, 127.x.x.x
@@ -58,16 +67,20 @@ export function isLoopbackHost(hostname: string): boolean {
  *   not to a plain Postgres. See TECHNICAL.md → Database.
  */
 export function getDb(): Db {
-  if (!db) {
-    const url = process.env.DATABASE_URL;
-    if (!url) {
-      throw new Error(
-        "DATABASE_URL is not set. Locally, copy .env.example to .env.local (see README.md → Database).",
-      );
-    }
-    db = isLoopbackDatabaseUrl(url)
-      ? drizzleNodePg({ client: new Pool({ connectionString: url, max: 5 }), schema })
-      : drizzleNeonHttp({ client: neon(url), schema });
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is not set. Locally, copy .env.example to .env.local (see README.md → Database).",
+    );
   }
+  const production = process.env.NODE_ENV === "production";
+  const cached = production ? prodCache : devCache.__zoomOutDb;
+  if (cached?.url === url) return cached.db;
+
+  const db: Db = isLoopbackDatabaseUrl(url)
+    ? drizzleNodePg({ client: new Pool({ connectionString: url, max: 5 }), schema })
+    : drizzleNeonHttp({ client: neon(url), schema });
+  if (production) prodCache = { url, db };
+  else devCache.__zoomOutDb = { url, db };
   return db;
 }

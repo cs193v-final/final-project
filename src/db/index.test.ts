@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllEnvs();
   vi.resetModules();
+  // getDb keeps its client on globalThis outside production; start each test fresh.
+  const global = globalThis as { __zoomOutDb?: { db: { $client?: { end?: () => Promise<void> } } } };
+  await global.__zoomOutDb?.db.$client?.end?.();
+  delete global.__zoomOutDb;
 });
 
 describe("getDb", () => {
@@ -17,6 +21,33 @@ describe("getDb", () => {
     vi.stubEnv("DATABASE_URL", "postgresql://USER:PASSWORD@example.invalid/db");
     const { getDb } = await import("@/db");
     expect(getDb()).toBe(getDb());
+  });
+});
+
+describe("client cache", () => {
+  it("keeps one client across module reloads in development, so hot reload doesn't leak pools", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("DATABASE_URL", "postgresql://postgres@127.0.0.1:5432/zoomout");
+    const first = (await import("@/db")).getDb();
+    vi.resetModules(); // what a hot reload does to this module
+    const second = (await import("@/db")).getDb();
+    expect(second).toBe(first);
+  });
+
+  it("makes a new client when DATABASE_URL changes", async () => {
+    vi.stubEnv("DATABASE_URL", "postgresql://USER:PASSWORD@example.invalid/a");
+    const { getDb } = await import("@/db");
+    const a = getDb();
+    vi.stubEnv("DATABASE_URL", "postgresql://USER:PASSWORD@example.invalid/b");
+    expect(getDb()).not.toBe(a);
+  });
+
+  it("keeps the client in the module, not on globalThis, in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DATABASE_URL", "postgresql://USER:PASSWORD@example.invalid/db");
+    const { getDb } = await import("@/db");
+    expect(getDb()).toBe(getDb());
+    expect((globalThis as { __zoomOutDb?: unknown }).__zoomOutDb).toBeUndefined();
   });
 });
 
