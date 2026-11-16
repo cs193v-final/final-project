@@ -9,7 +9,9 @@
 // Connects with DATABASE_URL_UNPOOLED, exactly like drizzle.config.ts: a value
 // already in the environment wins (even an empty one, which fails); only when
 // it's unset does it fall back to the dev database in .env.local. Preview and
-// production URLs are typed at a hidden prompt, never stored in a file.
+// production URLs are typed at a hidden prompt, never stored in a file. Like
+// the app and drizzle.config.ts, it refuses a URL that doesn't require TLS
+// (only localhost is exempt; see src/db/tls.ts).
 //
 // Runs with plain Node (type stripping), so everything it imports uses
 // relative paths with `.ts`, not the "@/" alias.
@@ -20,6 +22,7 @@ import { drizzle } from "drizzle-orm/neon-http";
 
 import { PackNotFoundError, readStoredScoring, setPackScoring, type PgDb } from "../src/db/pack-scoring.ts";
 import * as schema from "../src/db/schema.ts";
+import { assertDatabaseUrlRequiresTls, InsecureDatabaseUrlError } from "../src/db/tls.ts";
 import { parseScoringOverride, resolveScoringConfig, ScoringConfigError } from "../src/game/scoring-override.ts";
 
 export const USAGE = `Usage:
@@ -100,6 +103,7 @@ function connect(): { db: PgDb; host: string } {
       "DATABASE_URL_UNPOOLED is not set. For dev it comes from .env.local; for preview or production, see TECHNICAL.md → Database.",
     );
   }
+  assertDatabaseUrlRequiresTls(url, "DATABASE_URL_UNPOOLED");
   // Only the host is printed, never the credentials.
   return { db: drizzle({ client: neon(url), schema }), host: new URL(url).host };
 }
@@ -113,7 +117,11 @@ async function main(): Promise<void> {
     console.log(`Database host: ${host}`);
     console.log(await runCommand(db, command));
   } catch (error) {
-    if (error instanceof UsageError || error instanceof ScoringConfigError || error instanceof PackNotFoundError) {
+    if (
+      error instanceof UsageError ||
+      error instanceof ScoringConfigError || error instanceof PackNotFoundError ||
+      error instanceof InsecureDatabaseUrlError
+    ) {
       console.error(error.message);
       process.exitCode = 1;
       return;

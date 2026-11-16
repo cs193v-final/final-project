@@ -90,7 +90,7 @@ npm run db:scoring -- set   <pack-id> '{"basePoints": 150}'  # or a path to a .j
 npm run db:scoring -- clear <pack-id>                        # back to the default
 ```
 
-`set` merges what you give over the current `SCORING_CONFIG` and stores the full result, so the pack's values stay fixed even if the default in code changes later. It connects with `DATABASE_URL_UNPOOLED` exactly like `drizzle.config.ts`: dev from `.env.local`; preview and production typed at a hidden prompt for that one command, e.g. `read -rs URL && DATABASE_URL_UNPOOLED="$URL" npm run db:scoring -- set <pack-id> scoring.json; unset URL`. It prints the database host (never the credentials) so you can check which database you changed.
+`set` merges what you give over the current `SCORING_CONFIG` and stores the full result, so the pack's values stay fixed even if the default in code changes later. It connects with `DATABASE_URL_UNPOOLED` exactly like `drizzle.config.ts`: dev from `.env.local`; preview and production typed at a hidden prompt for that one command, e.g. `read -rs URL && DATABASE_URL_UNPOOLED="$URL" npm run db:scoring -- set <pack-id> scoring.json; unset URL`. Like the app, it refuses a URL that doesn't require TLS (only localhost is exempt). It prints the database host (never the credentials) so you can check which database you changed.
 
 Plain SQL works too (Neon console SQL editor), but nothing validates it, so run `show` afterwards and check it isn't marked INVALID:
 

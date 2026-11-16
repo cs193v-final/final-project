@@ -1,6 +1,7 @@
 // The pieces of scripts/pack-scoring.ts that don't need a real database:
 // argument parsing, and each command run against PGlite with the real
 // migrations. `main()` only runs when the file is executed, not imported.
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { PGlite } from "@electric-sql/pglite";
@@ -86,5 +87,32 @@ describe("runCommand", () => {
     await pg.query(`UPDATE packs SET scoring = '{"basePoints": -1}' WHERE id = 'p1'`);
     await expect(runCommand(db, { kind: "show", packId: "p1" })).resolves.toMatch(/INVALID, so games use the default/);
     await runCommand(db, { kind: "clear", packId: "p1" });
+  });
+});
+
+describe("the script's connection (#60)", () => {
+  const script = fileURLToPath(new URL("./pack-scoring.ts", import.meta.url));
+  const run = (url: string) =>
+    spawnSync(process.execPath, [script, "show", "p1"], {
+      env: { PATH: process.env.PATH, NODE_ENV: "test", DATABASE_URL_UNPOOLED: url },
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+
+  // Placeholders built from parts, like src/db/tls.test.ts, so the secret
+  // scanner doesn't mistake them for real connection strings.
+  const host = "ep-example-123456.us-east-2.aws.neon.tech";
+  const remote = (query: string) => `postgresql://USER:PASSWORD@${host}/neondb${query}`;
+
+  it.each([
+    ["no sslmode", ""],
+    ["sslmode=disable", "?sslmode=disable"],
+  ])("refuses a remote URL with %s before connecting, without printing it", (_, query) => {
+    const result = run(remote(query));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/DATABASE_URL_UNPOOLED must require TLS/);
+    const output = result.stdout + result.stderr;
+    expect(output).not.toContain("PASSWORD");
+    expect(output).not.toContain(host);
   });
 });
