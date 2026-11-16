@@ -213,6 +213,10 @@ export const games = pgTable(
     // Full serialized server-side game state, so #54 can resume a game across
     // requests. Its shape is owned by #54; the browser never sees it.
     state: jsonb("state").notNull(),
+    // Optimistic concurrency for #54: a save is `UPDATE ... WHERE id = $1 AND
+    // revision = $2` and bumps it, so two fast requests can't both apply.
+    // Works without interactive transactions (the Neon HTTP driver has none).
+    revision: integer("revision").notNull().default(0),
     total: integer("total").notNull().default(0),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true })

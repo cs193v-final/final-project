@@ -30,6 +30,7 @@ CREATE TABLE "games" (
 	"user_id" uuid,
 	"anon_owner_hash" text,
 	"state" jsonb NOT NULL,
+	"revision" integer DEFAULT 0 NOT NULL,
 	"total" integer DEFAULT 0 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,

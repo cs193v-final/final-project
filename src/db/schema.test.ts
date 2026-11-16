@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { PGlite } from "@electric-sql/pglite";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api";
@@ -317,7 +317,23 @@ describe("games and rounds", () => {
     const packId = await addPack();
     const state = { position: 2, revealLevel: 1, wrongGuesses: 0, events: [{ type: "reveal" }] };
     const [game] = await db.insert(schema.games).values({ packId, state }).returning();
-    expect(game).toMatchObject({ state, total: 0, finishedAt: null, userId: null });
+    expect(game).toMatchObject({ state, revision: 0, total: 0, finishedAt: null, userId: null });
+  });
+
+  it("let only one of two saves from the same revision apply (#54)", async () => {
+    const packId = await addPack();
+    const [game] = await db.insert(schema.games).values({ packId, state: { n: 0 } }).returning();
+    if (!game) throw new Error("insert returned no row");
+    const save = (n: number) =>
+      db
+        .update(schema.games)
+        .set({ state: { n }, revision: game.revision + 1 })
+        .where(and(eq(schema.games.id, game.id), eq(schema.games.revision, game.revision)))
+        .returning();
+    expect(await save(1)).toHaveLength(1);
+    expect(await save(2)).toHaveLength(0);
+    const [stored] = await db.select().from(schema.games).where(eq(schema.games.id, game.id));
+    expect(stored).toMatchObject({ state: { n: 1 }, revision: 1 });
   });
 
   it("delete a game's rounds with the game, and number rounds once per game", async () => {

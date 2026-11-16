@@ -1,5 +1,5 @@
 {
-  "id": "6cd9ef61-f4f9-43c6-8a29-968ac36c434e",
+  "id": "76aed8f5-b9a5-4e8e-bab2-acf4be2c2a4f",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -245,6 +245,13 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "total": {
           "name": "total",

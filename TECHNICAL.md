@@ -52,7 +52,7 @@ How a turn works today: **player clicks or types → the React page sends an act
 | `puzzle_images` | one image `src` per reveal level (#57) | (puzzle, level). Deleted with the puzzle. |
 | `pack_puzzles` | a pack's puzzles in play order | (pack, position), 1-based; a puzzle at most once per pack. A puzzle in a pack can't be deleted. |
 | `daily_schedule` | which pack is a day's daily challenge | `date` is the primary key, so one pack per day |
-| `games` | a game: pack, owner (`user_id`, or `anon_owner_hash` if anonymous play is allowed), full `state` as JSON so a game resumes across requests (#54), `total`, `finished_at` | Deleted with the user. Never both owners. |
+| `games` | a game: pack, owner (`user_id`, or `anon_owner_hash` if anonymous play is allowed), full `state` as JSON so a game resumes across requests (#54), `revision` (a save only applies if it hasn't changed, so two fast requests can't both update a game), `total`, `finished_at` | Deleted with the user. Never both owners. |
 | `game_rounds` | one finished round, same fields as `RoundResult` | (game, position). Deleted with the game. |
 
 Every timestamp is `timestamptz`. Lobbies come later (#67).
