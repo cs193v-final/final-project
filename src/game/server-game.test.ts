@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SAMPLE_PUZZLES } from "../puzzles/index.ts";
+import { describeGameStoreContract } from "./game-store-contract.ts";
 import { createGame, step } from "./round.ts";
 import { scoreGame } from "./scoring.ts";
 import {
@@ -496,3 +497,11 @@ describe("stored record", () => {
     expect((await store.get(gameId))!.state.round.revealLevel).toBe(1);
   });
 });
+
+describeGameStoreContract("MemoryGameStore", async () => ({
+  store: new MemoryGameStore(),
+  alice: ALICE,
+  bob: BOB,
+  packId: "practice",
+  missingId: "no-such-game",
+}));
