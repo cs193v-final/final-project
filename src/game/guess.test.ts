@@ -37,11 +37,13 @@ describe("normalizeGuess", () => {
     }
   });
 
-  it("removes common punctuation without adding a space", () => {
+  it("removes . ' \" and turns , ! ? into word breaks", () => {
     expect(normalizeGuess("St. Paul's Cathedral")).toBe("st pauls cathedral");
     expect(normalizeGuess("Golden Gate Bridge.")).toBe("golden gate bridge");
     expect(normalizeGuess("Hello, world!?")).toBe("hello world");
     expect(normalizeGuess("Washington, D.C.")).toBe("washington dc");
+    expect(normalizeGuess("Paris,France")).toBe("paris france");
+    expect(normalizeGuess("Wow!Bridge?Yes")).toBe("wow bridge yes");
   });
 
   it("turns hyphens and dashes into spaces, then collapses whitespace", () => {

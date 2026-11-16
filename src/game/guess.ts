@@ -8,17 +8,19 @@ import type { GuessOutcome, Puzzle } from "./types.ts";
 const APOSTROPHES = /[`´‘’‚‛′ʼ]/gu;
 const QUOTES = /[“”„‟″]/gu;
 
-/** Punctuation removed outright: `St. Paul's` -> `st pauls`. */
-const STRIPPED_PUNCTUATION = /[.,!?'"]/gu;
+/** Punctuation inside words, removed outright: `St. Paul's` -> `st pauls`. */
+const STRIPPED_PUNCTUATION = /[.'"]/gu;
 
-/** Hyphens and dashes become spaces: `Notre-Dame` -> `notre dame`. */
-const DASHES = /[-‐‑‒–—―−]/gu;
+/**
+ * Punctuation between words, and hyphens and dashes, become spaces:
+ * `Notre-Dame` -> `notre dame`, `Paris,France` -> `paris france`.
+ */
+const SEPARATORS = /[,!?‐‑‒–—―−-]/gu;
 
 /**
  * Normalize text for comparison: Unicode NFKC, curly quotes treated like
- * straight ones, common punctuation (`. , ' " ! ?`) removed, hyphens and dashes
- * turned into spaces, then trim, collapse inner whitespace to one space,
- * lowercase.
+ * straight ones, `. ' "` removed, hyphens, dashes and `, ! ?` turned into
+ * spaces, then trim, collapse inner whitespace to one space, lowercase.
  *
  * NFKC makes visually identical input compare equal (full-width letters,
  * non-breaking spaces, precomposed vs. combining accents). Accents themselves
@@ -35,7 +37,7 @@ export function normalizeGuess(text: string): string {
     .replace(QUOTES, '"')
     .normalize("NFKC")
     .replace(STRIPPED_PUNCTUATION, "")
-    .replace(DASHES, " ")
+    .replace(SEPARATORS, " ")
     .trim()
     .replace(/\s+/gu, " ")
     .toLowerCase();
