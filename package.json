@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:scoring": "node scripts/pack-scoring.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "1.2.0",
