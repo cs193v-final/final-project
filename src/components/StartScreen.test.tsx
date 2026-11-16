@@ -26,6 +26,12 @@ describe("StartScreen", () => {
     expect(rules).toMatch(/skip/u);
   });
 
+  it("offers the mode picker before the how-to-play steps (#50)", () => {
+    const picker = html.indexOf("Choose a mode");
+    expect(picker).toBeGreaterThan(-1);
+    expect(picker).toBeLessThan(html.indexOf("How to play"));
+  });
+
   it("labels the prototype as a placeholder for the daily game", () => {
     expect(html).toContain("Daily puzzles aren&#x27;t built yet");
   });
