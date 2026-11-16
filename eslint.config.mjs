@@ -5,6 +5,24 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  // Only server code talks to the database (#47). src/db/boundary.test.ts also
+  // checks "use client" files elsewhere.
+  {
+    files: ["src/components/**", "src/game/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/db", "@/db/*", "**/db", "**/db/*"],
+              message: "Client and game-logic code must not import the database. Use a Server Component, Server Action or Route Handler.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

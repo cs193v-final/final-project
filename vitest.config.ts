@@ -3,8 +3,16 @@ import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
-    // Same "@/..." alias as tsconfig.json and Next.js.
-    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    alias: {
+      // Same "@/..." alias as tsconfig.json and Next.js.
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // `server-only` throws unless bundled for the server (the "react-server"
+      // condition). Tests run server code directly, so use its empty module.
+      // src/db/boundary.test.ts checks client code doesn't import `@/db`.
+      "server-only": fileURLToPath(
+        new URL("./node_modules/server-only/empty.js", import.meta.url),
+      ),
+    },
   },
   test: {
     // Logic tests run in Node. Component tests opt into a browser-like DOM with
