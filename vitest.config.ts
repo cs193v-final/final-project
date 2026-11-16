@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -11,5 +11,7 @@ export default defineConfig({
     // a `// @vitest-environment jsdom` comment at the top of the file.
     environment: "node",
     setupFiles: ["./src/test/setup.ts"],
+    // e2e/ holds Playwright specs (`npm run test:e2e`), not Vitest tests.
+    exclude: [...configDefaults.exclude, "e2e/**"],
   },
 });
