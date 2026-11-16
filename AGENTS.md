@@ -48,9 +48,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - After cloning, run `scripts/install-gitleaks.sh` to turn on the secret-scanning hooks. Do this on every computer you commit from.
 - Never bypass the hooks with `--no-verify`.
 - **Data stays server-side.** Only server code (Route Handlers, Server Actions, Server Components) talks to the database. Never give a database variable a `NEXT_PUBLIC_` prefix, and never send stored data to a client that isn't allowed to see it.
+- **The repo is public.** Never commit daily, Stanford or lobby puzzle answers or images; only the practice pack lives in the repo.
 
 ## Shared interfaces
-- `Puzzle`, `RevealLevel`, `GuessOutcome`, `ScoringEvent`, `ScoringConfig` and `RoundResult` are shared between owners (see the brief).
+- Every type in `src/game/types.ts` is shared between owners (see the brief): `Puzzle`, `RevealLevel`, `GuessOutcome`, `RoundState`, `ScoringEvent`, `ScoringConfig`, `RoundResult`, and the Week 9 proposals `PackKind`, `Pack`, `DailyEntry`, `GameAction`, `PublicRound`, `GameView`, `PublicUser` and `LeaderboardEntry`.
 - Don't change one without its owner reviewing the PR. If a change is needed, say so in the PR description.
 - Don't treat items under "Open decisions" in the brief as settled. Ask, or keep them configurable.
 
