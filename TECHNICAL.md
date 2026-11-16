@@ -73,6 +73,34 @@ Every timestamp is `timestamptz`. Lobbies come later (#67).
 
 If a migration fails partway, don't edit it; fix forward with a new migration, or restore the Neon branch to a point in time before the migration.
 
+**Per-pack scoring (#64).** Server code gets a pack's scoring with `getScoringConfig(packId)` from `src/db/scoring.ts` (server-only). It reads `packs.scoring`:
+
+- `NULL` (the default for every pack): the pack uses `SCORING_CONFIG` from `src/game/scoring-config.ts`.
+- A JSON object with some or all `ScoringConfig` fields: merged over `SCORING_CONFIG`, and the result must pass `validateScoringConfig`. Unknown fields (typos) and non-number values are invalid.
+- Invalid: the game does **not** fail. The pack plays with the default, and a `[scoring] pack "<id>" has an invalid scoring override ...` line goes to `console.error` (Vercel function logs). The update command below refuses invalid values, so this only happens after hand-written SQL.
+- No pack with that id: throws `PackNotFoundError`. A missing pack is a bug, not a reason to use the default.
+
+The pure rules are `resolveScoringConfig` in `src/game/scoring-override.ts`, which throws `ScoringConfigError`; the fallback-and-log is in `src/db/pack-scoring.ts`.
+
+**Changing a pack's scoring without a redeploy.** Use the command, which validates before writing:
+
+```sh
+npm run db:scoring -- show  <pack-id>                        # stored override and effective config
+npm run db:scoring -- set   <pack-id> '{"basePoints": 150}'  # or a path to a .json file
+npm run db:scoring -- clear <pack-id>                        # back to the default
+```
+
+`set` merges what you give over the current `SCORING_CONFIG` and stores the full result, so the pack's values stay fixed even if the default in code changes later. It connects with `DATABASE_URL_UNPOOLED` exactly like `drizzle.config.ts`: dev from `.env.local`; preview and production typed at a hidden prompt for that one command, e.g. `read -rs URL && DATABASE_URL_UNPOOLED="$URL" npm run db:scoring -- set <pack-id> scoring.json; unset URL`. It prints the database host (never the credentials) so you can check which database you changed.
+
+Plain SQL works too (Neon console SQL editor), but nothing validates it, so run `show` afterwards and check it isn't marked INVALID:
+
+```sql
+UPDATE packs SET scoring = '{"basePoints": 150, "revealPenalty": 20, "wrongGuessPenalty": 10, "minPoints": 10, "skipPoints": 0}'::jsonb WHERE id = '<pack-id>';
+UPDATE packs SET scoring = NULL WHERE id = '<pack-id>';  -- back to the default
+```
+
+A change applies to games **started** after it. A server game (#54) reads the config once when it starts and keeps it in `games.state`, so games in progress finish with the values they started with, and a round's score never changes halfway through a game.
+
 ## 4. Secrets and user information
 
 - **Secrets we have:** only the database connection strings (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`). No API keys.
