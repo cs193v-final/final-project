@@ -128,7 +128,19 @@ export const puzzles = pgTable(
   (t) => [
     check("puzzles_focus_x_range", sql`${t.focusX} BETWEEN 0 AND 1`),
     check("puzzles_focus_y_range", sql`${t.focusY} BETWEEN 0 AND 1`),
-    check("puzzles_zoom_levels_not_empty", sql`cardinality(${t.zoomLevels}) > 0`),
+    // Zoom levels follow the loader's rules (`parseZoomLevels` in
+    // src/game/puzzles.ts) as far as a CHECK can: a plain 1-based list, at
+    // least 2 levels, the last one 1 (the full image), and every level a
+    // finite number >= 1 with no NULLs. `'Infinity' > ALL` also rejects NaN,
+    // which Postgres sorts above every number, and the NULL test is needed
+    // because `1 <= ALL` is NULL (so passes) for a list with a NULL in it.
+    // "Each level smaller than the one before" can't be a CHECK (it would
+    // have to loop over the list); the seed script (#52) runs every puzzle
+    // through `parsePuzzles` before inserting it.
+    check(
+      "puzzles_zoom_levels_valid",
+      sql`array_ndims(${t.zoomLevels}) = 1 AND array_lower(${t.zoomLevels}, 1) = 1 AND cardinality(${t.zoomLevels}) >= 2 AND ${t.zoomLevels}[cardinality(${t.zoomLevels})] = 1 AND array_position(${t.zoomLevels}, NULL) IS NULL AND 1 <= ALL(${t.zoomLevels}) AND 'Infinity'::double precision > ALL(${t.zoomLevels})`,
+    ),
     check(
       "puzzles_ai_solved_level_range",
       sql`${t.aiSolvedLevel} IS NULL OR (${t.aiSolvedLevel} >= 0 AND ${t.aiSolvedLevel} < cardinality(${t.zoomLevels}))`,
@@ -154,6 +166,9 @@ export const puzzleImages = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.puzzleId, t.level] }),
+    // 0-based, like the index into `puzzles.zoom_levels`. The upper bound
+    // (level < number of zoom levels) would need to read the puzzle row, which
+    // a CHECK can't do. Whatever loads per-level images (#57) must check it.
     check("puzzle_images_level_min", sql`${t.level} >= 0`),
   ],
 );
