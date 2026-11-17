@@ -79,7 +79,7 @@ test("plays today's daily from the home screen to the result, once", async ({ pa
 
   // The result panel: countdown, Share, Home, and per-image stats.
   await expect(page.getByText("The next one starts in", { exact: false })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+  await expect(page.getByRole("link", { name: "Home", exact: true })).toHaveAttribute("href", "/");
   const stats = page.getByRole("region", { name: "How you did on each image" });
   // Another run of this test (the other browser project) may have finished first.
   await expect(stats.getByText(/You're the first to finish today|Overall you did better than \d+% of the \d+ other/u)).toBeVisible();
