@@ -193,7 +193,7 @@ Protection that applies to all of it, **in place now**:
 - **Deleted with the account:** deleting a `users` row deletes its sessions, games and their rounds (`ON DELETE CASCADE`, tested in `src/db/schema.test.ts`). **PLANNED (#53):** a way for a user to delete their account.
 - **Who holds the keys:** connection strings are in the dev `.env.local` files and, for preview and production, only in Vercel (sensitive) and the Neon console, set by Jacky as the deploy owner (see above).
 
-**Done for games (#54):** per-owner access tests, and unit and e2e checks that no Server Action response or page HTML contains the current puzzle's answer while it is being played. **Not done yet** (needs #53): the same for sessions and accounts. Passwords and tokens are hashed (they never need to be read back). Usernames are encrypted in the app (#84). **PLANNED (#84, with #54):** encrypting `games.state` and the per-round results with the same vault (`encryptJson`), in `src/db/games.ts` from #77, as a follow-up with Jacky.
+**Done for games (#54):** per-owner access tests, and unit and e2e checks that no Server Action response or page HTML contains the current puzzle's answer while it is being played. **Not done yet** (needs #53): the same for sessions and accounts. Passwords and tokens are hashed (they never need to be read back). Usernames are encrypted in the app (#84). Game states (every move and guess) are encrypted too, one key per game (#84, see the inventory above); scores and per-round results stay plain for leaderboards (#62).
 
 ## 5. Open questions
 
