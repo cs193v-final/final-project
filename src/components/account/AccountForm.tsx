@@ -2,14 +2,13 @@
 // The log-in and sign-up form (#53). The action runs on the server; this only
 // shows the fields and the errors it returns.
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useActionState, useId } from "react";
+import { useActionState, useId } from "react";
 
 import type { AccountFormState } from "@/app/account/actions";
-import { DEFAULT_NEXT, safeNextPath } from "@/auth/next-path";
+import { DEFAULT_NEXT } from "@/auth/next-path";
 import { PASSWORD_MAX, PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN } from "@/auth/rules";
 
-type Props = {
+export type AccountFormProps = {
   mode: "login" | "register";
   action: (state: AccountFormState, formData: FormData) => Promise<AccountFormState>;
   /** Where to go after logging in (#134), already checked with `safeNextPath`. Home if left out. */
@@ -20,7 +19,7 @@ const inputClass =
   "w-full rounded-md border border-zinc-400 bg-white px-3 py-2 text-base text-zinc-900 dark:border-zinc-500 dark:bg-zinc-900 dark:text-zinc-100";
 const errorClass = "text-sm font-medium text-rose-700 dark:text-rose-400";
 
-export function AccountForm({ mode, action, next = DEFAULT_NEXT }: Props) {
+export function AccountForm({ mode, action, next = DEFAULT_NEXT }: AccountFormProps) {
   const [state, formAction, pending] = useActionState(action, undefined);
   const id = useId();
   const isRegister = mode === "register";
@@ -98,24 +97,5 @@ export function AccountForm({ mode, action, next = DEFAULT_NEXT }: Props) {
         </Link>
       </p>
     </form>
-  );
-}
-
-function AccountFormFromUrl(props: Omit<Props, "next">) {
-  return <AccountForm {...props} next={safeNextPath(useSearchParams().get("next"))} />;
-}
-
-/**
- * The form for the login and sign-up pages, going back to the page's `?next=`
- * afterwards (#134). `next` is read in the browser, so the pages stay
- * prerendered: the shell has the same form without `next`, and the real one
- * replaces it as soon as the page hydrates. The server action checks `next`
- * again, since anyone can post any value.
- */
-export function AccountPageForm(props: Omit<Props, "next">) {
-  return (
-    <Suspense fallback={<AccountForm {...props} />}>
-      <AccountFormFromUrl {...props} />
-    </Suspense>
   );
 }
