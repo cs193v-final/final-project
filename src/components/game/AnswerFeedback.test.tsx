@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { parsePuzzle } from "@/game/puzzles";
 import type { Puzzle } from "@/game/types";
 import { fakeAnimate, fakeMotionSetting, removeFakeAnimate } from "@/test/fakeMotion";
 import { Confetti } from "./Confetti";
@@ -11,15 +12,17 @@ import { PracticeGame } from "./PracticeGame";
 // Spec for #48: a satisfying moment on a correct guess, clear feedback on a
 // wrong one, never color alone, and no motion for players who turn it off.
 
+// Built with parsePuzzle, like real puzzle data, so the fixture follows the
+// Puzzle format as it changes (e.g. #52 adds aiSolvedLevel) without edits here.
 function puzzle(id: string, answer: string): Puzzle {
-  return {
+  return parsePuzzle({
     id,
-    imageUrl: "",
+    imageUrl: "/test/image.jpg",
     answer,
     acceptedAnswers: [],
     reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [4, 2, 1] },
     credit: { source: "test", license: "CC0" },
-  };
+  });
 }
 const PUZZLES = [puzzle("p1", "Golden Gate Bridge"), puzzle("p2", "Big Ben")];
 
