@@ -15,9 +15,9 @@
 // Runs directly in Node 24 (type stripping), so imports keep their `.ts`.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
 import { planLevels } from "../src/game/levels.ts";
@@ -54,13 +54,29 @@ function source(args: { puzzle?: string; focus?: string; zoom?: string }, positi
   return { file: resolve(file), reveal: { focus: { x, y }, zoomLevels: numbers(args.zoom, "zoom") } };
 }
 
-/** Previews of private content mustn't land somewhere git would commit them. */
+/** `path` with symlinks resolved, even if it doesn't exist yet: resolves the nearest existing parent. */
+function realPath(path: string): string {
+  if (existsSync(path)) return realpathSync(path);
+  const parent = dirname(path);
+  return parent === path ? path : join(realPath(parent), basename(path));
+}
+
+/**
+ * Previews of private content mustn't land somewhere git would commit them.
+ * Paths are compared after resolving symlinks, and only a real `..` step
+ * counts as outside the repo, so a folder named `..previews` inside it is
+ * still checked (security audit L8, #95; the same rule as scripts/seed.ts).
+ */
 function assertNotCommittable(dir: string) {
-  if (relative(root, dir).startsWith("..")) return;
+  const rel = relative(realpathSync(root), realPath(dir));
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return;
   try {
-    execFileSync("git", ["check-ignore", "-q", dir], { cwd: root });
-  } catch {
-    throw new Error(`${relative(root, dir) || "."}: inside the repo and not git-ignored. Use --out outside the repo, or content/.`);
+    execFileSync("git", ["check-ignore", "-q", rel === "" ? "." : rel], { cwd: root, stdio: "pipe" });
+  } catch (error) {
+    if ((error as { status?: number }).status === 1) {
+      throw new Error(`${rel || "."}: inside the repo and not git-ignored. Use --out outside the repo, or content/.`);
+    }
+    throw new Error(`${rel || "."}: couldn't ask git whether it's ignored: ${String((error as { stderr?: unknown }).stderr ?? error).trim()}`);
   }
 }
 

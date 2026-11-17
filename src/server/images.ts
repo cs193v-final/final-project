@@ -25,8 +25,14 @@ function notFound(): Response {
 /**
  * The response for `GET /img/<file>`. Anything but `<32 hex>.webp` is a 404
  * before `connect` is even called, so junk requests never open a database client.
+ *
+ * `search` is the request's query string. Image URLs never have one, and the
+ * CDN caches each query string separately, so `?n=1`, `?n=2`, … would each
+ * skip the cache and read the image from the database (security audit M5,
+ * #95). Any query string is a 404 without a database read.
  */
-export async function imageResponse(connect: () => AnyDb, file: string): Promise<Response> {
+export async function imageResponse(connect: () => AnyDb, file: string, search = ""): Promise<Response> {
+  if (search !== "") return notFound();
   const id = FILE_NAME.exec(file)?.[1];
   if (id === undefined) return notFound();
   const image = await getImageFile(connect(), id);
@@ -37,6 +43,9 @@ export async function imageResponse(connect: () => AnyDb, file: string): Promise
       "Content-Type": image.contentType,
       "Content-Length": String(image.bytes.byteLength),
       "Cache-Control": `public, max-age=${ONE_YEAR_SECONDS}, immutable`,
+      // For Vercel's CDN, which caches on this header (or s-maxage), not on
+      // max-age alone (security audit M6, #95).
+      "CDN-Cache-Control": `max-age=${ONE_YEAR_SECONDS}`,
       // Only ever an image: browsers mustn't guess another type, and other
       // sites can't embed it.
       "X-Content-Type-Options": "nosniff",

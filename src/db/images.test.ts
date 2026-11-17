@@ -9,7 +9,7 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { getImageFile, getLevelSrcs, IMAGE_ID, saveLevelImages, type LevelImageInput } from "./images.ts";
+import { getImageFile, getLevelSrcs, IMAGE_ID, MAX_LEVEL_BYTES, saveLevelImages, type LevelImageInput } from "./images.ts";
 import * as schema from "./schema.ts";
 
 const migrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url));
@@ -115,6 +115,16 @@ describe("saveLevelImages", () => {
   it("refuses levels that aren't 0..n-1 in order, or none at all", async () => {
     await expect(saveLevelImages(db, "pz-0a1b2c3d", [])).rejects.toThrow(/no levels/);
     await expect(saveLevelImages(db, "pz-0a1b2c3d", levels(3).reverse())).rejects.toThrow(/in order/);
+  });
+
+  it("refuses a level over MAX_LEVEL_BYTES, writing nothing", async () => {
+    const input = levels(3);
+    input[2] = { ...input[2]!, bytes: new Uint8Array(MAX_LEVEL_BYTES + 1) };
+    await expect(saveLevelImages(db, "pz-0a1b2c3d", input)).rejects.toThrow(/level 2 .* over the 1048576-byte limit/);
+    expect(await db.select().from(schema.imageFiles)).toHaveLength(0);
+    // Exactly at the limit is fine.
+    input[2] = { ...input[2]!, bytes: new Uint8Array(MAX_LEVEL_BYTES) };
+    await expect(saveLevelImages(db, "pz-0a1b2c3d", input)).resolves.toHaveLength(3);
   });
 
   it("refuses a cut with more or fewer images than the puzzle has zoom levels, writing nothing", async () => {

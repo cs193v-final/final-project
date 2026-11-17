@@ -33,6 +33,12 @@ export type LevelCut = {
  */
 export const MAX_LEVEL_WIDTH = 1600;
 
+/**
+ * Tallest image any level is cut to, so a very tall original can't make a
+ * level too big to store or serve (security audit L7, #95).
+ */
+export const MAX_LEVEL_HEIGHT = 1600;
+
 function checkSize({ width, height }: ImageSize): void {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
     throw new RangeError(`image size must be whole pixels of at least 1, got ${width}x${height}`);
@@ -62,15 +68,20 @@ export function levelCrop(size: ImageSize, reveal: Puzzle["reveal"], level: Reve
 }
 
 /**
- * The size to cut `crop` to: as is, or scaled down to `maxWidth` keeping its
- * shape. Never scaled up: that would only make a bigger, equally blurry file.
- * (Sharper deep zoom needs a bigger original, #34.)
+ * The size to cut `crop` to: as is, or scaled down to fit `maxWidth` and
+ * `maxHeight` keeping its shape. Never scaled up: that would only make a
+ * bigger, equally blurry file. (Sharper deep zoom needs a bigger original, #34.)
  */
-export function levelOutputSize(crop: ImageSize, maxWidth = MAX_LEVEL_WIDTH): ImageSize {
+export function levelOutputSize(crop: ImageSize, maxWidth = MAX_LEVEL_WIDTH, maxHeight = MAX_LEVEL_HEIGHT): ImageSize {
   checkSize(crop);
   if (!Number.isInteger(maxWidth) || maxWidth < 1) throw new RangeError(`maxWidth must be a whole number of at least 1`);
-  if (crop.width <= maxWidth) return { width: crop.width, height: crop.height };
-  return { width: maxWidth, height: Math.max(1, Math.round((crop.height * maxWidth) / crop.width)) };
+  if (!Number.isInteger(maxHeight) || maxHeight < 1) throw new RangeError(`maxHeight must be a whole number of at least 1`);
+  if (crop.width <= maxWidth && crop.height <= maxHeight) return { width: crop.width, height: crop.height };
+  // Whichever side is further over its cap sets the scale.
+  if (crop.width / maxWidth >= crop.height / maxHeight) {
+    return { width: maxWidth, height: Math.max(1, Math.round((crop.height * maxWidth) / crop.width)) };
+  }
+  return { width: Math.max(1, Math.round((crop.width * maxHeight) / crop.height)), height: maxHeight };
 }
 
 /** Every level's cut, in order: level 0 (tightest) to the full image. */

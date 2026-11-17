@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cropTransform, zoomAt } from "./crop.ts";
-import { levelCrop, levelOutputSize, MAX_LEVEL_WIDTH, planLevels } from "./levels.ts";
+import { levelCrop, levelOutputSize, MAX_LEVEL_HEIGHT, MAX_LEVEL_WIDTH, planLevels } from "./levels.ts";
 import type { Puzzle } from "./types.ts";
 
 // Spec for #57's cut math: each level shows exactly the window the CSS crop
@@ -76,6 +76,17 @@ describe("levelOutputSize", () => {
   it("scales a wide crop down to the cap, keeping its shape", () => {
     expect(levelOutputSize({ width: 4000, height: 3000 })).toEqual({ width: MAX_LEVEL_WIDTH, height: 1200 });
     expect(levelOutputSize({ width: 1920, height: 1280 }, 960)).toEqual({ width: 960, height: 640 });
+  });
+
+  it("scales a tall crop down to the height cap too, so no level is too big to serve", () => {
+    // A 1200 × 12000 original used to give a 9.3 MB level.
+    expect(levelOutputSize({ width: 1200, height: 12000 })).toEqual({ width: 160, height: MAX_LEVEL_HEIGHT });
+    expect(levelOutputSize({ width: 1600, height: 1601 })).toEqual({ width: 1599, height: MAX_LEVEL_HEIGHT });
+  });
+
+  it("uses whichever cap the crop is further over", () => {
+    expect(levelOutputSize({ width: 6400, height: 3200 })).toEqual({ width: MAX_LEVEL_WIDTH, height: 800 });
+    expect(levelOutputSize({ width: 3200, height: 6400 })).toEqual({ width: 800, height: MAX_LEVEL_HEIGHT });
   });
 });
 
