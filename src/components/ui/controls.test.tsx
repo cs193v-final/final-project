@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { Button, ButtonLink, FOCUS_RING, PrototypeNotice, SectionHeading, TextLink, type ButtonVariant } from "./controls";
+import { Button, ButtonLink, FOCUS_RING, PrototypeNotice, SectionHeading, TextInput, TextLink, type ButtonVariant } from "./controls";
 
 // Spec for the shared controls (#89): the same look and behavior on every
 // screen, with visible keyboard focus and targets of at least 24 × 24 px.
@@ -62,6 +63,28 @@ describe("Button", () => {
     expect(screen.getByRole("button", { name: "Skip" })).not.toHaveAttribute("aria-disabled");
   });
 
+  it('says aria-disabled="false" when it can be disabled but isn\'t right now, and then works', async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    render(
+      <Button disabled={false} onClick={onClick}>
+        Zoom out
+      </Button>,
+    );
+    const button = screen.getByRole("button", { name: "Zoom out" });
+    expect(button).toHaveAttribute("aria-disabled", "false");
+    await user.click(button);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes a ref to the button, so focus can move to it (e.g. Next image after a round)", () => {
+    const ref = createRef<HTMLButtonElement>();
+    render(<Button ref={ref}>Next image</Button>);
+    expect(ref.current).toBe(screen.getByRole("button", { name: "Next image" }));
+    ref.current?.focus();
+    expect(screen.getByRole("button", { name: "Next image" })).toHaveFocus();
+  });
+
   it("keeps extra classes from the caller, e.g. for layout", () => {
     render(<Button className="self-start">Next image</Button>);
     expect(screen.getByRole("button", { name: "Next image" })).toHaveClass("self-start");
@@ -81,6 +104,25 @@ describe("ButtonLink and TextLink", () => {
   });
 });
 
+describe("TextInput", () => {
+  it("is a text box named by its label, and passes on what it's given", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <>
+        <label htmlFor="guess">What is it?</label>
+        <TextInput id="guess" autoComplete="off" onChange={onChange} className="flex-1" />
+      </>,
+    );
+    const box = screen.getByRole("textbox", { name: "What is it?" });
+    expect(box).toHaveAttribute("type", "text");
+    expect(box).toHaveAttribute("autocomplete", "off");
+    expect(box).toHaveClass("flex-1");
+    await user.type(box, "x");
+    expect(onChange).toHaveBeenCalled();
+  });
+});
+
 describe("every control meets the same focus and size rules (WCAG 2.2 AA)", () => {
   function controls() {
     render(
@@ -96,9 +138,10 @@ describe("every control meets the same focus and size rules (WCAG 2.2 AA)", () =
           </ButtonLink>
         ))}
         <TextLink href="/">text link</TextLink>
+        <TextInput aria-label="text box" />
       </>,
     );
-    return [...screen.getAllByRole("button"), ...screen.getAllByRole("link")];
+    return [...screen.getAllByRole("button"), ...screen.getAllByRole("link"), screen.getByRole("textbox")];
   }
 
   it("shows the same visible focus ring on every control (2.4.7 Focus Visible)", () => {
