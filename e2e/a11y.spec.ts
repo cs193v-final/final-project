@@ -1,16 +1,19 @@
+import { randomBytes } from "node:crypto";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { parsePuzzles } from "@/game/puzzles";
 // The same data as SAMPLE_PUZZLES; see practice.spec.ts for why it's a JSON import.
 import sample from "@/puzzles/sample.json" with { type: "json" };
+import { checkVisibleText, guess, guessBox, siteNav, tabToStartPractice, waitForAccountLinks } from "./helpers";
 
 // Accessibility (#49): WCAG 2.2 AA on every screen, in light and dark mode.
 //
 // - axe-core checks the WCAG 2.0, 2.1 and 2.2 A and AA rules it can test
 //   automatically (names, roles, labels, contrast it can compute, ...).
 // - A font-size check: no visible text smaller than 12 px.
-// - Right and wrong are never shown by color alone: each has words and a
-//   symbol, also with colors removed (Chromium's achromatopsia emulation).
+// - Right and wrong are never shown by color alone: each has its own words and
+//   symbol (✓ / ✗). Whether the colors themselves are told apart by people with
+//   color blindness was checked by hand (#49); this test doesn't look at color.
 // - A full keyboard-only playthrough.
 // Text contrast is also measured on the rendered page in contrast.spec.ts
 // (#89). What a person still checks by hand is listed in #49.
@@ -33,19 +36,15 @@ async function expectNoAxeViolations(page: Page, screen: string) {
 }
 
 /** Every visible text smaller than MIN_FONT_PX, as `14px "text"`. */
-async function tinyText(page: Page): Promise<string[]> {
-  return page.evaluate((min) => {
-    const found = new Set<string>();
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const text = node.textContent?.trim();
-      const el = node.parentElement;
-      if (!text || !el || !el.checkVisibility()) continue;
+function tinyText(page: Page): Promise<string[]> {
+  return checkVisibleText(
+    page,
+    (min: number) => (el: Element, text: string) => {
       const size = parseFloat(getComputedStyle(el).fontSize);
-      if (size < min) found.add(`${size}px "${text.slice(0, 40)}"`);
-    }
-    return [...found];
-  }, MIN_FONT_PX);
+      return size < min ? `${size}px "${text.slice(0, 40)}"` : null;
+    },
+    MIN_FONT_PX,
+  );
 }
 
 async function checkScreen(page: Page, screen: string) {
@@ -53,31 +52,25 @@ async function checkScreen(page: Page, screen: string) {
   expect(await tinyText(page), `text smaller than ${MIN_FONT_PX}px on ${screen}`).toEqual([]);
 }
 
-const guessBox = (page: Page) => page.getByRole("textbox", { name: "What is it?" });
-
-async function guess(page: Page, text: string) {
-  await guessBox(page).fill(text);
-  await page.getByRole("button", { name: "Guess", exact: true }).click();
-}
-
 for (const colorScheme of ["light", "dark"] as const) {
   test.describe(`${colorScheme} mode`, () => {
-    test.beforeEach(async ({ page }) => {
-      await page.emulateMedia({ colorScheme });
-    });
+    test.use({ colorScheme });
 
     test("home, log-in, sign-up (with errors) and not-found screens meet WCAG 2.2 AA", async ({ page }) => {
+      // Each screen waits for the header's Log in link, which streams in after the page shell.
       await page.goto("/");
-      await expect(page.getByRole("link", { name: "Log in" })).toBeVisible();
+      await waitForAccountLinks(page);
       await checkScreen(page, "home");
 
       await page.goto("/login");
+      await waitForAccountLinks(page);
       await checkScreen(page, "log in");
       await page.getByRole("button", { name: "Log in" }).click();
       await expect(page.getByLabel("Username")).toHaveAttribute("aria-invalid", "true");
       await checkScreen(page, "log in with errors");
 
       await page.goto("/register");
+      await waitForAccountLinks(page);
       await checkScreen(page, "sign up");
       await page.getByLabel("Username").fill("someone@example.com");
       await page.getByLabel("Password").fill("short");
@@ -86,6 +79,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await checkScreen(page, "sign up with errors");
 
       await page.goto("/no-such-page");
+      await waitForAccountLinks(page);
       await checkScreen(page, "not found");
     });
 
@@ -104,6 +98,8 @@ for (const colorScheme of ["light", "dark"] as const) {
       await checkScreen(page, "game, after a wrong guess");
 
       await page.getByRole("button", { name: "Zoom out" }).click();
+      // Audit the new level, not the in-between state while the server answers.
+      await expect(page.getByText("Zoom level 2 of")).toBeVisible();
       await checkScreen(page, "game, zoomed out");
 
       await guess(page, first.answer);
@@ -120,14 +116,17 @@ for (const colorScheme of ["light", "dark"] as const) {
       await checkScreen(page, "final score");
     });
 
-    test("the account screens meet WCAG 2.2 AA when logged in", async ({ page }) => {
-      const username = `a11y_${colorScheme}_${Date.now().toString(36)}`.slice(0, 20);
+    test("the account screens meet WCAG 2.2 AA when logged in", async ({ page }, testInfo) => {
+      // Unique across color schemes, projects (desktop and phone run in parallel
+      // against one database), workers and runs. At most 17 characters (the
+      // limit is 20): letters, digits and _ only.
+      const where = `${colorScheme[0]}${testInfo.project.name[0]}${testInfo.workerIndex}`;
+      const username = `a11y${where}_${randomBytes(4).toString("hex")}`;
       await page.goto("/register");
       await page.getByLabel("Username").fill(username);
       await page.getByLabel("Password").fill("a long test password");
       await page.getByRole("button", { name: "Create account" }).click();
-      const site = page.getByRole("navigation", { name: "Site" });
-      await expect(site.getByRole("button", { name: "Log out" })).toBeVisible();
+      await expect(siteNav(page).getByRole("button", { name: "Log out" })).toBeVisible();
       await checkScreen(page, "after signing up (logged-in header)");
 
       await page.goto("/account");
@@ -137,48 +136,40 @@ for (const colorScheme of ["light", "dark"] as const) {
   });
 }
 
-test("right and wrong are told apart by words and symbols, not only color, even with colors removed", async ({ page }) => {
-  // Chromium's vision-deficiency emulation: achromatopsia shows no color at all.
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("Emulation.setEmulatedVisionDeficiency", { type: "achromatopsia" });
-
+test("right and wrong are told apart by their words and a symbol, not only by color", async ({ page }) => {
+  // This checks the cues that don't depend on color. It doesn't look at the
+  // colors themselves (that was checked by hand with a colorblind simulator, #49).
   await page.goto("/play");
   const status = page.getByRole("status");
+
   await guess(page, "definitely not it");
-  await expect(status).not.toBeEmpty();
-  const wrong = (await status.innerText()).trim();
+  await expect(status).toContainText("isn't it (1 wrong guess)");
+  await expect(status.getByText("✗", { exact: true })).toBeVisible();
+  await expect(status).not.toContainText("✓");
 
   await guess(page, first.answer);
-  await expect(status).not.toHaveText(wrong);
-  await expect(status).not.toBeEmpty();
-  const right = (await status.innerText()).trim();
-
-  // Each message is words, and the two differ in their words, so nobody needs color to tell them apart.
-  expect(wrong).toMatch(/[a-z]{3,}/i);
-  expect(right).toMatch(/[a-z]{3,}/i);
-  expect(right).not.toBe(wrong);
-  // The ✓ / ✗ symbols are shown next to the field (aria-hidden, since the text already says it).
-  await expect(page.getByText("✓").first()).toBeVisible();
+  await expect(status).toContainText(`Correct! It's ${first.answer}.`);
+  await expect(status.getByText("✓", { exact: true })).toBeVisible();
+  await expect(status).not.toContainText("✗");
 });
 
 test("a whole game can be played from the keyboard alone", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("link", { name: "Log in" })).toBeVisible();
-  // Home link, Log in, then Start practice.
-  for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "Start practice" })).toBeFocused();
+  await tabToStartPractice(page);
   await page.keyboard.press("Enter");
 
+  const zoomOut = page.getByRole("button", { name: "Zoom out" });
   for (const [i, puzzle] of puzzles.entries()) {
     // The guess box has focus at the start of every round.
     await expect(guessBox(page)).toBeFocused();
     if (i === 0) {
       // Reach Zoom out with Shift+Tab and use it, then come back to the guess box.
-      for (let n = 0; n < 6 && !(await page.getByRole("button", { name: "Zoom out" }).evaluate((el) => el === document.activeElement)); n++) {
+      for (let n = 0; n < 6 && !(await zoomOut.evaluate((el) => el === document.activeElement)); n++) {
         await page.keyboard.press("Shift+Tab");
       }
-      await expect(page.getByRole("button", { name: "Zoom out" })).toBeFocused();
+      await expect(zoomOut).toBeFocused();
       await page.keyboard.press("Enter");
+      // Wait for the server to answer: while a move is pending, a guess is dropped.
+      await expect(page.getByText("Zoom level 2 of")).toBeVisible();
       for (let n = 0; n < 6 && !(await guessBox(page).evaluate((el) => el === document.activeElement)); n++) {
         await page.keyboard.press("Tab");
       }

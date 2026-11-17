@@ -1,13 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { MODES } from "@/components/modes";
 import { GAME_NAME } from "@/site";
+import { homeLink, tabToStartPractice } from "./helpers";
 
 // The home screen and navigation in a real browser (#50): the mode picker,
 // and a way home from every screen, by mouse, keyboard and the Back button.
 // Modes come from `MODES`, so marking a mode available doesn't need a test change.
 
-const homeLink = (page: Page) =>
-  page.getByRole("navigation", { name: "Site" }).getByRole("link", { name: `${GAME_NAME} home` });
 const picker = (page: Page) => page.getByRole("region", { name: "Choose a mode" });
 
 /** `/play`, optionally with the server game's id once games run on the server (#54). */
@@ -80,16 +79,8 @@ test("the header links home from the game and the final score screen", async ({ 
 });
 
 test("the whole trip works from the keyboard alone", async ({ page }) => {
-  await page.goto("/");
-  // Tab order: the home link, Log in (#53), then the only playable mode. Coming-soon cards are skipped.
-  // Log in streams in after the page shell (it reads the session cookie), so wait for it before tabbing.
-  await expect(page.getByRole("link", { name: "Log in" })).toBeVisible();
-  await page.keyboard.press("Tab");
-  await expect(homeLink(page)).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "Log in" })).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "Start practice" })).toBeFocused();
+  // Tab order: the home link, Log in (#53), then the only playable mode (see the helper).
+  await tabToStartPractice(page);
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(PLAY_URL);
 

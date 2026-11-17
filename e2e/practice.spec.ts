@@ -6,6 +6,7 @@ import type { Puzzle } from "@/game/types";
 // The same data as SAMPLE_PUZZLES (`@/puzzles`). Playwright runs specs as
 // native ES modules, which need the JSON import attribute that Next adds for us.
 import sample from "@/puzzles/sample.json" with { type: "json" };
+import { guess, guessBox } from "./helpers";
 
 // The whole practice game in a real browser (#44): start screen → /play →
 // wrong guess, zoom out, correct guess, skip → final score → Play again.
@@ -25,14 +26,8 @@ function puzzleAt(i: number) {
   return p;
 }
 
-const guessBox = (page: Page) => page.getByRole("textbox", { name: "What is it?" });
 const status = (page: Page) => page.getByRole("status");
 const score = (page: Page) => page.getByText(/^Score \d+$/);
-
-async function guess(page: Page, text: string) {
-  await guessBox(page).fill(text);
-  await page.getByRole("button", { name: "Guess", exact: true }).click();
-}
 
 /**
  * Where `puzzle`'s answer (or an accepted answer) appears in `body`, if

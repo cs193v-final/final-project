@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { parsePuzzles } from "@/game/puzzles";
 // The same data as SAMPLE_PUZZLES; see practice.spec.ts for why it's a JSON import.
 import sample from "@/puzzles/sample.json" with { type: "json" };
+import { checkVisibleText } from "./helpers";
 
 const count = parsePuzzles(sample).length;
 
@@ -12,7 +13,7 @@ const count = parsePuzzles(sample).length;
 
 /** Every visible text on the page that fails AA, as "4.39:1 (needs 4.5) "skipped"". */
 async function contrastFailures(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
+  return checkVisibleText(page, () => {
     // Turn any CSS color (oklch, rgb, …) into sRGB by painting one canvas pixel.
     const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
     const toRgba = (color: string): [number, number, number, number] => {
@@ -35,12 +36,7 @@ async function contrastFailures(page: Page): Promise<string[]> {
       return toRgba(getComputedStyle(document.documentElement).backgroundColor);
     };
 
-    const failures = new Set<string>();
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const text = node.textContent?.trim();
-      const el = node.parentElement;
-      if (!text || !el || !el.checkVisibility()) continue;
+    return (el: Element, text: string) => {
       const style = getComputedStyle(el);
       const fg = toRgba(style.color);
       const bg = backgroundOf(el);
@@ -49,10 +45,9 @@ async function contrastFailures(page: Page): Promise<string[]> {
       const ratio = (hi! + 0.05) / (lo! + 0.05);
       const size = parseFloat(style.fontSize);
       const needed = size >= 24 || (Number(style.fontWeight) >= 700 && size >= 18.66) ? 3 : 4.5;
-      if (ratio < needed) failures.add(`${ratio.toFixed(2)}:1 (needs ${needed}) "${text.slice(0, 40)}"`);
-    }
-    return [...failures];
-  });
+      return ratio < needed ? `${ratio.toFixed(2)}:1 (needs ${needed}) "${text.slice(0, 40)}"` : null;
+    };
+  }, undefined);
 }
 
 /**
