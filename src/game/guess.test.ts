@@ -241,6 +241,17 @@ describe("typo tolerance (#21, #115)", () => {
     ["Stanford Hall", [], "StanfordMall", null], // but not a missing space and a typo
     ["Stanford Hall", [], "Stan ford Hall", "Stanford Hall"], // an extra space alone is forgiven too
     ["Stanford Hall", [], "Stan ford Mall", null],
+    // Second review of #140: a moved space, letters NFD can't strip, a swapped first letter.
+    ["Hoover Tower", [], "Hoove rtower", "Hoover Tower"],
+    ["Stanford Hall", [], "Stan fordhall", "Stanford Hall"],
+    ["Stanford Hall", [], "Stanfor dmall", null], // a moved space and a typo
+    ["Øresund Bridge", [], "Oresund Bridge", "Øresund Bridge"],
+    ["Łódź", [], "Lodz", "Łódź"],
+    ["Straße", [], "Strasse", "Straße"],
+    ["Paris", [], "aPris", "Paris"],
+    ["Hoover Tower", [], "oHover Tower", "Hoover Tower"],
+    ["Oval", [], "vOal", null], // still one typo, and short words allow none
+    ["Paris", [], "aPirs", null], // a swapped start plus another typo is 2, over the 1 allowed
   ] as const)("for %j (alternates %j), %j is %j", (answer, alternates, guess, matched) => {
     const outcome = checkGuess({ answer, acceptedAnswers: [...alternates] }, guess);
     expect(outcome).toEqual(matched === null ? { kind: "incorrect", normalizedGuess: normalizeGuess(guess) } : { kind: "correct", matched });

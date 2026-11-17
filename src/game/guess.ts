@@ -54,12 +54,13 @@ export type AnswerMatcher = (normalizedGuess: string, normalizedAnswer: string) 
 export const exactMatch: AnswerMatcher = (guess, answer) => guess === answer;
 
 /**
- * How many typos a word allows, by its length (spaces aren't counted): none
- * for short words, where one letter makes another word ("oval" / "opal"),
- * 1 from 5 letters, 2 from 9. `typoTolerantMatch` applies it word by word.
+ * How many typos one word allows, by its length: none for short words, where
+ * one letter makes another word ("oval" / "opal"), 1 from 5 letters, 2 from 9.
+ * `typoTolerantMatch` applies it to each word on its own, never to a whole
+ * answer.
  */
 export function allowedTypos(word: string): number {
-  const length = [...word.replace(/ /gu, "")].length;
+  const length = [...word].length;
   if (length >= 9) return 2;
   if (length >= 5) return 1;
   return 0;
@@ -94,23 +95,51 @@ export function typoDistance(a: string, b: string, max = Infinity): number {
   return prev[y.length]!;
 }
 
-/** Remove accents: "élysée" -> "elysee". Letters like "œ" stay as they are. */
-const stripAccents = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").normalize("NFC");
+/**
+ * Latin letters that don't decompose into a base letter plus an accent, so
+ * NFD can't strip them: "øresund" -> "oresund", "łódź" -> "lodz". Lowercase
+ * only, since `normalizeGuess` lowercases first.
+ */
+const UNDECOMPOSABLE: Record<string, string> = {
+  ø: "o",
+  ł: "l",
+  đ: "d",
+  ð: "d",
+  ħ: "h",
+  ı: "i",
+  æ: "ae",
+  œ: "oe",
+  ß: "ss",
+  þ: "th",
+};
+const UNDECOMPOSABLE_RE = new RegExp(`[${Object.keys(UNDECOMPOSABLE).join("")}]`, "gu");
 
-type PreparedWord = { text: string; first: string | undefined; digits: string };
+/** Remove accents: "élysée" -> "elysee", "øresund" -> "oresund". */
+const stripAccents = (text: string) =>
+  text
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .normalize("NFC")
+    .replace(UNDECOMPOSABLE_RE, (letter) => UNDECOMPOSABLE[letter]!);
+
+type PreparedWord = { text: string; letters: string[]; digits: string };
 type Prepared = { words: PreparedWord[]; joined: string };
 
 function prepare(normalized: string): Prepared {
   const folded = stripAccents(normalized);
-  const words = folded.split(" ").map((text) => ({ text, first: [...text][0], digits: text.replace(/\D/gu, "") }));
+  const words = folded.split(" ").map((text) => ({ text, letters: [...text], digits: text.replace(/\D/gu, "") }));
   return { words, joined: folded.replace(/ /gu, "") };
 }
 
-/** The guess is the same for every answer `checkGuess` tries, so prepare it once. */
-let lastGuess: { normalized: string; prepared: Prepared } | undefined;
-function prepareGuess(normalized: string): Prepared {
-  if (lastGuess?.normalized !== normalized) lastGuess = { normalized, prepared: prepare(normalized) };
-  return lastGuess.prepared;
+/**
+ * Whether a guessed word starts like the answer's word: the same first letter,
+ * or the first two letters swapped ("aPris" for "Paris"), which is one typo
+ * like any other neighbouring swap and is counted by `typoDistance`.
+ */
+function sameStart(g: PreparedWord, a: PreparedWord): boolean {
+  const [g0, g1] = g.letters;
+  const [a0, a1] = a.letters;
+  return g0 === a0 || (g0 === a1 && g1 === a0);
 }
 
 /**
@@ -121,20 +150,21 @@ function prepareGuess(normalized: string): Prepared {
  * - guess and answer must have the same number of words;
  * - each word gets its own `allowedTypos`, by its own length;
  * - each word's first letter must match ("Mesa" isn't "Pesa", "Lake Magunita"
- *   isn't "Lake Lagunita");
+ *   isn't "Lake Lagunita"), unless it's swapped with the second ("aPris");
  * - each word's digits must match exactly ("Building 10" isn't "Building 11").
- * A missing or extra space alone is forgiven ("NotreDame" for "Notre Dame"),
- * but then the letters must be exactly the same: "StanfordMall" isn't
- * "Stanford Hall".
+ * A missing, extra or moved space alone is forgiven ("NotreDame" for "Notre
+ * Dame", "Hoove rtower" for "Hoover Tower"), but then the letters must be
+ * exactly the same: "StanfordMall" isn't "Stanford Hall".
  */
 export function typoCount(normalizedGuess: string, normalizedAnswer: string): number | undefined {
-  const guess = prepareGuess(normalizedGuess);
+  const guess = prepare(normalizedGuess);
   const answer = prepare(normalizedAnswer);
-  if (guess.words.length !== answer.words.length) return guess.joined === answer.joined ? 0 : undefined;
+  if (guess.joined === answer.joined) return 0; // same letters; only spaces (or accents) differ
+  if (guess.words.length !== answer.words.length) return undefined;
   let total = 0;
   for (const [i, a] of answer.words.entries()) {
     const g = guess.words[i]!;
-    if (g.first !== a.first || g.digits !== a.digits) return undefined;
+    if (!sameStart(g, a) || g.digits !== a.digits) return undefined;
     const max = allowedTypos(a.text);
     const distance = typoDistance(g.text, a.text, max);
     if (distance > max) return undefined;
