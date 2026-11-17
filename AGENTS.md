@@ -18,7 +18,8 @@ Rules for any coding agent working in this repo. Keep this file short. Project c
 - `src/app/`: routes (App Router). `page.tsx` is currently a **placeholder** home page.
 - `src/game/`: framework-independent game logic (types, guess checking, round state). No React or Next imports here, so it stays unit-testable. Tests sit next to the code as `*.test.ts`.
 - `src/components/`: React components (`src/components/game/` for game UI). Mark files that use state or events with `"use client"`.
-- `public/`: static files (puzzle images go here or in a subfolder).
+- `src/images/`: cutting puzzle images into one image per zoom level (`sharp`, #57). Scripts only: never import it from app code. The app serves already-cut levels from `/img/<id>.webp`.
+- `public/`: static files. Only the practice pack's images go here; daily and Stanford images never do (the repo is public).
 - **Tests:** Vitest. Logic tests run in Node. Component tests use React Testing Library and start with `// @vitest-environment jsdom`; jest-dom matchers (`toHaveFocus`, ...) are set up in `src/test/setup.ts`. Query by role and label, like a user would.
 - **End-to-end tests:** Playwright specs in `e2e/` play the real app in headless Chromium, on a desktop and a phone viewport (`playwright.config.ts`). Take answers and points from the puzzle data and `SCORING_CONFIG`, not hard-coded values. `@playwright/test` is pinned to the course container's `playwright --version`, whose Chromium is preinstalled, so don't run `playwright install` there. On your own computer, run `npx playwright install chromium` once.
 - Import from `src` with the `@/` alias (`@/game/guess`).

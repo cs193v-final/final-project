@@ -19,8 +19,15 @@
     {
       "idx": 2,
       "version": "7",
-      "when": 1794893799047,
-      "tag": "0002_rate_limits",
+      "when": 1794879207925,
+      "tag": "0002_image_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794895701092,
+      "tag": "0003_rate_limits",
       "breakpoints": true
     }
   ]

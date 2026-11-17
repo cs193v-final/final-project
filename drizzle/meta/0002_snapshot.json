@@ -1,5 +1,5 @@
 {
-  "id": "a631340c-f857-489b-9df9-bf3c7c98e256",
+  "id": "2740beda-4c1a-4bd0-9082-fd933fb3927b",
   "prevId": "e85f5af3-c130-4014-8966-0295497906dc",
   "version": "7",
   "dialect": "postgresql",
@@ -380,6 +380,101 @@
       },
       "isRLSEnabled": false
     },
+    "public.image_files": {
+      "name": "image_files",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "puzzle_id": {
+          "name": "puzzle_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bytes": {
+          "name": "bytes",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "width": {
+          "name": "width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "height": {
+          "name": "height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "image_files_puzzle_id_idx": {
+          "name": "image_files_puzzle_id_idx",
+          "columns": [
+            {
+              "expression": "puzzle_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "image_files_puzzle_id_puzzles_id_fk": {
+          "name": "image_files_puzzle_id_puzzles_id_fk",
+          "tableFrom": "image_files",
+          "tableTo": "puzzles",
+          "columnsFrom": [
+            "puzzle_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "image_files_id_format": {
+          "name": "image_files_id_format",
+          "value": "\"image_files\".\"id\" ~ '^[0-9a-f]{32}$'"
+        },
+        "image_files_content_type": {
+          "name": "image_files_content_type",
+          "value": "\"image_files\".\"content_type\" IN ('image/webp')"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.pack_puzzles": {
       "name": "pack_puzzles",
       "schema": "",
@@ -699,58 +794,6 @@
         "puzzles_ai_solved_level_range": {
           "name": "puzzles_ai_solved_level_range",
           "value": "\"puzzles\".\"ai_solved_level\" IS NULL OR (\"puzzles\".\"ai_solved_level\" >= 0 AND \"puzzles\".\"ai_solved_level\" < cardinality(\"puzzles\".\"zoom_levels\"))"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.rate_limits": {
-      "name": "rate_limits",
-      "schema": "",
-      "columns": {
-        "key": {
-          "name": "key",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "window_start": {
-          "name": "window_start",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "count": {
-          "name": "count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "rate_limits_window_start_idx": {
-          "name": "rate_limits_window_start_idx",
-          "columns": [
-            {
-              "expression": "window_start",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "rate_limits_count_min": {
-          "name": "rate_limits_count_min",
-          "value": "\"rate_limits\".\"count\" >= 1"
         }
       },
       "isRLSEnabled": false

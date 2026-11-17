@@ -62,7 +62,8 @@ browser (PracticeGame)                          server
 | `sessions` | `token_hash`, `user_id`, `expires_at` | The cookie token is stored only as a hash (primary key). Deleted with the user. |
 | `packs` | `kind` (practice / daily / stanford / lobby), title, theme, `scoring` (per-pack override, #64; NULL = default) | Opaque text id |
 | `puzzles` | answer, accepted answers, full image, focus and zoom levels, credit, `ai_solved_level` (#56) | Opaque text id. Server-only. `zoom_levels` must have at least 2 levels, each a finite number ≥ 1, ending at 1 (the full image), like `parsePuzzles` requires (follow-up A from the #74 review). That each level is smaller than the one before can't be a CHECK, so it stays in the loader, which the seed script (#52) runs on every puzzle. |
-| `puzzle_images` | one image `src` per reveal level (#57) | (puzzle, level), `level` ≥ 0 and 0-based like `zoom_levels`. The upper bound (below the number of zoom levels) isn't a CHECK because it depends on the puzzle row, so whatever loads per-level images (#57) must check it. Deleted with the puzzle. |
+| `puzzle_images` | one image `src` per reveal level (#57): the URL the browser loads, `/img/<id>.webp` | (puzzle, level), `level` ≥ 0 and 0-based like `zoom_levels`. The upper bound (below the number of zoom levels) isn't a CHECK because it depends on the puzzle row, so `saveLevelImages` (#57) checks it. Deleted with the puzzle. |
+| `image_files` | the bytes of each cut level image (WebP), width, height (#57) | Random 32-hex id, which is the secret part of the URL. Deleted with the puzzle. |
 | `pack_puzzles` | a pack's puzzles in play order | (pack, position), 1-based; a puzzle at most once per pack. A puzzle in a pack can't be deleted. |
 | `daily_schedule` | which pack is a day's daily challenge | `date` is the primary key, so one pack per day |
 | `games` | a game: pack, owner (`user_id`, or `anon_owner_hash` if anonymous play is allowed), full `state` as JSON so a game resumes across requests (#54), `revision` (a save only applies if it hasn't changed, so two fast requests can't both update a game), `total`, `finished_at` | Deleted with the user. Never both owners. |
@@ -141,6 +142,17 @@ The writes are separate statements, not one transaction. If a run stops partway,
 
 **Reading content in the app:** `getPuzzles(db, ids)`, `getPack(db, id)` and `getDailyEntry(db, date)` in `src/db/content.ts`. Server-only, like everything in `src/db/`.
 
+### Images per zoom level (#57)
+
+The browser used to get each puzzle's full image and crop it with CSS, so anyone could open the whole picture at level 0. Now each zoom level is cut ahead of time into its own image, and the browser only gets the level the player has reached.
+
+- **Cutting.** `cutLevels` (`src/images/cut.ts`, using `sharp`) makes one WebP per level. Each shows exactly the window the CSS crop showed (`planLevels` in `src/game/levels.ts`). Phone photos are turned upright first. Images are never upscaled, and are at most 1600 × 1600 px, so a large original never reaches the browser. **All metadata is dropped**, including GPS location, which could otherwise name a landmark. Originals must be JPEG, PNG, WebP or HEIF and at most 50 megapixels, and levels are cut one at a time; `saveLevelImages` refuses any level over 1 MiB (security audit, #95).
+- **Storage (decided in #57): Postgres.** The bytes go in `image_files`, and `puzzle_images` maps each (puzzle, level) to its URL. No extra service or token: it uses the database credentials we already have. About 25 MB for ~60 puzzles, well within Neon's free 0.5 GB. We chose this over Vercel Blob, whose store and upload token only the Vercel project owner could manage on the free tier.
+- **Serving.** `GET /img/<id>.webp` (`src/app/img/[file]/route.ts`, `src/server/images.ts`). The response is cached for a year by browsers (`Cache-Control: … immutable`) and by Vercel's CDN (`CDN-Cache-Control`; still to confirm on a preview deploy with `x-vercel-cache: HIT`), so most loads never reach the database. A missing image is a 404 that isn't cached. Anything but 32 hex characters plus `.webp`, and any URL with a query string (which the CDN would cache separately), is a 404 without a query. Once an image is cached it can only be taken back with a Vercel cache purge, even after its row is deleted.
+- **What protects a level: a secret URL.** Each image id is 128 random bits, never derived from the puzzle, the level or the answer. The server only sends the current level's URL (`PublicRound.imageSrc`), and one URL says nothing about another. Re-cutting a puzzle gives every level a new id and deletes the old files. A player could share a URL they've reached, which is no worse than sharing the answer.
+- **Previewing levels while writing content.** `npm run images:preview -- photo.jpg --focus 0.4,0.66 --zoom 10,5,2.5,1` writes every level to a temporary folder (or `--out`), and says which levels will look soft on a 2× screen, meaning the original is too small for that zoom (#34). It won't write inside the repo unless that folder is git-ignored; symlinks are followed first, and a folder named like `..previews` still counts as inside.
+- **Still to do (after #54 merges; #52 has):** a command that cuts every seeded puzzle into the database, the game sending `imageSrc` from `puzzle_images`, the viewer showing pre-cut images, and removing the temporary `PublicRound.reveal`.
+
 ## 4. Secrets and user information
 
 - **Secrets we have:** only the database connection strings (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`). No API keys.
@@ -187,7 +199,7 @@ Protection that applies to all of it, **in place now**:
 
 | Question | Next step |
 |---|---|
-| /play still reads the practice puzzles from the repo, and sends the full image | Since #52 the practice pack has opaque ids and image names, and the seed script also puts it in the database. /play reading puzzles from the database (and then writing `game_rounds`) is a follow-up; per-level images (#57) stop sending the full image. Anonymous play for daily packs is still open. |
+| /play still reads the practice puzzles from the repo, and sends the full image | Since #52 the practice pack has opaque ids and image names, and the seed script also puts it in the database. /play reading puzzles from the database (and then writing `game_rounds`) is a follow-up; per-level images (#57) stop sending the full image. Image storage is settled (Postgres, #57). Anonymous play for daily packs is still open. |
 | Scoring values and wrong-guess rules (#21) | Playtest the three-image prototype (notes in `PLAYTEST.md`), then change the values in `src/game/scoring-config.ts` |
 | Number of reveal steps; typo tolerance | Decide after the playtest. The code already accepts a pluggable answer matcher. |
 | Image sourcing and licenses | The three sample photos are CC BY-SA, with credits in the data (#32) and shown after each round (#35). Open: where to source daily puzzles, and neutral file names so they don't give the answer away (#36) |
