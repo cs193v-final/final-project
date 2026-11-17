@@ -15,9 +15,13 @@
  *   name and code only, never its message or `detail`.
  * - A `SyntaxError`: name only. `JSON.parse` quotes part of its input, which
  *   can be stored game state.
+ * - A database driver's error (`NeonDbError`, pg's `DatabaseError`): name and
+ *   code only, even without a code. Neon puts the raw HTTP response body in
+ *   the message for any status but 400.
  * - Any other error: name and message.
- * - Every error keeps its stack's `at …` lines (functions, files, lines), but
- *   not the stack's first line, which repeats the message.
+ * - Every error keeps its stack frames (`at …` lines ending in a file
+ *   position, `<anonymous>` or `index N`), but not the stack's first line,
+ *   which repeats the message.
  * - `cause`, Neon's `sourceError` (the network error under "fetch failed") and
  *   `AggregateError.errors` are followed by the same rules, to a bounded depth
  *   and count.
@@ -44,8 +48,18 @@ const MAX_AGGREGATE_ERRORS = 5;
 /** Total errors in one log entry, however they nest. */
 const MAX_ERRORS = 20;
 
-/** Postgres's SQLSTATE codes are five digits or capital letters (`23505`, `22P02`). */
-const POSTGRES_CODE = /^[0-9A-Z]{5}$/u;
+/**
+ * Postgres's SQLSTATE codes are five digits or capital letters (`23505`,
+ * `22P02`). No SQLSTATE class starts with E, so Node's five-letter errno codes
+ * (`EPIPE`, `EPERM`, `EBUSY`) keep their message.
+ */
+const POSTGRES_CODE = /^(?!E)[0-9A-Z]{5}$/u;
+
+/** Database drivers' error classes, whose messages can quote values or a raw response body. */
+const DRIVER_ERRORS = new Set(["NeonDbError", "DatabaseError"]);
+
+/** A stack frame: `at …` ending in a file position, `<anonymous>` or `index N`, with or without `)`. */
+const STACK_FRAME = /^at .*(?::\d+:\d+|<anonymous>|index \d+)\)?$/u;
 
 export function errorForLog(error: unknown): LoggedError {
   return toLogged(error, 0, { left: MAX_ERRORS });
@@ -64,7 +78,7 @@ function toLogged(error: unknown, depth: number, budget: { left: number }): Logg
   if (isQueryError) {
     // drizzle puts the params into the message, so use a fixed one.
     logged.message = "Failed query";
-  } else if (!(code !== undefined && POSTGRES_CODE.test(code)) && e.name !== "SyntaxError") {
+  } else if (!(code !== undefined && POSTGRES_CODE.test(code)) && e.name !== "SyntaxError" && !DRIVER_ERRORS.has(e.name)) {
     logged.message = e.message;
   }
   if (code !== undefined) logged.code = code;
@@ -74,7 +88,7 @@ function toLogged(error: unknown, depth: number, budget: { left: number }): Logg
   if (frames.length > 0) logged.stack = frames;
 
   const follow = (next: unknown): LoggedError | undefined =>
-    next !== undefined && depth < MAX_CAUSE_DEPTH && budget.left > 0 ? toLogged(next, depth + 1, budget) : undefined;
+    next != null && depth < MAX_CAUSE_DEPTH && budget.left > 0 ? toLogged(next, depth + 1, budget) : undefined;
 
   const cause = follow(e.cause);
   if (cause) logged.cause = cause;
@@ -91,9 +105,11 @@ function toLogged(error: unknown, depth: number, budget: { left: number }): Logg
 }
 
 /**
- * Only the `at …` lines. The stack starts with "Name: message", and the message
- * can span several lines, so everything up to the end of the message is cut
- * off first (a message line starting with "at " isn't mistaken for a frame).
+ * Only the stack frames. The stack starts with "Name: message", and the
+ * message can span several lines, so everything up to the end of the message
+ * is cut off first. If the message isn't in the stack (it was changed after
+ * the error was thrown), only lines shaped like real frames are kept, so a
+ * message line starting with "at " still isn't mistaken for one.
  */
 function stackFrames(e: Error): string[] {
   let stack = e.stack;
@@ -103,5 +119,5 @@ function stackFrames(e: Error): string[] {
   return stack
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.startsWith("at "));
+    .filter((line) => STACK_FRAME.test(line));
 }

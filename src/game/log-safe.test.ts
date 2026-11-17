@@ -71,6 +71,37 @@ describe("errorForLog", () => {
     expect(JSON.stringify(errorForLog(error))).not.toContain(GUESS);
   });
 
+  it("doesn't keep a message line as a frame when the message changed after the error was thrown", () => {
+    // The stack still holds the original multi-line message, which no longer
+    // matches `message`, so it can't be cut off by position.
+    const error = new Error(`line one\n    at ${GUESS}`);
+    void error.stack; // V8 formats the stack on first read; read it before the change.
+    error.message = `context: ${error.message}`;
+    expect(error.stack).toContain(`at ${GUESS}`);
+    const { stack } = errorForLog(error);
+    expect(stack?.length).toBeGreaterThan(0);
+    expect(JSON.stringify(stack)).not.toContain(GUESS);
+  });
+
+  it("keeps the message of Node's five-letter errno codes (EPIPE), which aren't Postgres codes", () => {
+    const epipe = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    expect(errorForLog(epipe)).toMatchObject({ code: "EPIPE", message: "write EPIPE" });
+  });
+
+  it("drops a database driver's message even without a code (Neon's raw HTTP response body)", () => {
+    const neon = Object.assign(new Error(`Server error (HTTP status 500): {"query":"${GUESS}"}`), { name: "NeonDbError" });
+    const logged = errorForLog(new DrizzleQueryError("select 1", [SECRET_PARAM], neon));
+    expect(logged.cause).toEqual({ name: "NeonDbError", stack: expect.any(Array) });
+    expect(JSON.stringify(logged)).not.toContain(GUESS);
+  });
+
+  it("ignores a null cause or sourceError instead of logging a fake entry", () => {
+    const error = Object.assign(new Error("x", { cause: null }), { sourceError: null });
+    const logged = errorForLog(error);
+    expect(logged.cause).toBeUndefined();
+    expect(logged.sourceError).toBeUndefined();
+  });
+
   it("follows Neon's sourceError, so a failed connection shows why (ECONNREFUSED)", () => {
     const refused = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:5432"), { code: "ECONNREFUSED" });
     const neon = Object.assign(new Error("Error connecting to database: fetch failed"), {
