@@ -1,5 +1,5 @@
 {
-  "id": "8cf7f22e-0c2a-49f6-878d-49c5877c6b17",
+  "id": "e85f5af3-c130-4014-8966-0295497906dc",
   "prevId": "76aed8f5-b9a5-4e8e-bab2-acf4be2c2a4f",
   "version": "7",
   "dialect": "postgresql",
@@ -380,101 +380,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.image_files": {
-      "name": "image_files",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "puzzle_id": {
-          "name": "puzzle_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "content_type": {
-          "name": "content_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bytes": {
-          "name": "bytes",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "width": {
-          "name": "width",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "height": {
-          "name": "height",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "image_files_puzzle_id_idx": {
-          "name": "image_files_puzzle_id_idx",
-          "columns": [
-            {
-              "expression": "puzzle_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "image_files_puzzle_id_puzzles_id_fk": {
-          "name": "image_files_puzzle_id_puzzles_id_fk",
-          "tableFrom": "image_files",
-          "tableTo": "puzzles",
-          "columnsFrom": [
-            "puzzle_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "image_files_id_format": {
-          "name": "image_files_id_format",
-          "value": "\"image_files\".\"id\" ~ '^[0-9a-f]{32}$'"
-        },
-        "image_files_content_type": {
-          "name": "image_files_content_type",
-          "value": "\"image_files\".\"content_type\" IN ('image/webp')"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.pack_puzzles": {
       "name": "pack_puzzles",
       "schema": "",
@@ -787,9 +692,9 @@
           "name": "puzzles_focus_y_range",
           "value": "\"puzzles\".\"focus_y\" BETWEEN 0 AND 1"
         },
-        "puzzles_zoom_levels_not_empty": {
-          "name": "puzzles_zoom_levels_not_empty",
-          "value": "cardinality(\"puzzles\".\"zoom_levels\") > 0"
+        "puzzles_zoom_levels_valid": {
+          "name": "puzzles_zoom_levels_valid",
+          "value": "array_ndims(\"puzzles\".\"zoom_levels\") = 1 AND array_lower(\"puzzles\".\"zoom_levels\", 1) = 1 AND cardinality(\"puzzles\".\"zoom_levels\") >= 2 AND \"puzzles\".\"zoom_levels\"[cardinality(\"puzzles\".\"zoom_levels\")] = 1 AND array_position(\"puzzles\".\"zoom_levels\", NULL) IS NULL AND 1 <= ALL(\"puzzles\".\"zoom_levels\") AND 'Infinity'::double precision > ALL(\"puzzles\".\"zoom_levels\")"
         },
         "puzzles_ai_solved_level_range": {
           "name": "puzzles_ai_solved_level_range",

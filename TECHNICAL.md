@@ -48,8 +48,8 @@ How a turn works today: **player clicks or types → the React page sends an act
 | `users` | username, `password_hash` | UUID id. Username unique ignoring case. No email column. |
 | `sessions` | `token_hash`, `user_id`, `expires_at` | The cookie token is stored only as a hash (primary key). Deleted with the user. |
 | `packs` | `kind` (practice / daily / stanford / lobby), title, theme, `scoring` (per-pack override, #64; NULL = default) | Opaque text id |
-| `puzzles` | answer, accepted answers, full image, focus and zoom levels, credit, `ai_solved_level` (#56) | Opaque text id. Server-only. |
-| `puzzle_images` | one image `src` per reveal level (#57): the URL the browser loads, `/img/<id>.webp` | (puzzle, level). Deleted with the puzzle. |
+| `puzzles` | answer, accepted answers, full image, focus and zoom levels, credit, `ai_solved_level` (#56) | Opaque text id. Server-only. `zoom_levels` must have at least 2 levels, each a finite number ≥ 1, ending at 1 (the full image), like `parsePuzzles` requires (follow-up A from the #74 review). That each level is smaller than the one before can't be a CHECK, so it stays in the loader, which the seed script (#52) runs on every puzzle. |
+| `puzzle_images` | one image `src` per reveal level (#57): the URL the browser loads, `/img/<id>.webp` | (puzzle, level), `level` ≥ 0 and 0-based like `zoom_levels`. The upper bound (below the number of zoom levels) isn't a CHECK because it depends on the puzzle row, so `saveLevelImages` (#57) checks it. Deleted with the puzzle. |
 | `image_files` | the bytes of each cut level image (WebP), width, height (#57) | Random 32-hex id, which is the secret part of the URL. Deleted with the puzzle. |
 | `pack_puzzles` | a pack's puzzles in play order | (pack, position), 1-based; a puzzle at most once per pack. A puzzle in a pack can't be deleted. |
 | `daily_schedule` | which pack is a day's daily challenge | `date` is the primary key, so one pack per day |
@@ -71,6 +71,8 @@ Every timestamp is `timestamptz`. Lobbies come later (#67).
 | dev | When a PR with a migration is ready to merge. Anyone with dev access may also run it to try the PR. | `.env.local`, which `drizzle.config.ts` reads only if the variable isn't set in the shell |
 | preview | Before deploying a preview of a PR that includes a migration | Typed at a hidden prompt for that one command, never saved in a file or shell history: `read -rs URL && DATABASE_URL_UNPOOLED="$URL" npm run db:migrate; unset URL`. The values live only in Vercel and the Neon console. |
 | production | Right before merging the PR (`main` deploys to production), and only after it passed on preview | Same as preview, with the production value |
+
+A migration that adds or tightens a CHECK fails if a row already in that database breaks it, so it can't leave bad data behind; fix the row (or the seed data) and run it again. `0001_zoom_level_checks` is one of these: it has to run on dev before its PR merges, then on preview and production as in the table above.
 
 If a migration fails partway, don't edit it; fix forward with a new migration, or restore the Neon branch to a point in time before the migration.
 

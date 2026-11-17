@@ -12,8 +12,15 @@
     {
       "idx": 1,
       "version": "7",
-      "when": 1794878067220,
-      "tag": "0001_image_files",
+      "when": 1794875949724,
+      "tag": "0001_zoom_level_checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794879207925,
+      "tag": "0002_image_files",
       "breakpoints": true
     }
   ]
