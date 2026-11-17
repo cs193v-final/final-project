@@ -171,6 +171,19 @@ describe("register", () => {
     expect(keys[0]).not.toContain(sha256Hex("203.0.113.7"));
   });
 
+  it("counts every IPv6 address in one /64 as one address (#150)", async () => {
+    for (let i = 0; i < RATE_LIMITS.registerPerIp.max; i++) {
+      expectOk(await register(db, { username: `six${i}`, password: PASSWORD }, req(`2001:db8:1:2::${(i + 1).toString(16)}`)));
+    }
+    expect(await register(db, { username: "rotated", password: PASSWORD }, req("2001:DB8:1:2:abcd:ef01:2345:6789"))).toMatchObject({
+      reason: "rate-limited",
+    });
+    // The next /64 over has its own count.
+    expectOk(await register(db, { username: "neighbor", password: PASSWORD }, req("2001:db8:1:3::1")));
+    const keys = (await rows<{ key: string }>("SELECT key FROM rate_limits")).map((r) => r.key);
+    expect(new Set(keys)).toEqual(new Set([ipKey(vault, "register", "2001:db8:1:2::"), ipKey(vault, "register", "2001:db8:1:3::")]));
+  });
+
   it("never stores a username in a rate-limit key (#84)", async () => {
     await login(db, { username: "Ethan", password: "wrong pass" }, req());
     const keys = (await rows<{ key: string }>("SELECT key FROM rate_limits")).map((r) => r.key);
@@ -234,6 +247,32 @@ describe("login", () => {
     }
     expect(await login(db, { username: "Ethan", password: PASSWORD }, req())).toMatchObject({ reason: "rate-limited" });
     expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("198.51.100.50")));
+  });
+
+  it("limits a client that rotates through addresses in its IPv6 /64 like one address (#150)", async () => {
+    const inPrefix = (i: number) => `2001:db8:abcd:12::${(i + 1).toString(16)}:${((i * 7919) & 0xffff).toString(16)}`;
+    for (let i = 0; i < RATE_LIMITS.loginPerIp.max; i++) {
+      expect(await login(db, { username: `guess${i}`, password: "wrong pass" }, req(inPrefix(i)))).toMatchObject({
+        reason: "wrong-credentials",
+      });
+    }
+    expect(await login(db, { username: "Ethan", password: PASSWORD }, req(inPrefix(RATE_LIMITS.loginPerIp.max)))).toMatchObject({
+      reason: "rate-limited",
+    });
+    expect(await login(db, { username: "Ethan", password: PASSWORD }, req("[2001:db8:abcd:12::ffff]"))).toMatchObject({
+      reason: "rate-limited",
+    });
+    // Another /64, and an IPv4 client, are unaffected.
+    expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("2001:db8:abcd:13::1")));
+    expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("198.51.100.50")));
+  });
+
+  it("counts an IPv4-mapped address with its plain IPv4 form", async () => {
+    for (let i = 0; i < RATE_LIMITS.loginPerIp.max; i++) {
+      await login(db, { username: `guess${i}`, password: "wrong pass" }, req(i % 2 ? "203.0.113.7" : "::ffff:203.0.113.7"));
+    }
+    expect(await login(db, { username: "Ethan", password: PASSWORD }, req("203.0.113.7"))).toMatchObject({ reason: "rate-limited" });
+    expect(ipKey(vault, "login", "::ffff:203.0.113.7")).toBe(ipKey(vault, "login", "203.0.113.7"));
   });
 
   it("an address over its limit can't add to a username's count, so it can't keep an account locked", async () => {
