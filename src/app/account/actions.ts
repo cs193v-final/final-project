@@ -23,13 +23,13 @@ async function finish(result: AuthResult, formData: FormData): Promise<AccountFo
 
 export async function registerAction(_prev: AccountFormState, formData: FormData): Promise<AccountFormState> {
   const input = { username: formData.get("username"), password: formData.get("password") };
-  const result = await register(getDb(), input, { ip: await requestIp(), now: new Date() });
+  const result = await register(getDb, input, { ip: await requestIp(), now: new Date() });
   return finish(result, formData);
 }
 
 export async function loginAction(_prev: AccountFormState, formData: FormData): Promise<AccountFormState> {
   const input = { username: formData.get("username"), password: formData.get("password") };
-  const result = await login(getDb(), input, { ip: await requestIp(), now: new Date() });
+  const result = await login(getDb, input, { ip: await requestIp(), now: new Date() });
   return finish(result, formData);
 }
 

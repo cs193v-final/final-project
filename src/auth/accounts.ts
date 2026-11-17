@@ -31,6 +31,14 @@ export const RATE_LIMITS = {
 /** Where a request came from. `ip` may be null (unknown); it's only ever stored hashed. */
 export type RequestInfo = { ip: string | null; now: Date };
 
+/**
+ * The database, or a function that returns it. Input is validated before the
+ * database is touched, so the app passes `getDb` and a bad form never needs a
+ * connection.
+ */
+export type DbSource = PgDb | (() => PgDb);
+const resolve = (source: DbSource): PgDb => (typeof source === "function" ? source() : source);
+
 export type FieldErrors = { username?: string; password?: string };
 
 export type AuthResult =
@@ -54,7 +62,7 @@ async function startSession(db: PgDb, user: PublicUser, now: Date): Promise<Auth
 }
 
 export async function register(
-  db: PgDb,
+  source: DbSource,
   input: { username: unknown; password: unknown },
   req: RequestInfo,
 ): Promise<AuthResult> {
@@ -71,6 +79,7 @@ export async function register(
     };
   }
 
+  const db = resolve(source);
   const { max, windowMs } = RATE_LIMITS.registerPerIp;
   if ((await hitRateLimit(db, ipKey("register", req.ip), windowMs, req.now)) > max) {
     return { ok: false, reason: "rate-limited", message: RATE_LIMITED };
@@ -82,7 +91,7 @@ export async function register(
 }
 
 export async function login(
-  db: PgDb,
+  source: DbSource,
   input: { username: unknown; password: unknown },
   req: RequestInfo,
 ): Promise<AuthResult> {
@@ -101,6 +110,7 @@ export async function login(
     };
   }
 
+  const db = resolve(source);
   // Count the attempt against both limits before checking the password, so a
   // blocked client learns nothing about whether its guess was right.
   const userHits = await hitRateLimit(db, loginUserKey(username), RATE_LIMITS.loginPerUser.windowMs, req.now);

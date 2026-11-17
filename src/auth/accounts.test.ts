@@ -237,3 +237,17 @@ describe("hitRateLimit", () => {
     expect((await rows<{ key: string }>("SELECT key FROM rate_limits")).map((r) => r.key)).toEqual(["new"]);
   });
 });
+
+describe("input checks", () => {
+  const noDb = () => {
+    throw new Error("the database should not be touched");
+  };
+
+  it("reject a bad sign-up before touching the database", async () => {
+    expect(await register(noDb, { username: "a@b.c", password: "x" }, req())).toMatchObject({ reason: "invalid" });
+  });
+
+  it("reject an empty login before touching the database", async () => {
+    expect(await login(noDb, { username: "", password: "" }, req())).toMatchObject({ reason: "invalid" });
+  });
+});

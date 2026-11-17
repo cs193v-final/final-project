@@ -31,6 +31,8 @@ Preview and production credentials are **never** stored in files. Jacky (the dep
 
 Schema and migrations (#47): the schema is `src/db/schema.ts` and the SQL migrations are in `drizzle/`. After changing the schema, run `npm run db:generate` and commit the new migration. `npm run db:migrate` applies migrations to the database in `DATABASE_URL_UNPOOLED` (your dev database from `.env.local` by default). Jacky applies them to preview and production; who runs what, and when, is in [TECHNICAL.md → Database](TECHNICAL.md#database-47).
 
+**Your test user (#53).** Accounts are username and password; there's no email and no password reset. To create your own test user in the dev database, put `TEST_USER_PASSWORD=<a password you don't use anywhere else>` in `.env.local`, then run `npm run db:test-user -- <username>` and log in at `/login`. An existing username is left unchanged. (The dev database needs the `rate_limits` migration first: `npm run db:migrate`.)
+
 ### 3. Run the app
 The app is [Next.js](https://nextjs.org) (see `AGENTS.md` → Stack). With Node 24+:
 ```bash
