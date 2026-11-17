@@ -1,5 +1,9 @@
 import { checkGuess, type CheckGuessOptions } from "./guess.ts";
-import type { GuessOutcome, Puzzle, RevealLevel, RoundState, ScoringEvent } from "./types.ts";
+import type { GameAction, GuessOutcome, Puzzle, RevealLevel, RoundState, ScoringEvent } from "./types.ts";
+
+// `GameAction` now lives in `types.ts` with the other shared types (#46).
+// Re-exported so existing imports from this module keep working.
+export type { GameAction };
 
 /** The current puzzle's round. */
 export type Round = {
@@ -20,12 +24,6 @@ export type Game = {
   /** True once the player has moved past the last puzzle's round. */
   finished: boolean;
 };
-
-export type GameAction =
-  | { type: "reveal" }
-  | { type: "guess"; guess: string }
-  | { type: "skip" }
-  | { type: "next" };
 
 export type RejectReason =
   | "game-finished" // any action after the last round
