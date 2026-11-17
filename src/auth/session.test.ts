@@ -1,7 +1,7 @@
 // The session cookie, the request's address and error logging (#53), with
 // stand-ins for next/headers and the database.
 import { DrizzleQueryError } from "drizzle-orm/errors";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const jar = new Map<string, { value: string; options?: unknown }>();
 let requestHeaders: Record<string, string> = {};
@@ -37,6 +37,10 @@ const NEW_TOKEN = newToken();
 
 const EXPIRES = new Date("2026-12-17T12:00:00Z");
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 /** A failed query as drizzle throws it: the token hash is in its params and its message. */
 function failedQuery(sql: string, tokenHash: string, code: string): DrizzleQueryError {
   const pg = Object.assign(new Error("terminating connection due to administrator command"), { name: "NeonDbError", code });
@@ -44,6 +48,8 @@ function failedQuery(sql: string, tokenHash: string, code: string): DrizzleQuery
 }
 
 beforeEach(() => {
+  // Tests run as if locally unless they say otherwise.
+  vi.stubEnv("VERCEL", "");
   jar.clear();
   requestHeaders = {};
   deleteSession.mockReset();
@@ -62,10 +68,29 @@ describe("the session cookie", () => {
     });
   });
 
-  it("is Secure over https or when the protocol is unknown, and not over plain http (like the owner cookie)", () => {
-    expect(sessionCookieOptions(EXPIRES, "https").secure).toBe(true);
-    expect(sessionCookieOptions(EXPIRES, null).secure).toBe(true);
-    expect(sessionCookieOptions(EXPIRES, "http").secure).toBe(false);
+  it("off Vercel, is Secure over https or when the protocol is unknown, and not over plain http (like the owner cookie)", () => {
+    expect(sessionCookieOptions(EXPIRES, "https", false).secure).toBe(true);
+    expect(sessionCookieOptions(EXPIRES, null, false).secure).toBe(true);
+    expect(sessionCookieOptions(EXPIRES, "http", false).secure).toBe(false);
+  });
+
+  it("on Vercel, is always Secure, even when the request says http or says nothing (#155)", () => {
+    for (const proto of ["https", "http", "HTTP", "http, https", null]) {
+      expect(sessionCookieOptions(EXPIRES, proto, true).secure, String(proto)).toBe(true);
+    }
+  });
+
+  it("is set Secure on Vercel even when the request says http (#155)", async () => {
+    vi.stubEnv("VERCEL", "1");
+    requestHeaders = { "x-forwarded-proto": "http" };
+    await setSessionCookie(NEW_TOKEN, EXPIRES);
+    expect(jar.get(SESSION_COOKIE)?.options).toMatchObject({ secure: true });
+  });
+
+  it("is set without Secure locally over plain http, so testing from a phone on the LAN works", async () => {
+    requestHeaders = { "x-forwarded-proto": "http" };
+    await setSessionCookie(NEW_TOKEN, EXPIRES);
+    expect(jar.get(SESSION_COOKIE)?.options).toMatchObject({ secure: false });
   });
 
   it("is set with those options for the request's protocol", async () => {
