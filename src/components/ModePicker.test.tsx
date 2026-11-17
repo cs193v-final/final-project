@@ -42,11 +42,16 @@ describe("ModePicker", () => {
 
   it("marks modes that aren't built as Coming soon, with no link to a dead end", () => {
     const { card } = setup();
-    for (const title of ["Daily challenge", "Stanford"]) {
+    for (const title of ["Stanford"]) {
       expect(within(card(title)).getByText("Coming soon")).toBeInTheDocument();
       expect(within(card(title)).queryByRole("link")).not.toBeInTheDocument();
     }
     expect(within(card("Practice")).queryByText("Coming soon")).not.toBeInTheDocument();
+  });
+
+  it("links the daily challenge to /daily (#58)", () => {
+    const { card } = setup();
+    expect(within(card("Daily challenge")).getByRole("link", { name: "Play today's" })).toHaveAttribute("href", "/daily");
   });
 
   it("doesn't list custom lobbies yet (stretch goal, #67)", () => {
@@ -57,6 +62,8 @@ describe("ModePicker", () => {
   it("puts only playable modes in the keyboard tab order", async () => {
     const user = userEvent.setup();
     setup();
+    await user.tab();
+    expect(screen.getByRole("link", { name: "Play today's" })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole("link", { name: "Start practice" })).toHaveFocus();
     await user.tab();

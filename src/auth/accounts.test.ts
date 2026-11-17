@@ -5,20 +5,33 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  deleteExpiredRateLimits,
-  deleteExpiredSessions,
-  deleteSession,
-  findSessionUser,
-  hitRateLimit,
-  type PgDb,
-} from "@/db/accounts";
+import { DecryptionError, Vault } from "@/crypto/vault";
+import { deleteExpiredRateLimits, deleteExpiredSessions, deleteSession, hitRateLimit, type PgDb } from "@/db/accounts";
 import * as schema from "@/db/schema";
 
-import { limitsAddress, login, loginUserKey, RATE_LIMITS, register, SESSION_DAYS, type AuthResult } from "./accounts";
+import {
+  ipKey,
+  limitsAddress,
+  login,
+  loginUserKey,
+  RATE_LIMITS,
+  register,
+  sessionUser,
+  SESSION_DAYS,
+  USERNAME_FIELD,
+  usernameIndex,
+  type AuthResult,
+} from "./accounts";
 import { sha256Hex } from "./crypto";
+
+// register and login read the key from the environment (getVault), like the
+// app. Stubbed for this file only (restored in afterAll), so other test files
+// in the same worker don't depend on file order.
+vi.stubEnv("DATA_ENCRYPTION_KEY", Buffer.alloc(32, 9).toString("base64"));
+const vault = Vault.fromEnv();
+const findSessionUser = (db: PgDb, tokenHash: string, now: Date) => sessionUser(db, vault, tokenHash, now);
 
 const migrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url));
 
@@ -33,6 +46,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  vi.unstubAllEnvs();
   await pg.close();
 });
 
@@ -59,8 +73,10 @@ describe("register", () => {
     const result = expectOk(await register(db, { username: "Ethan", password: PASSWORD }, req()));
     expect(result.user).toEqual({ id: expect.any(String), username: "Ethan" });
 
-    const [user] = await rows<{ username: string; password_hash: string }>("SELECT * FROM users");
-    expect(user!.username).toBe("Ethan");
+    const [user] = await rows<{ id: string; username_encrypted: string; username_index: string; password_hash: string }>(
+      "SELECT * FROM users",
+    );
+    expect(user!.id).toBe(result.user.id);
     expect(user!.password_hash).toMatch(/^\$argon2id\$/);
     expect(user!.password_hash).not.toContain(PASSWORD);
 
@@ -68,6 +84,28 @@ describe("register", () => {
     expect(session!.token_hash).toBe(sha256Hex(result.session.token));
     expect(session!.token_hash).not.toBe(result.session.token);
     expect(session!.expires_at.getTime()).toBe(at(SESSION_DAYS * 86_400_000).getTime());
+  });
+
+  it("stores the username only encrypted with the user's key, plus a keyed hash (#84)", async () => {
+    const { user } = expectOk(await register(db, { username: "Ethan", password: PASSWORD }, req()));
+    const [row] = await rows<Record<string, unknown>>("SELECT * FROM users");
+    expect(Object.keys(row!).sort()).toEqual(["created_at", "id", "password_hash", "username_encrypted", "username_index"]);
+    expect(JSON.stringify(row).toLowerCase()).not.toContain("ethan");
+    expect(vault.decrypt(user.id, USERNAME_FIELD, row!.username_encrypted as string)).toBe("Ethan");
+    expect(row!.username_index).toBe(usernameIndex(vault, "ethan"));
+    // Not a plain hash anyone could recompute from a list of names.
+    expect(row!.username_index).not.toBe(sha256Hex("ethan"));
+  });
+
+  it("another key can't read or find the username", async () => {
+    const { user } = expectOk(await register(db, { username: "Ethan", password: PASSWORD }, req()));
+    const other = new Vault(Buffer.alloc(32, 1));
+    const [row] = await rows<{ username_encrypted: string; username_index: string }>("SELECT * FROM users");
+    expect(() => other.decrypt(user.id, USERNAME_FIELD, row!.username_encrypted)).toThrow();
+    expect(usernameIndex(other, "ethan")).not.toBe(row!.username_index);
+    expect(await login(db, { username: "Ethan", password: PASSWORD }, req(), other)).toMatchObject({
+      reason: "wrong-credentials",
+    });
   });
 
   it("returns only the PublicUser fields", async () => {
@@ -127,7 +165,16 @@ describe("register", () => {
     const keys = (await rows<{ key: string }>("SELECT key FROM rate_limits")).map((r) => r.key);
     expect(keys).toHaveLength(1);
     expect(keys.join()).not.toContain("203.0.113.7");
-    expect(keys[0]).toBe(`register:ip:${sha256Hex("203.0.113.7")}`);
+    expect(keys[0]).toBe(ipKey(vault, "register", "203.0.113.7"));
+    // A keyed hash: an unkeyed SHA-256 of every IPv4 address would reverse it.
+    expect(keys[0]).not.toContain(sha256Hex("203.0.113.7"));
+  });
+
+  it("never stores a username in a rate-limit key (#84)", async () => {
+    await login(db, { username: "Ethan", password: "wrong pass" }, req());
+    const keys = (await rows<{ key: string }>("SELECT key FROM rate_limits")).map((r) => r.key);
+    expect(keys).toContain(loginUserKey(vault, "ETHAN"));
+    expect(keys.join().toLowerCase()).not.toContain("ethan");
   });
 });
 
@@ -199,7 +246,7 @@ describe("login", () => {
         reason: "rate-limited",
       });
     }
-    const [row] = await rows<{ key: string }>(`SELECT key FROM rate_limits WHERE key = '${loginUserKey("Ethan")}'`);
+    const [row] = await rows<{ key: string }>(`SELECT key FROM rate_limits WHERE key = '${loginUserKey(vault, "Ethan")}'`);
     expect(row).toBeUndefined();
     expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("192.0.2.80")));
   });
@@ -210,7 +257,15 @@ describe("login", () => {
     }
     const keys = (await rows<{ key: string }>("SELECT key FROM rate_limits")).map((r) => r.key).join("\n").toLowerCase();
     for (const typed of ["alice", "example.com", "mysecretpassw0rd", "ethan"]) expect(keys).not.toContain(typed);
-    expect(keys).toContain(loginUserKey("ETHAN"));
+    expect(keys).toContain(loginUserKey(vault, "ETHAN"));
+  });
+
+  it("decrypts the username before clearing the username's attempts, so a bad key doesn't reset the limit", async () => {
+    await pg.exec(`UPDATE users SET username_encrypted = 'v1.${"A".repeat(16)}.${"A".repeat(40)}'`);
+    await expect(login(db, { username: "Ethan", password: PASSWORD }, req())).rejects.toThrow(DecryptionError);
+    const [row] = await rows<{ count: number }>(`SELECT count FROM rate_limits WHERE key = '${loginUserKey(vault, "Ethan")}'`);
+    expect(row?.count).toBe(1);
+    expect(await rows("SELECT * FROM sessions")).toHaveLength(1); // only the one from sign-up
   });
 
   it("refuses a username no account could have, without touching the database", async () => {
@@ -233,6 +288,26 @@ describe("sessions", () => {
     const hash = sha256Hex(session.token);
     expect(await findSessionUser(db, hash, at(SESSION_DAYS * 86_400_000 - 1))).toEqual(user);
     expect(await findSessionUser(db, hash, at(SESSION_DAYS * 86_400_000))).toBeNull();
+  });
+
+  it("count as logged out when the username doesn't decrypt (another key), and that session is ended", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { session } = expectOk(await register(db, { username: "ethan", password: PASSWORD }, req()));
+    const other = new Vault(Buffer.alloc(32, 1));
+    expect(await sessionUser(db, other, sha256Hex(session.token), T0)).toBeNull();
+    expect(await rows("SELECT * FROM sessions")).toHaveLength(0);
+    expect(error).toHaveBeenCalledWith(expect.stringMatching(/DATA_ENCRYPTION_KEY/));
+    expect(JSON.stringify(error.mock.calls)).not.toContain("ethan");
+    error.mockRestore();
+  });
+
+  it("still throw for a database error", async () => {
+    const broken = {
+      select: () => {
+        throw new Error("Failed query");
+      },
+    } as unknown as PgDb;
+    await expect(sessionUser(broken, vault, "x".repeat(64), T0)).rejects.toThrow("Failed query");
   });
 
   it("can't be found by the raw token, only by its hash", async () => {

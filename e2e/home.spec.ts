@@ -79,7 +79,7 @@ test("the header links home from the game and the final score screen", async ({ 
 });
 
 test("the whole trip works from the keyboard alone", async ({ page }) => {
-  // Tab order: the home link, Log in (#53), then the only playable mode (see the helper).
+  // Tab order: the home link, Log in (#53), then the playable modes (Daily, then Practice); see the helper.
   await tabToStartPractice(page);
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(PLAY_URL);

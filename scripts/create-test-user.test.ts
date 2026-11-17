@@ -5,7 +5,9 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { usernameIndex } from "../src/auth/user-row";
 import { verifyPassword } from "../src/auth/crypto";
+import { Vault } from "../src/crypto/vault";
 import type { PgDb } from "../src/db/accounts";
 import * as schema from "../src/db/schema";
 import { createTestUser, parseInput, UsageError } from "./create-test-user";
@@ -45,11 +47,17 @@ describe("createTestUser", () => {
     await pg.close();
   });
 
-  it("creates the user with a hashed password, and leaves an existing one alone", async () => {
-    expect(await createTestUser(db, { username: "ethan", password: "first password" })).toMatch(/Created/);
-    expect(await createTestUser(db, { username: "Ethan", password: "other password" })).toMatch(/already exists/);
-    const { rows } = await pg.query<{ password_hash: string }>("SELECT password_hash FROM users");
+  it("creates the user with a hashed password and an encrypted username, and leaves an existing one alone", async () => {
+    const vault = new Vault(Buffer.alloc(32, 3));
+    expect(await createTestUser(db, vault, { username: "ethan", password: "first password" })).toMatch(/Created/);
+    expect(await createTestUser(db, vault, { username: "Ethan", password: "other password" })).toMatch(/already exists/);
+    const { rows } = await pg.query<{ password_hash: string; username_index: string; username_encrypted: string }>(
+      "SELECT password_hash, username_index, username_encrypted FROM users",
+    );
     expect(rows).toHaveLength(1);
     expect(await verifyPassword("first password", rows[0]!.password_hash)).toBe(true);
+    // Stored like sign-up stores it (#84): encrypted, found by its keyed hash.
+    expect(rows[0]!.username_index).toBe(usernameIndex(vault, "ethan"));
+    expect(rows[0]!.username_encrypted).not.toContain("ethan");
   });
 });

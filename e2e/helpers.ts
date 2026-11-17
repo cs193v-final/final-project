@@ -28,8 +28,8 @@ export async function guess(page: Page, text: string) {
 
 /**
  * Open the home screen and Tab to Start practice: the home link, Log in (#53),
- * then the only playable mode (coming-soon cards are skipped). Leaves focus on
- * Start practice.
+ * then the playable modes, Daily (#58) and then Practice (coming-soon cards are
+ * skipped). Leaves focus on Start practice.
  */
 export async function tabToStartPractice(page: Page) {
   await page.goto("/");
@@ -38,6 +38,8 @@ export async function tabToStartPractice(page: Page) {
   await expect(homeLink(page)).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(siteNav(page).getByRole("link", { name: "Log in" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Play today's" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Start practice" })).toBeFocused();
 }
