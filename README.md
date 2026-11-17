@@ -33,6 +33,8 @@ Schema and migrations (#47): the schema is `src/db/schema.ts` and the SQL migrat
 
 Puzzle content (#52): `npm run db:seed -- --dry-run` checks content files, and `npm run db:seed` loads the practice pack plus the private content in the git-ignored `content/` folder into your dev database. Never commit daily, Stanford or lobby content. Details: [TECHNICAL.md → Content and the seed script](TECHNICAL.md#content-and-the-seed-script-52).
 
+**Your test user (#53).** Accounts are username and password; there's no email and no password reset. To create your own test user in the dev database, put `TEST_USER_PASSWORD=<a password you don't use anywhere else>` in `.env.local`, then run `npm run db:test-user -- <username>` and log in at `/login`. An existing username is left unchanged. (The dev database needs the `rate_limits` migration first: `npm run db:migrate`.)
+
 ### 3. Run the app
 The app is [Next.js](https://nextjs.org) (see `AGENTS.md` → Stack). With Node 24+:
 ```bash
