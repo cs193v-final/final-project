@@ -9,6 +9,7 @@ import "server-only";
 
 import { getDb, type Db } from "@/db";
 import { ensurePackRow, PgGameStore } from "@/db/games";
+import { getLevelSrcs } from "@/db/images";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import {
@@ -40,6 +41,9 @@ function deps(db: Db): GameDeps {
     games: new PgGameStore(db, { recordRounds: false }),
     // TODO(follow-up to #52): getPuzzles(db, ids) from src/db/content.ts.
     puzzles: puzzleSourceFrom(SAMPLE_PUZZLES),
+    // Per-level images (#57), cut by `npm run db:seed`. A practice puzzle that
+    // isn't cut yet is still shown whole and cropped in the browser.
+    levels: { getLevelSrcs: (puzzleIds) => getLevelSrcs(db, puzzleIds) },
   };
 }
 
