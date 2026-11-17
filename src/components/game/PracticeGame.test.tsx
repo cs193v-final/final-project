@@ -236,7 +236,8 @@ describe("PracticeGame when a Server Action fails outright (offline, or a redepl
     await user.click(zoom);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach the server.");
-    expect(screen.getByRole("button", { name: "Reload the page" })).toBeInTheDocument();
+    // Underlined all the time, not just on hover, so it reads as pressable on a touch screen.
+    expect(screen.getByRole("button", { name: "Reload the page" })).toHaveClass("underline");
     expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
     expect(zoom).toHaveAttribute("aria-disabled", "false");
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getDummyPasswordHash, hashPassword, newSessionToken, sha256Hex, verifyPassword } from "./crypto";
+import { getDummyPasswordHash, hashPassword, isToken, newToken, sha256Hex, verifyPassword } from "./crypto";
 
 describe("hashPassword / verifyPassword", () => {
   it("stores an argon2id PHC string, never the password", async () => {
@@ -42,9 +42,16 @@ describe("hashPassword / verifyPassword", () => {
 
 describe("session tokens", () => {
   it("are random 32-byte base64url strings", () => {
-    const a = newSessionToken();
+    const a = newToken();
     expect(a).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(newSessionToken()).not.toBe(a);
+    expect(newToken()).not.toBe(a);
+  });
+
+  it("are recognised by shape, so a garbage cookie never reaches the database", () => {
+    expect(isToken(newToken())).toBe(true);
+    for (const bad of [undefined, "", "not-a-real-session", "a".repeat(42), "a".repeat(44), `${"a".repeat(42)}=`, `${"a".repeat(42)}/`]) {
+      expect(isToken(bad), String(bad)).toBe(false);
+    }
   });
 
   it("are stored as a SHA-256 hex digest", () => {

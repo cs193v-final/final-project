@@ -7,20 +7,19 @@
 //
 // Connects with DATABASE_URL_UNPOOLED, like drizzle.config.ts: a value already
 // in the environment wins; only when it's unset does it fall back to the dev
-// database in .env.local. TLS is required (localhost exempt, src/db/tls.ts).
+// database in .env.local. TLS is required (localhost exempt, src/db/tls.ts),
+// and the driver follows the host like the seed script's (`connect` in
+// ./seed-db.ts): Neon's HTTP driver for Neon, node-postgres for a local one.
 // Prints only the database host, never credentials.
 //
 // Runs with plain Node (type stripping), so imports are relative with `.ts`.
 import { existsSync } from "node:fs";
 
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
-
 import { hashPassword } from "../src/auth/crypto.ts";
 import { checkNewPassword, checkUsername } from "../src/auth/rules.ts";
 import { insertUser, type PgDb } from "../src/db/accounts.ts";
-import * as schema from "../src/db/schema.ts";
 import { assertDatabaseUrlRequiresTls, InsecureDatabaseUrlError } from "../src/db/tls.ts";
+import { connect } from "./seed-db.ts";
 
 export const USAGE = "Usage: TEST_USER_PASSWORD=... npm run db:test-user -- <username>\n(put TEST_USER_PASSWORD in .env.local)";
 
@@ -51,19 +50,20 @@ export async function createTestUser(db: PgDb, input: { username: string; passwo
 
 async function main(): Promise<void> {
   try {
-    if (existsSync(".env.local")) {
-      const before = process.env.DATABASE_URL_UNPOOLED;
-      process.loadEnvFile(".env.local");
-      // A URL already in the environment wins over .env.local.
-      if (before !== undefined) process.env.DATABASE_URL_UNPOOLED = before;
-    }
+    // loadEnvFile never overwrites a variable already in the environment, so
+    // a URL set in the shell wins over .env.local.
+    if (existsSync(".env.local")) process.loadEnvFile(".env.local");
     const input = parseInput(process.argv.slice(2), process.env.TEST_USER_PASSWORD);
     const url = process.env.DATABASE_URL_UNPOOLED;
     if (!url) throw new UsageError("DATABASE_URL_UNPOOLED is not set (see README.md → Database).");
     assertDatabaseUrlRequiresTls(url, "DATABASE_URL_UNPOOLED");
     console.log(`Database host: ${new URL(url).host}`);
-    const db = drizzle({ client: neon(url), schema }) as unknown as PgDb;
-    console.log(await createTestUser(db, input));
+    const { db, close } = await connect(url);
+    try {
+      console.log(await createTestUser(db as unknown as PgDb, input));
+    } finally {
+      await close();
+    }
   } catch (error) {
     if (error instanceof UsageError || error instanceof InsecureDatabaseUrlError) {
       console.error(error.message);
