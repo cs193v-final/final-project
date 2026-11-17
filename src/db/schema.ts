@@ -103,7 +103,8 @@ export const sessions = pgTable(
 /**
  * Fixed-window counters for rate limiting login and sign-up (#53). One row per
  * key, e.g. `login:user:<HMAC of the lowercased username>` or
- * `login:ip:<HMAC of the IP>` (#84). Never a raw username or IP address. A row is only useful until its window ends; expired
+ * `login:ip:<HMAC of the IP>` (#84). Never what was typed, and never a raw
+ * username or IP address (src/auth/accounts.ts builds the keys). A row is only useful until its window ends; expired
  * rows are reset on the next hit and swept by `deleteExpiredRateLimits`.
  */
 export const rateLimits = pgTable(

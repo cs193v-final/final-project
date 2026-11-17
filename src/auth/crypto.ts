@@ -75,16 +75,33 @@ export async function verifyPassword(password: string, stored: string): Promise<
  */
 let dummyHash: Promise<string> | undefined;
 export function getDummyPasswordHash(): Promise<string> {
-  dummyHash ??= hashPassword(randomBytes(32).toString("base64url"));
+  // A failure (e.g. argon2 can't get its memory on a cold start) isn't kept:
+  // a cached rejection would make every unknown-username login an error while
+  // real usernames still got "don't match", which reveals who exists.
+  dummyHash ??= hashPassword(randomBytes(32).toString("base64url")).catch((error: unknown) => {
+    dummyHash = undefined;
+    throw error;
+  });
   return dummyHash;
 }
 
-/** A new random session token for the cookie. Never stored. */
-export function newSessionToken(): string {
+/** 32 random bytes as base64url: 43 characters, no padding. */
+const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+/**
+ * A new random token for a cookie: the session cookie here, and the anonymous
+ * owner cookie (src/server/owner.ts). Never stored; only its `sha256Hex` is.
+ */
+export function newToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-/** What the database stores for a session token, or for any value we key on (IP addresses). */
+/** A cookie value shaped like one we issued, rather than garbage or a tampered value. */
+export function isToken(value: string | undefined): value is string {
+  return value !== undefined && TOKEN_PATTERN.test(value);
+}
+
+/** What the database stores for a token, or for any value we key on (IP addresses, typed usernames). */
 export function sha256Hex(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }

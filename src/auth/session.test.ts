@@ -14,19 +14,34 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers(requestHeaders),
 }));
 
-const deleteSession = vi.fn(async () => {});
-vi.mock("@/db", () => ({ getDb: () => ({}) }));
-vi.mock("@/db/accounts", () => ({ deleteSession, findSessionUser: vi.fn() }));
+vi.mock("next/server", () => ({ connection: async () => {} }));
 
-const { describeError, requestIp, SESSION_COOKIE, sessionCookieOptions, setSessionCookie } = await import("./session");
-const { sha256Hex } = await import("./crypto");
+const deleteSession = vi.fn<(db: unknown, hash: string) => Promise<void>>(async () => {});
+const findSessionUser = vi.fn<(db: unknown, hash: string, now: Date) => Promise<unknown>>(async () => null);
+vi.mock("@/db", () => ({ getDb: () => ({}) }));
+vi.mock("@/db/accounts", () => ({ deleteSession, findSessionUser }));
+// The real sessionUser decrypts the stored username (#84); here the lookup
+// itself is what's under test, so it passes the row straight through.
+vi.mock("@/crypto/vault", () => ({ getVault: () => ({}) }));
+vi.mock("./accounts", () => ({
+  sessionUser: (db: unknown, _vault: unknown, hash: string, now: Date) => findSessionUser(db, hash, now),
+}));
+
+const { describeError, getCurrentUser, getCurrentUserOrLoggedOut, requestIp, SessionLookupError, SESSION_COOKIE, sessionCookieOptions, setSessionCookie } =
+  await import("./session");
+const { newToken, sha256Hex } = await import("./crypto");
+
+const OLD_TOKEN = newToken();
+const NEW_TOKEN = newToken();
 
 const EXPIRES = new Date("2026-12-17T12:00:00Z");
 
 beforeEach(() => {
   jar.clear();
   requestHeaders = {};
-  deleteSession.mockClear();
+  deleteSession.mockReset();
+  findSessionUser.mockReset();
+  findSessionUser.mockResolvedValue(null);
 });
 
 describe("the session cookie", () => {
@@ -48,16 +63,63 @@ describe("the session cookie", () => {
 
   it("is set with those options for the request's protocol", async () => {
     requestHeaders = { "x-forwarded-proto": "https" };
-    await setSessionCookie("new-token", EXPIRES);
-    expect(jar.get(SESSION_COOKIE)).toEqual({ value: "new-token", options: sessionCookieOptions(EXPIRES, "https") });
+    await setSessionCookie(NEW_TOKEN, EXPIRES);
+    expect(jar.get(SESSION_COOKIE)).toEqual({ value: NEW_TOKEN, options: sessionCookieOptions(EXPIRES, "https") });
     expect(deleteSession).not.toHaveBeenCalled();
   });
 
   it("logging in again ends the browser's old session, so it isn't left valid", async () => {
-    jar.set(SESSION_COOKIE, { value: "old-token" });
-    await setSessionCookie("new-token", EXPIRES);
-    expect(deleteSession).toHaveBeenCalledWith({}, sha256Hex("old-token"));
-    expect(jar.get(SESSION_COOKIE)?.value).toBe("new-token");
+    jar.set(SESSION_COOKIE, { value: OLD_TOKEN });
+    await setSessionCookie(NEW_TOKEN, EXPIRES);
+    expect(deleteSession).toHaveBeenCalledWith({}, sha256Hex(OLD_TOKEN));
+    expect(jar.get(SESSION_COOKIE)?.value).toBe(NEW_TOKEN);
+  });
+
+  it("still logs in if ending the old session fails, and logs only the error's type", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    deleteSession.mockRejectedValueOnce(new Error(`Failed query: delete ... params: ${sha256Hex(OLD_TOKEN)}`));
+    jar.set(SESSION_COOKIE, { value: OLD_TOKEN });
+    await setSessionCookie(NEW_TOKEN, EXPIRES);
+    expect(jar.get(SESSION_COOKIE)?.value).toBe(NEW_TOKEN);
+    expect(error).toHaveBeenCalledWith("Couldn't end the previous session: Error");
+    error.mockRestore();
+  });
+});
+
+describe("getCurrentUser", () => {
+  it("never queries for a cookie that isn't shaped like a token we issue", async () => {
+    for (const value of ["not-a-real-session", "x".repeat(5000)]) {
+      jar.set(SESSION_COOKIE, { value });
+      expect(await getCurrentUser()).toBeNull();
+    }
+    expect(findSessionUser).not.toHaveBeenCalled();
+  });
+
+  it("looks up the token's hash, never the token", async () => {
+    findSessionUser.mockResolvedValueOnce({ id: "u1", username: "ethan" });
+    jar.set(SESSION_COOKIE, { value: NEW_TOKEN });
+    expect(await getCurrentUser()).toEqual({ id: "u1", username: "ethan" });
+    expect(findSessionUser.mock.calls[0]?.[1]).toBe(sha256Hex(NEW_TOKEN));
+  });
+
+  it("turns a failed lookup into an error that carries no query or token hash", async () => {
+    findSessionUser.mockRejectedValueOnce(
+      new Error(`Failed query: select ... params: ${sha256Hex(OLD_TOKEN)}`, { cause: Object.assign(new Error("x"), { code: "57P01" }) }),
+    );
+    jar.set(SESSION_COOKIE, { value: OLD_TOKEN });
+    const thrown = await getCurrentUser().catch((e: unknown) => e);
+    expect(thrown).toBeInstanceOf(SessionLookupError);
+    expect(String((thrown as Error).message)).toBe("Couldn't check the session: Error (57P01)");
+    expect((thrown as Error).cause).toBeUndefined();
+  });
+
+  it("counts a failed lookup as logged out for the header", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    findSessionUser.mockRejectedValueOnce(new Error("Failed query: ..."));
+    jar.set(SESSION_COOKIE, { value: NEW_TOKEN });
+    expect(await getCurrentUserOrLoggedOut()).toBeNull();
+    expect(error).toHaveBeenCalledWith("Couldn't check the session: Error; showing the user as logged out");
+    error.mockRestore();
   });
 });
 

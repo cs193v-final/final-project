@@ -12,23 +12,48 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
+import { cache } from "react";
 
 import { getDb } from "@/db";
-import { isHttpsRequest } from "@/server/owner";
 import { deleteSession } from "@/db/accounts";
 import { getVault } from "@/crypto/vault";
 import type { PublicUser } from "@/game/types";
+import { isHttpsRequest } from "@/server/https";
 
 import { sessionUser } from "./accounts";
-import { sha256Hex } from "./crypto";
+import { isToken, sha256Hex } from "./crypto";
 
 export const SESSION_COOKIE = "zo_session";
 
-/** The logged-in user, or `null`. Checks the session in the database on every call, so logout and expiry apply at once. */
+/**
+ * A failed session lookup. Its message is only the error's type and code: the
+ * query error itself carries the SQL and the token hash, and callers such as
+ * `runGameCall` and Next log whatever they're given.
+ */
+export class SessionLookupError extends Error {
+  constructor(cause: unknown) {
+    super(`Couldn't check the session: ${describeError(cause)}`);
+    this.name = "SessionLookupError";
+  }
+}
+
+/**
+ * One database lookup per token per request. The header and the page (e.g.
+ * `requireUser`, or `currentOwner` inside a game call) both ask who's logged
+ * in, and with Neon HTTP each query is a network round trip.
+ */
+const lookupSession = cache(async (token: string): Promise<PublicUser | null> => {
+  try {
+    return await sessionUser(getDb(), getVault(), sha256Hex(token), new Date());
+  } catch (error) {
+    throw new SessionLookupError(error);
+  }
+});
+
+/** The logged-in user, or `null`. Checks the session in the database on every request, so logout and expiry apply at once. */
 export async function getCurrentUser(): Promise<PublicUser | null> {
   const token = await requestSessionToken();
-  if (!token) return null;
-  return sessionUser(getDb(), getVault(), sha256Hex(token), new Date());
+  return token ? lookupSession(token) : null;
 }
 
 /**
@@ -41,17 +66,21 @@ export async function getCurrentUserOrLoggedOut(): Promise<PublicUser | null> {
   const token = await requestSessionToken();
   if (!token) return null;
   try {
-    return await sessionUser(getDb(), getVault(), sha256Hex(token), new Date());
+    return await lookupSession(token);
   } catch (error) {
-    console.error(`Couldn't check the session; showing the user as logged out: ${describeError(error)}`);
+    console.error(`${error instanceof Error ? error.message : describeError(error)}; showing the user as logged out`);
     return null;
   }
 }
 
-/** The session cookie's token, if any. After this, it's request time. */
+/**
+ * The session cookie's token, if it's shaped like one we issue. Anything else
+ * (garbage, a tampered value) is logged out without a query. After this, it's
+ * request time.
+ */
 async function requestSessionToken(): Promise<string | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!token) return null;
+  if (!isToken(token)) return null;
   // Cache Components: reading the clock needs an explicit "this is request
   // time" first, or Next reports `new Date()` as a prerender error.
   await connection();
@@ -89,7 +118,13 @@ export function sessionCookieOptions(expiresAt: Date, forwardedProto: string | n
 export async function setSessionCookie(token: string, expiresAt: Date): Promise<void> {
   const jar = await cookies();
   const previous = jar.get(SESSION_COOKIE)?.value;
-  if (previous && previous !== token) await deleteSession(getDb(), sha256Hex(previous));
+  if (isToken(previous) && previous !== token) {
+    // Best effort: if this fails the login still goes ahead, and the old
+    // session simply expires. Never log the query error itself.
+    await deleteSession(getDb(), sha256Hex(previous)).catch((error: unknown) => {
+      console.error(`Couldn't end the previous session: ${describeError(error)}`);
+    });
+  }
   jar.set(SESSION_COOKIE, token, sessionCookieOptions(expiresAt, (await headers()).get("x-forwarded-proto")));
 }
 

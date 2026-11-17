@@ -13,6 +13,7 @@ import * as schema from "@/db/schema";
 
 import {
   ipKey,
+  limitsAddress,
   login,
   loginUserKey,
   RATE_LIMITS,
@@ -147,6 +148,13 @@ describe("register", () => {
     expectOk(
       await register(db, { username: "later", password: PASSWORD }, req("203.0.113.7", at(RATE_LIMITS.registerPerIp.windowMs + 1))),
     );
+  });
+
+  it("doesn't limit this machine's own address off Vercel, so local and e2e runs don't share one count", async () => {
+    for (let i = 0; i <= RATE_LIMITS.registerPerIp.max; i++) {
+      expectOk(await register(db, { username: `local${i}`, password: PASSWORD }, req("127.0.0.1")));
+    }
+    expect(await rows("SELECT key FROM rate_limits")).toEqual([]);
   });
 
   it("never stores the raw IP address", async () => {
@@ -330,5 +338,20 @@ describe("input checks", () => {
 
   it("reject an empty login before touching the database", async () => {
     expect(await login(noDb, { username: "", password: "" }, req())).toMatchObject({ reason: "invalid" });
+  });
+});
+
+describe("limitsAddress", () => {
+  it("limits every address on Vercel, even a missing one", () => {
+    for (const ip of ["203.0.113.7", "127.0.0.1", "::1", null]) expect(limitsAddress(ip, true), String(ip)).toBe(true);
+  });
+
+  it("off Vercel, skips this machine (loopback or no address) and limits everyone else", () => {
+    for (const ip of ["127.0.0.1", "127.8.9.10", "::1", "::ffff:127.0.0.1", null]) {
+      expect(limitsAddress(ip, false), String(ip)).toBe(false);
+    }
+    for (const ip of ["203.0.113.7", "10.0.0.1", "192.168.1.20", "2001:db8::1", "::ffff:203.0.113.7"]) {
+      expect(limitsAddress(ip, false), ip).toBe(true);
+    }
   });
 });
