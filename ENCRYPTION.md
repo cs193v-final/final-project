@@ -1,0 +1,17 @@
+# ENCRYPTION
+
+For our zoom-out project, we store various information using both encryption and hashing methods. For each user who makes an account, we store a username, username lookup, password hash, session-token hash, rate-limit records, IDs, and timestamps. Game guesses aren’t encrypted yet. 
+
+The distinction between the methods is that encryption can be reversed with a key. Hashing, however, is a one-way storage process. The code simply matches a hash to another hash to check without ever revealing the code. Keyed hashes (HMAC) require a secret key as well because a regular hashed piece of data can be cracked.  
+
+We use AES-256-GCM, which is the standard modern cipher. GCM means that it produces an authentication tag/procedure where, if the value is tampered with, it will fail to decrypt. We also implement this thing called the nonce, which prevents people from knowing if two encryptions are the same/same value. We label things with V1 so we don’t confuse the values.
+
+We have a master key for the keyed encryption, which allows us to create a separate key for every user and column. Prod and preview keys are stored in Vercel, while dev is stored in .env.local. This also associates the data so that if you were to try decoding an encrypted value by decrypting it with another user’s key, it wouldn’t give the correct decryption.
+
+This puts most of the security on this master key. Hackers can’t figure out the decryption by mass-stealing data because it becomes unreadable. However, there’s also a lot of concentration risk associated with the key. The stronger alternative is to derive the key from the password itself, but this is contingent on only being feasible when the user types in their password. We also don’t have a reset password function, so it places a lot of responsibility on users to not forget their password, which is not ideal for a simple daily game. Leaderboards also wouldn’t be able to show who isn’t logged in. So we decided to choose the method that has a higher security risk but is more convenient to the client, considering this is just a daily game. 
+
+Backups for the master keys are held outside the repo so that no agent or web server can access them. The directions to reach them and make changes are held in SECRETS.md. If the encryption key is updated, we would mark the versions with v1 and v2 and decrypt/re-encrypt everything. 
+
+Scores, IDs, which are how records get connected, and timestamps to expire sessions are all plain values that don’t require encryption. Scores need to be read in plain value for sorting, IDs are random, and timestamps are used to expire things. 
+
+Data is either at rest or in transit, the latter meaning travelling between two parties. Because users don’t send/communicate to each other directly, everything is sent through the server. Data makes two trips in our game: browser to server (Vercel), and server to our database storage (Neon). We use the standard encryption, TLS, for both trips, and it works by using a secret key between both computers. Our database connection address ends with sslmode=require. Our cookie, which the browser sends to the server to remember the user, is called zo_session. The data is encrypted in HTTPS on each send because of our secure setting, and our database stores a hash of the token, making it unretrievable for us. 
