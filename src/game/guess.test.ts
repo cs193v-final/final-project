@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { allowedTypos, checkGuess, exactMatch, normalizeGuess, typoDistance, type AnswerMatcher } from "./guess.ts";
+import {
+  allowedTypos,
+  checkGuess,
+  exactMatch,
+  normalizeGuess,
+  typoCount,
+  typoDistance,
+  type AnswerMatcher,
+} from "./guess.ts";
 
 const puzzle = {
   answer: "Golden Gate Bridge",
@@ -134,8 +142,8 @@ describe("checkGuess", () => {
     it("still rejects answers that differ by more than punctuation", () => {
       expect(checkGuess(notreDame, "Notre").kind).toBe("incorrect");
       expect(checkGuess(notreDame, "Dame").kind).toBe("incorrect");
-      // A missing space is a word break, not punctuation; with typo tolerance
-      // (#115) it counts as one typo, which a 9-letter answer allows.
+      // A missing space is a word break, not punctuation. Typo tolerance (#115)
+      // forgives a missing or extra space when the letters are otherwise exact.
       expect(checkGuess(notreDame, "NotreDame", { matcher: exactMatch }).kind).toBe("incorrect");
       expect(checkGuess(notreDame, "NotreDame").kind).toBe("correct");
       expect(checkGuess(stPauls, "St. Paul's").kind).toBe("incorrect");
@@ -173,57 +181,116 @@ describe("checkGuess", () => {
 describe("typo tolerance (#21, #115)", () => {
   const hoover = { answer: "Hoover Tower", acceptedAnswers: [] };
   const oval = { answer: "The Oval", acceptedAnswers: ["Oval"] };
+  const only = (answer: string) => ({ answer, acceptedAnswers: [] });
 
-  it("allows no typos under 5 letters, 1 from 5, 2 from 9 (spaces don't count)", () => {
-    expect(allowedTypos("oval")).toBe(0);
-    expect(allowedTypos("paris")).toBe(1);
-    expect(allowedTypos("the oval")).toBe(1); // 7 letters
-    expect(allowedTypos("stanford")).toBe(1);
-    expect(allowedTypos("hoover tower")).toBe(2); // 11 letters
+  it.each([
+    ["oval", 0],
+    ["quad", 0],
+    ["paris", 1],
+    ["stanford", 1],
+    ["lagunita", 1],
+    ["cathedral", 2],
+  ])("allows %j %i typos (none under 5 letters, 1 from 5, 2 from 9)", (word, typos) => {
+    expect(allowedTypos(word)).toBe(typos);
   });
 
-  it("counts insertions, deletions, substitutions and adjacent swaps as one typo each", () => {
-    expect(typoDistance("hoover tower", "hoover tower")).toBe(0);
-    expect(typoDistance("hover tower", "hoover tower")).toBe(1); // missing letter
-    expect(typoDistance("hooover tower", "hoover tower")).toBe(1); // extra letter
-    expect(typoDistance("hoovar tower", "hoover tower")).toBe(1); // wrong letter
-    expect(typoDistance("hoover towre", "hoover tower")).toBe(1); // swapped letters
-    expect(typoDistance("hovr towr", "hoover tower")).toBe(3);
-    expect(typoDistance("abc", "xyzxyz", 1)).toBe(2); // stops early past the limit
+  it.each([
+    ["hoover tower", "hoover tower", 0],
+    ["hover tower", "hoover tower", 1], // missing letter
+    ["hooover tower", "hoover tower", 1], // extra letter
+    ["hoovar tower", "hoover tower", 1], // wrong letter
+    ["hoover towre", "hoover tower", 1], // swapped letters
+    ["hovr towr", "hoover tower", 3],
+  ])("counts %j -> %j as %i typos", (a, b, typos) => {
+    expect(typoDistance(a, b)).toBe(typos);
   });
 
-  it("accepts a guess within the allowed typos and reports the real spelling", () => {
-    expect(checkGuess(hoover, "Hover Tower")).toEqual({ kind: "correct", matched: "Hoover Tower" });
-    expect(checkGuess(hoover, "hovver towre")).toEqual({ kind: "correct", matched: "Hoover Tower" });
-    expect(checkGuess({ answer: "Paris", acceptedAnswers: [] }, "Pairs")).toEqual({ kind: "correct", matched: "Paris" });
-    expect(checkGuess({ answer: "Café Borrone", acceptedAnswers: [] }, "cafe borrone").kind).toBe("correct");
+  it("stops counting early past the limit", () => {
+    expect(typoDistance("abc", "xyzxyz", 1)).toBe(2);
   });
 
-  it("rejects a guess with more typos than the answer allows", () => {
-    expect(checkGuess(hoover, "hovr towr").kind).toBe("incorrect");
-    expect(checkGuess({ answer: "Paris", acceptedAnswers: [] }, "Parsi s").kind).toBe("incorrect");
+  // Each row of the #140 review, plus the cases the rule is meant to cover.
+  it.each([
+    // [answer, alternates, guess, matched answer or null for incorrect]
+    ["Main Quad", [], "Main Quid", null], // "quad" is 4 letters: no typos, however long the answer
+    ["The Oval", ["Oval"], "The Opal", null],
+    ["The Oval", ["Oval"], "Opal", null],
+    ["Lake Lagunita", [], "Lake Magunita", null], // each word's first letter must match
+    ["Stanford Hall", [], "Stanford Mall", null],
+    ["Élysée Palace", [], "Elysée Palace", "Élysée Palace"], // accented first letter
+    ["Élysée Palace", [], "Elysee Palace", "Élysée Palace"],
+    ["Eiffel Tower", [], "Eifel Tower", "Eiffel Tower"],
+    ["Hoover Tower", [], "Hover Tower", "Hoover Tower"],
+    ["Hoover Tower", [], "hovver towre", "Hoover Tower"], // one typo in each word
+    ["Hoover Tower", [], "hovr towr", null],
+    ["Hoover Tower", [], "Tower", null], // a word missing
+    ["Golden Gate Bridge", [], "Golden Gate Bridge SF", null], // a word extra
+    ["Café Borrone", [], "cafe borrone", "Café Borrone"], // an accent costs nothing, even in a 4-letter word
+    ["Paris", [], "Pairs", "Paris"],
+    ["Paris", [], "Parsi s", null],
+    ["Oval", [], "Opal", null],
+    ["Quad", [], "Quid", null],
+    ["Mesa", [], "Pesa", null],
+    ["Lagunita", [], "Magunita", null],
+    ["Building 10", [], "Building 11", null], // digits must match
+    ["Gates 104", [], "Gates 140", null],
+    ["Building 10", [], "Buildng 10", "Building 10"],
+    ["Notre-Dame", [], "NotreDame", "Notre-Dame"], // a missing space alone is forgiven
+    ["Main Quad", [], "MainQuad", "Main Quad"],
+    ["Hoover Tower", [], "Hoovertower", "Hoover Tower"],
+    ["Stanford Hall", [], "StanfordMall", null], // but not a missing space and a typo
+    ["Stanford Hall", [], "Stan ford Hall", "Stanford Hall"], // an extra space alone is forgiven too
+    ["Stanford Hall", [], "Stan ford Mall", null],
+  ] as const)("for %j (alternates %j), %j is %j", (answer, alternates, guess, matched) => {
+    const outcome = checkGuess({ answer, acceptedAnswers: [...alternates] }, guess);
+    expect(outcome).toEqual(matched === null ? { kind: "incorrect", normalizedGuess: normalizeGuess(guess) } : { kind: "correct", matched });
   });
 
-  it("forgives nothing in short answers, where one letter makes another word", () => {
-    expect(checkGuess({ answer: "Oval", acceptedAnswers: [] }, "Opal").kind).toBe("incorrect");
-    expect(checkGuess({ answer: "Quad", acceptedAnswers: [] }, "Quid").kind).toBe("incorrect");
+  it.each([
+    ["hover tower", "hoover tower", 1],
+    ["hovver towre", "hoover tower", 2],
+    ["elysee palace", "élysée palace", 0],
+    ["notredame", "notre dame", 0],
+    ["main quid", "main quad", undefined],
+    ["stanfordmall", "stanford hall", undefined],
+  ])("typoCount(%j, %j) is %j", (guess, answer, count) => {
+    expect(typoCount(guess, answer)).toBe(count);
+  });
+
+  it.each([
+    // [answer, alternates, guess, matched]
+    ["Hoover Tower", ["Hoover Towers"], "Hooover Towers", "Hoover Towers"], // 1 typo from the alternate, 2 from the answer
+    ["Hoover Tower", ["Hoover Towar"], "Hoover Towor", "Hoover Tower"], // a tie goes to the canonical answer
+    ["Stanford Mall", ["Stanford Hall"], "stanford hall", "Stanford Hall"], // an exact match on an alternate wins
+    ["Stanford Mall", ["Stanford Hall"], "Stanford Hal", null], // "hall" is 4 letters: no typos
+  ] as const)("for %j (alternates %j), %j matches the closest answer, %j", (answer, alternates, guess, matched) => {
+    const outcome = checkGuess({ answer, acceptedAnswers: [...alternates] }, guess);
+    expect(outcome).toEqual(matched === null ? { kind: "incorrect", normalizedGuess: normalizeGuess(guess) } : { kind: "correct", matched });
+  });
+
+  it("calls the matcher for every answer, so a stricter matcher can reject even an exact match", () => {
+    const eiffel = { answer: "Eiffel Tower", acceptedAnswers: ["Tour Eiffel"] };
+    const calls: string[] = [];
+    const never: AnswerMatcher = (_, answer) => {
+      calls.push(answer);
+      return false;
+    };
+    expect(checkGuess(eiffel, "Eiffel Tower", { matcher: never }).kind).toBe("incorrect");
+    expect(calls).toEqual(["eiffel tower", "tour eiffel"]);
+  });
+
+  it("prefers an exact match only among answers the matcher accepts", () => {
+    const close = { answer: "Stanford Mall", acceptedAnswers: ["Stanford Hall"] };
+    const notHall: AnswerMatcher = (guess, answer) => answer !== "stanford hall" && typoDistance(guess, answer) <= 1;
+    expect(checkGuess(close, "stanford hall", { matcher: notHall })).toEqual({ kind: "correct", matched: "Stanford Mall" });
+  });
+
+  it("forgives nothing in short answers, and still accepts an exact alternate", () => {
     expect(checkGuess(oval, "Oval")).toEqual({ kind: "correct", matched: "Oval" });
   });
 
-  it("rejects near misses that are really other places: a different first letter or different numbers", () => {
-    expect(checkGuess({ answer: "Mesa", acceptedAnswers: [] }, "Pesa").kind).toBe("incorrect");
-    expect(checkGuess({ answer: "Lagunita", acceptedAnswers: [] }, "Magunita").kind).toBe("incorrect");
-    expect(checkGuess({ answer: "Building 10", acceptedAnswers: [] }, "Building 11").kind).toBe("incorrect");
-    expect(checkGuess({ answer: "Gates 104", acceptedAnswers: [] }, "Gates 140").kind).toBe("incorrect");
-    expect(checkGuess({ answer: "Building 10", acceptedAnswers: [] }, "Buildng 10").kind).toBe("correct");
-  });
-
-  it("prefers an exact match on an alternate over a typo match on the canonical answer", () => {
-    const close = { answer: "Stanford Mall", acceptedAnswers: ["Stanford Hall"] };
-    expect(checkGuess(close, "stanford hall")).toEqual({ kind: "correct", matched: "Stanford Hall" });
-  });
-
-  it("can be turned off with exactMatch", () => {
+  it("can be turned off with exactMatch, which also keeps accents", () => {
     expect(checkGuess(hoover, "Hover Tower", { matcher: exactMatch }).kind).toBe("incorrect");
+    expect(checkGuess(only("Élysée Palace"), "Elysee Palace", { matcher: exactMatch }).kind).toBe("incorrect");
   });
 });

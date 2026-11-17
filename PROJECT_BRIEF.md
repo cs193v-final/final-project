@@ -191,7 +191,7 @@ type RoundState = "playing" | "correct" | "skipped";
 // playing → correct | skipped → next puzzle; after the last puzzle → final score screen
 ```
 
-Normalization for the prototype (#22): Unicode NFKC, trim, collapse inner whitespace, lowercase. Accents are kept, so "café" ≠ "cafe". **Typo tolerance (decided in #21 after the #115 user test, Ethan):** a guess counts if it's within a small edit distance of an answer (insert, delete, substitute or swap two neighbouring letters): none for answers under 5 letters, 1 typo from 5, 2 from 9 (spaces not counted). The first character and every digit must match, so a different nearby place ("Building 11" for "Building 10") isn't accepted. An exact match on any accepted answer wins over a typo match. It's `typoTolerantMatch` in `src/game/guess.ts`, the default `matcher`; `exactMatch` turns it off.
+Normalization for the prototype (#22): Unicode NFKC, trim, collapse inner whitespace, lowercase. Normalization keeps accents, so under `exactMatch` "café" ≠ "cafe". **Typo tolerance:** Ethan (#21's assignee) decided it on #21 after the #115 user test; like the other #21 decisions, it can be revisited after more playtesting. The default matcher, `typoTolerantMatch` in `src/game/guess.ts`, ignores accents and applies the rule **word by word**: guess and answer need the same number of words, and each word may have a few typos by its own length (none under 5 letters, 1 from 5, 2 from 9; a typo is an insert, delete, substitute or swap of two neighbouring letters). Each word's first letter (accents ignored) and digits must match, so "Lake Magunita", "Stanford Mall" or "Building 11" aren't accepted for "Lake Lagunita", "Stanford Hall" or "Building 10". A missing or extra space alone is forgiven ("NotreDame"). `checkGuess` runs every answer through the matcher and picks the closest accepted one: exact first, then fewest typos, then the canonical answer. `exactMatch` remains for any mode that wants no tolerance; choosing the matcher per pack can come with a pack setting later.
 
 The round state machine is `step(game, action)` in `src/game/round.ts` (#23). Actions are `reveal`, `guess`, `skip` and `next`. Invalid actions are rejected with a reason instead of throwing.
 
@@ -253,7 +253,7 @@ Don't treat these as decided. Ask the owner, or keep them configurable.
 | Anonymous play | Default proposal: anyone can play daily; only logged-in players get leaderboard entries and streaks | #54, #62 |
 | Where non-public puzzle content lives | **Proposal (#52):** each of us keeps it in the git-ignored `content/` folder, and the seed script refuses committable content. Still to decide: how we share the files with each other (e.g. a private repo or a shared drive). | #52 |
 | Scoring values and wrong-guess rules | Placeholders in `src/game/scoring-config.ts`; flat or increasing penalties; a guess limit? | #21, #64 |
-| Number of reveal steps | Fixed or per puzzle | #21 (typo tolerance decided: small edit distance, see "`GuessOutcome` and round states") |
+| Number of reveal steps | Fixed or per puzzle | #21 (typo tolerance: Ethan decided it on #21 after the #115 user test; see "`GuessOutcome` and round states") |
 | Stanford mode | A fixed pack, or its own daily rotation | #65 |
 | Name and look | "Crumbscope" (proposal), "Zoom Out" (app), or other | #51 |
 | Image sourcing | Which licenses we accept; our own photos for Stanford | #55, #65 |

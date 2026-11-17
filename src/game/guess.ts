@@ -24,8 +24,8 @@ const SEPARATORS = /[,!?‐‑‒–—―−-]/gu;
  *
  * NFKC makes visually identical input compare equal (full-width letters,
  * non-breaking spaces, precomposed vs. combining accents). Accents themselves
- * are kept, so "café" and "cafe" differ by one character, which typo
- * tolerance (`typoTolerantMatch`) forgives in answers of 5+ letters.
+ * are kept, so "café" and "cafe" differ here (and under `exactMatch`); the
+ * default matcher, `typoTolerantMatch`, ignores accents when it compares.
  *
  * Apostrophes are removed rather than turned into spaces, so "St. Paul's"
  * becomes "st pauls" and matches a guess typed without them. Input that is only
@@ -46,18 +46,20 @@ export function normalizeGuess(text: string): string {
 /**
  * Decides whether a normalized guess matches a normalized answer. The default
  * is `typoTolerantMatch` (#21, #115); pass `exactMatch` for no tolerance.
+ * `checkGuess` calls it for every answer, exact matches included, so a
+ * stricter matcher can reject any of them.
  */
 export type AnswerMatcher = (normalizedGuess: string, normalizedAnswer: string) => boolean;
 
 export const exactMatch: AnswerMatcher = (guess, answer) => guess === answer;
 
 /**
- * How many typos an answer allows, by its length without spaces: none for
- * short answers (where one letter changes the word: "cat" / "car"), 1 from 5
- * letters, 2 from 9.
+ * How many typos a word allows, by its length (spaces aren't counted): none
+ * for short words, where one letter makes another word ("oval" / "opal"),
+ * 1 from 5 letters, 2 from 9. `typoTolerantMatch` applies it word by word.
  */
-export function allowedTypos(normalizedAnswer: string): number {
-  const length = [...normalizedAnswer.replace(/ /gu, "")].length;
+export function allowedTypos(word: string): number {
+  const length = [...word.replace(/ /gu, "")].length;
   if (length >= 9) return 2;
   if (length >= 5) return 1;
   return 0;
@@ -92,24 +94,62 @@ export function typoDistance(a: string, b: string, max = Infinity): number {
   return prev[y.length]!;
 }
 
-const digits = (text: string) => text.replace(/\D/gu, "");
+/** Remove accents: "élysée" -> "elysee". Letters like "œ" stay as they are. */
+const stripAccents = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").normalize("NFC");
+
+type PreparedWord = { text: string; first: string | undefined; digits: string };
+type Prepared = { words: PreparedWord[]; joined: string };
+
+function prepare(normalized: string): Prepared {
+  const folded = stripAccents(normalized);
+  const words = folded.split(" ").map((text) => ({ text, first: [...text][0], digits: text.replace(/\D/gu, "") }));
+  return { words, joined: folded.replace(/ /gu, "") };
+}
+
+/** The guess is the same for every answer `checkGuess` tries, so prepare it once. */
+let lastGuess: { normalized: string; prepared: Prepared } | undefined;
+function prepareGuess(normalized: string): Prepared {
+  if (lastGuess?.normalized !== normalized) lastGuess = { normalized, prepared: prepare(normalized) };
+  return lastGuess.prepared;
+}
 
 /**
- * Accepts a guess within `allowedTypos(answer)` typos (#21, decided after the
- * #115 user test, where a player who knew the answer lost points to a typo).
- * Two guards against accepting a different place that happens to be close:
- * - the first character must match ("Mesa" isn't "Pesa"),
- * - digits must match exactly ("Building 10" isn't "Building 11").
- * Checked on the server like every guess; the answer never reaches the browser.
+ * The number of typos between a normalized guess and answer under the #21 rule,
+ * or `undefined` if the guess isn't accepted. Accents are ignored throughout
+ * ("elysee" for "élysée" costs nothing). Word by word, so a long generic word
+ * ("The", "Stanford") never buys a typo for a short, distinctive one:
+ * - guess and answer must have the same number of words;
+ * - each word gets its own `allowedTypos`, by its own length;
+ * - each word's first letter must match ("Mesa" isn't "Pesa", "Lake Magunita"
+ *   isn't "Lake Lagunita");
+ * - each word's digits must match exactly ("Building 10" isn't "Building 11").
+ * A missing or extra space alone is forgiven ("NotreDame" for "Notre Dame"),
+ * but then the letters must be exactly the same: "StanfordMall" isn't
+ * "Stanford Hall".
  */
-export const typoTolerantMatch: AnswerMatcher = (guess, answer) => {
-  if (guess === answer) return true;
-  const max = allowedTypos(answer);
-  if (max === 0) return false;
-  if ([...guess][0] !== [...answer][0]) return false;
-  if (digits(guess) !== digits(answer)) return false;
-  return typoDistance(guess, answer, max) <= max;
-};
+export function typoCount(normalizedGuess: string, normalizedAnswer: string): number | undefined {
+  const guess = prepareGuess(normalizedGuess);
+  const answer = prepare(normalizedAnswer);
+  if (guess.words.length !== answer.words.length) return guess.joined === answer.joined ? 0 : undefined;
+  let total = 0;
+  for (const [i, a] of answer.words.entries()) {
+    const g = guess.words[i]!;
+    if (g.first !== a.first || g.digits !== a.digits) return undefined;
+    const max = allowedTypos(a.text);
+    const distance = typoDistance(g.text, a.text, max);
+    if (distance > max) return undefined;
+    total += distance;
+  }
+  return total;
+}
+
+/**
+ * Accepts a guess with a few typos (#21: decided by Ethan after the #115 user
+ * test, where a player who knew the answer lost points to a typo). See
+ * `typoCount` for the rule. Checked on the server like every guess; the answer
+ * never reaches the browser.
+ */
+export const typoTolerantMatch: AnswerMatcher = (guess, answer) => typoCount(guess, answer) !== undefined;
 
 export type CheckGuessOptions = {
   matcher?: AnswerMatcher;
@@ -117,10 +157,10 @@ export type CheckGuessOptions = {
 
 /**
  * Check a guess against the puzzle's canonical answer and its accepted
- * alternates. `matched` is the answer as written in the puzzle, so the UI can
- * show it (and a player who made a typo sees the right spelling). An exact
- * match on any answer wins over a typo match, and the canonical answer wins
- * among equals.
+ * alternates. Every answer goes through the matcher, and among the ones it
+ * accepts, the closest wins: an exact match first, then the fewest typos, then
+ * the canonical answer before alternates. `matched` is that answer as written
+ * in the puzzle, so a player who made a typo sees the right spelling.
  */
 export function checkGuess(
   puzzle: Pick<Puzzle, "answer" | "acceptedAnswers">,
@@ -130,13 +170,23 @@ export function checkGuess(
   const normalizedGuess = normalizeGuess(guess);
   if (normalizedGuess === "") return { kind: "empty" };
 
-  const candidates = [puzzle.answer, ...puzzle.acceptedAnswers]
+  const accepted = [puzzle.answer, ...puzzle.acceptedAnswers]
     .map((candidate) => ({ candidate, normalized: normalizeGuess(candidate) }))
-    .filter((c) => c.normalized !== "");
-  const exact = candidates.find((c) => c.normalized === normalizedGuess);
+    .filter((c) => c.normalized !== "" && matcher(normalizedGuess, c.normalized));
+  const exact = accepted.find((c) => c.normalized === normalizedGuess);
   if (exact) return { kind: "correct", matched: exact.candidate };
-  for (const { candidate, normalized } of candidates) {
-    if (matcher(normalizedGuess, normalized)) return { kind: "correct", matched: candidate };
+  if (accepted.length === 0) return { kind: "incorrect", normalizedGuess };
+  if (accepted.length === 1) return { kind: "correct", matched: accepted[0]!.candidate };
+
+  // Rarely more than one: typos under the #21 rule, or plain edit distance
+  // for answers only a custom matcher accepted.
+  const typos = (answer: string) =>
+    typoCount(normalizedGuess, answer) ?? typoDistance(stripAccents(normalizedGuess), stripAccents(answer));
+  let best = accepted[0]!;
+  let bestTypos = typos(best.normalized);
+  for (const c of accepted.slice(1)) {
+    const t = typos(c.normalized);
+    if (t < bestTypos) [best, bestTypos] = [c, t];
   }
-  return { kind: "incorrect", normalizedGuess };
+  return { kind: "correct", matched: best.candidate };
 }
