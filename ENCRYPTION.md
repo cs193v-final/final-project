@@ -1,6 +1,6 @@
 # ENCRYPTION
 
-For our zoom-out project, we store various information using both encryption and hashing methods. For each user who makes an account, we store a username, username lookup, password hash, session-token hash, rate-limit records, IDs, and timestamps. Game guesses aren’t encrypted yet. 
+For our zoom-out project, we store various information using both encryption and hashing methods. For each user who makes an account, we store a username, username lookup, password hash, session-token hash, rate-limit records, IDs, and timestamps. 
 
 The distinction between the methods is that encryption can be reversed with a key. Hashing, however, is a one-way storage process. The code simply matches a hash to another hash to check without ever revealing the code. Keyed hashes (HMAC) require a secret key as well because a regular hashed piece of data can be cracked.  
 
@@ -15,3 +15,5 @@ Backups for the master keys are held outside the repo so that no agent or web se
 Scores, IDs, which are how records get connected, and timestamps to expire sessions are all plain values that don’t require encryption. Scores need to be read in plain value for sorting, IDs are random, and timestamps are used to expire things. 
 
 Data is either at rest or in transit, the latter meaning travelling between two parties. Because users don’t send/communicate to each other directly, everything is sent through the server. Data makes two trips in our game: browser to server (Vercel), and server to our database storage (Neon). We use the standard encryption, TLS, for both trips, and it works by using a secret key between both computers. Our database connection address ends with sslmode=require. Our cookie, which the browser sends to the server to remember the user, is called zo_session. The data is encrypted in HTTPS on each send because of our secure setting, and our database stores a hash of the token, making it unretrievable for us. 
+
+We store the data in a "game state". The game state records everything we've tried, every guess, the amount of times we zoom out, and times we skip. This allows us to keep progress even if users refresh. We encrypted this data using the same lock as the usernames, so without the master key it's undecipherable. The key is comprised of the master key + who owns the game and which game it is. If you try to use someone's encrypted key to get into a game, it doesn't unlock. Even players not logged in have encrypted game states. Total score, timestamp of the finished game, and each round's points and correctness are stored plainly the leaderboard and database. None of this is inputted data. 
