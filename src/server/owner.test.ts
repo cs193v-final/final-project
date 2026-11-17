@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  // Tests run as if locally unless they say otherwise.
+  // Tests run as if locally unless they say otherwise, even when CI sets VERCEL.
   vi.stubEnv("VERCEL", "");
   jar.clear();
   // What Next passes on for a deployed site behind Vercel's proxy.
@@ -70,6 +70,22 @@ describe("ownerCookieOptions", () => {
     expect(isHttpsRequest("http,https")).toBe(false);
     expect(isHttpsRequest(null)).toBe(true); // unknown: the safe default
     expect(isHttpsRequest("")).toBe(true);
+    expect(isHttpsRequest("HTTP")).toBe(false);
+    expect(isHttpsRequest(" http , https")).toBe(false);
+    expect(isHttpsRequest("ftp")).toBe(true); // unknown, not "http": Secure (#108)
+  });
+
+  it("is always Secure on Vercel, even for a request that says http (#108)", () => {
+    for (const proto of ["http", "HTTP", "http, https", null]) {
+      expect(ownerCookieOptions(proto, true).secure, String(proto)).toBe(true);
+    }
+  });
+
+  it("knows it's on Vercel from the VERCEL variable", () => {
+    vi.stubEnv("VERCEL", "1");
+    expect(ownerCookieOptions("http").secure).toBe(true);
+    vi.stubEnv("VERCEL", "");
+    expect(ownerCookieOptions("http").secure).toBe(false);
   });
 });
 
@@ -100,7 +116,7 @@ describe("currentOwner / currentOrNewOwner", () => {
     expect(jar.get(OWNER_COOKIE)!.options).toMatchObject({ secure });
   });
 
-  it("sets a Secure cookie on Vercel even when the request says http (shares isHttpsRequest's rule, #155)", async () => {
+  it("sets a Secure cookie on Vercel even when the request says http (shares isHttpsRequest's rule, #108, #155)", async () => {
     vi.stubEnv("VERCEL", "1");
     requestHeaders = { host: "zoom-out.vercel.app", "x-forwarded-proto": "http" };
     await currentOrNewOwner();

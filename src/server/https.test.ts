@@ -17,6 +17,13 @@ describe("isHttpsRequest", () => {
     expect(isHttpsRequest("http,https", false)).toBe(false);
     expect(isHttpsRequest(null, false)).toBe(true); // unknown: the safe default
     expect(isHttpsRequest("", false)).toBe(true);
+    expect(isHttpsRequest(" http , https", false)).toBe(false);
+  });
+
+  it("off Vercel, only an explicit http turns Secure off (#108)", () => {
+    for (const proto of ["ftp", "wss", "h2", "unknown"]) {
+      expect(isHttpsRequest(proto, false), proto).toBe(true);
+    }
   });
 
   it("on Vercel, is always https, whatever the header says (#155)", () => {
