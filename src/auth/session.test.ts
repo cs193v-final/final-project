@@ -1,5 +1,6 @@
 // The session cookie, the request's address and error logging (#53), with
 // stand-ins for next/headers and the database.
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const jar = new Map<string, { value: string; options?: unknown }>();
@@ -20,8 +21,14 @@ const deleteSession = vi.fn<(db: unknown, hash: string) => Promise<void>>(async 
 const findSessionUser = vi.fn<(db: unknown, hash: string, now: Date) => Promise<unknown>>(async () => null);
 vi.mock("@/db", () => ({ getDb: () => ({}) }));
 vi.mock("@/db/accounts", () => ({ deleteSession, findSessionUser }));
+// The real sessionUser decrypts the stored username (#84); here the lookup
+// itself is what's under test, so it passes the row straight through.
+vi.mock("@/crypto/vault", () => ({ getVault: () => ({}) }));
+vi.mock("./accounts", () => ({
+  sessionUser: (db: unknown, _vault: unknown, hash: string, now: Date) => findSessionUser(db, hash, now),
+}));
 
-const { describeError, getCurrentUser, getCurrentUserOrLoggedOut, requestIp, SessionLookupError, SESSION_COOKIE, sessionCookieOptions, setSessionCookie } =
+const { getCurrentUser, getCurrentUserOrLoggedOut, requestIp, SessionLookupError, SESSION_COOKIE, sessionCookieOptions, setSessionCookie } =
   await import("./session");
 const { newToken, sha256Hex } = await import("./crypto");
 
@@ -29,6 +36,12 @@ const OLD_TOKEN = newToken();
 const NEW_TOKEN = newToken();
 
 const EXPIRES = new Date("2026-12-17T12:00:00Z");
+
+/** A failed query as drizzle throws it: the token hash is in its params and its message. */
+function failedQuery(sql: string, tokenHash: string, code: string): DrizzleQueryError {
+  const pg = Object.assign(new Error("terminating connection due to administrator command"), { name: "NeonDbError", code });
+  return new DrizzleQueryError(sql, [tokenHash], pg);
+}
 
 beforeEach(() => {
   jar.clear();
@@ -69,13 +82,14 @@ describe("the session cookie", () => {
     expect(jar.get(SESSION_COOKIE)?.value).toBe(NEW_TOKEN);
   });
 
-  it("still logs in if ending the old session fails, and logs only the error's type", async () => {
+  it("still logs in if ending the old session fails, and never logs the query's parameters", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    deleteSession.mockRejectedValueOnce(new Error(`Failed query: delete ... params: ${sha256Hex(OLD_TOKEN)}`));
+    deleteSession.mockRejectedValueOnce(failedQuery("delete from sessions where token_hash = $1", sha256Hex(OLD_TOKEN), "57P01"));
     jar.set(SESSION_COOKIE, { value: OLD_TOKEN });
     await setSessionCookie(NEW_TOKEN, EXPIRES);
     expect(jar.get(SESSION_COOKIE)?.value).toBe(NEW_TOKEN);
-    expect(error).toHaveBeenCalledWith("Couldn't end the previous session: Error");
+    expect(error).toHaveBeenCalledWith("Couldn't end the previous session: Error: Failed query; caused by NeonDbError (57P01)");
+    expect(JSON.stringify(error.mock.calls)).not.toContain(sha256Hex(OLD_TOKEN));
     error.mockRestore();
   });
 });
@@ -96,23 +110,26 @@ describe("getCurrentUser", () => {
     expect(findSessionUser.mock.calls[0]?.[1]).toBe(sha256Hex(NEW_TOKEN));
   });
 
-  it("turns a failed lookup into an error that carries no query or token hash", async () => {
-    findSessionUser.mockRejectedValueOnce(
-      new Error(`Failed query: select ... params: ${sha256Hex(OLD_TOKEN)}`, { cause: Object.assign(new Error("x"), { code: "57P01" }) }),
-    );
+  it("turns a failed lookup into an error that carries no token hash", async () => {
+    findSessionUser.mockRejectedValueOnce(failedQuery("select ... where token_hash = $1", sha256Hex(OLD_TOKEN), "57P01"));
     jar.set(SESSION_COOKIE, { value: OLD_TOKEN });
     const thrown = await getCurrentUser().catch((e: unknown) => e);
     expect(thrown).toBeInstanceOf(SessionLookupError);
-    expect(String((thrown as Error).message)).toBe("Couldn't check the session: Error (57P01)");
+    expect(String((thrown as Error).message)).toBe(
+      "Couldn't check the session: Error: Failed query; caused by NeonDbError (57P01)",
+    );
     expect((thrown as Error).cause).toBeUndefined();
   });
 
-  it("counts a failed lookup as logged out for the header", async () => {
+  it("counts a failed lookup as logged out for the header, and never logs the query's parameters", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    findSessionUser.mockRejectedValueOnce(new Error("Failed query: ..."));
+    findSessionUser.mockRejectedValueOnce(failedQuery("select ... where token_hash = $1", sha256Hex(NEW_TOKEN), "57P01"));
     jar.set(SESSION_COOKIE, { value: NEW_TOKEN });
     expect(await getCurrentUserOrLoggedOut()).toBeNull();
-    expect(error).toHaveBeenCalledWith("Couldn't check the session: Error; showing the user as logged out");
+    expect(error).toHaveBeenCalledWith(
+      "Couldn't check the session: Error: Failed query; caused by NeonDbError (57P01); showing the user as logged out",
+    );
+    expect(JSON.stringify(error.mock.calls)).not.toContain(sha256Hex(NEW_TOKEN));
     error.mockRestore();
   });
 });
@@ -127,16 +144,5 @@ describe("requestIp", () => {
     expect(await requestIp()).toBe("192.0.2.1");
     requestHeaders = {};
     expect(await requestIp()).toBeNull();
-  });
-});
-
-describe("describeError", () => {
-  it("logs only the error's type and code, never its message (which can hold query parameters)", () => {
-    const failed = new Error('Failed query: insert into "users" params: ethan,$argon2id$v=19$...', {
-      cause: Object.assign(new Error("duplicate key"), { code: "23505" }),
-    });
-    expect(describeError(failed)).toBe("Error (23505)");
-    expect(describeError(new TypeError("secret detail"))).toBe("TypeError");
-    expect(describeError("a string")).toBe("string");
   });
 });

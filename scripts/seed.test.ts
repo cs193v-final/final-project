@@ -3,9 +3,20 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Records which database driver connect() loads (it imports them lazily).
+const driversLoaded = vi.hoisted(() => [] as string[]);
+vi.mock("@neondatabase/serverless", () => {
+  driversLoaded.push("@neondatabase/serverless");
+  return { neon: () => ({}) };
+});
+vi.mock("drizzle-orm/neon-http", () => {
+  driversLoaded.push("drizzle-orm/neon-http");
+  return { drizzle: () => ({}) };
+});
 
 const root = resolve(import.meta.dirname, "..");
 const cleanup: string[] = [];
@@ -25,11 +36,24 @@ function run(args: string[], env: Record<string, string> = {}) {
 
 const seed = (...args: string[]) => run(["--dry-run", ...args]);
 
-function writeContent(dir: string, name: string, data: unknown): string {
+/**
+ * Write a content file. Unless `photos` is false, also put a stand-in original
+ * photo at each puzzle's relative `imageUrl` next to it: the dry run checks
+ * that every original exists (#57), but doesn't decode it.
+ */
+function writeContent(dir: string, name: string, data: unknown, { photos = true } = {}): string {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, name);
   writeFileSync(file, JSON.stringify(data));
   cleanup.push(file);
+  if (photos) {
+    for (const { imageUrl } of (data as { puzzles?: { imageUrl: string }[] }).puzzles ?? []) {
+      const photo = join(dir, imageUrl);
+      mkdirSync(dirname(photo), { recursive: true });
+      writeFileSync(photo, "not really a jpeg");
+      cleanup.push(photo);
+    }
+  }
   return file;
 }
 
@@ -37,7 +61,7 @@ const FRUIT = {
   puzzles: [
     {
       id: "pz-0a1b2c3d",
-      imageUrl: "https://images.example.com/pz-0a1b2c3d.jpg",
+      imageUrl: "images/pz-0a1b2c3d.jpg",
       answer: "Strawberry",
       acceptedAnswers: [],
       reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [8, 4, 2, 1] },
@@ -126,6 +150,29 @@ describe("npm run db:seed -- --dry-run", { timeout: 30_000 }, () => {
     expect(code).toBe(0);
   });
 
+  it("names a puzzle whose original photo is missing, without a database", () => {
+    const { code, out } = seed(writeContent(outside(), "fruit.json", FRUIT, { photos: false }));
+    expect(out).toMatch(/puzzle pz-0a1b2c3d: no original image at .*images[/\\]pz-0a1b2c3d\.jpg/u);
+    expect(out).not.toContain("Dry run: no database touched.");
+    expect(code).toBe(1);
+  });
+
+  it("skips the photo check with --no-images", () => {
+    const { code, out } = seed("--no-images", writeContent(outside(), "fruit.json", FRUIT, { photos: false }));
+    expect(out).toContain("Dry run: no database touched.");
+    expect(code).toBe(0);
+  });
+
+  it("refuses a private puzzle's photo that git would commit", () => {
+    const dir = outside();
+    // A tracked file in the repo, reached from content kept outside it.
+    const tracked = relative(dir, join(root, "public/puzzles/pz-dbdb4dee.jpg"));
+    const committable = { ...FRUIT, puzzles: [{ ...FRUIT.puzzles[0], imageUrl: tracked }] };
+    const { code, out } = seed(writeContent(dir, "fruit.json", committable, { photos: false }));
+    expect(out).toContain("private content can't live in the repo unless it's git-ignored");
+    expect(code).toBe(1);
+  });
+
   it("names the file and field when content is wrong", () => {
     const leaky = { ...FRUIT, puzzles: [{ ...FRUIT.puzzles[0], imageUrl: "/img/strawberry.jpg" }] };
     const { code, out } = seed(writeContent(outside(), "leaky.json", leaky));
@@ -155,5 +202,31 @@ describe("the seed script's database driver", async () => {
 
   it("rejects a URL it can't read", () => {
     expect(() => driverFor("not a url")).toThrow("not a valid connection URL");
+  });
+});
+
+describe("the seed script's connect()", async () => {
+  const { connect } = await import("./seed-db.ts");
+
+  it.each([
+    "postgresql://u@ep-cool-name-123.us-east-2.aws.neon.tech/neondb",
+    "postgresql://u@ep-cool-name-123.us-east-2.aws.neon.tech/neondb?sslmode=disable",
+  ])("rejects a URL that doesn't require TLS, before loading a driver (%s)", async (url) => {
+    driversLoaded.length = 0;
+    await expect(connect(url)).rejects.toThrow("DATABASE_URL_UNPOOLED must require TLS");
+    expect(driversLoaded).toEqual([]);
+  });
+
+  it("names the variable it was given", async () => {
+    await expect(connect("postgresql://u@db.example.com/x", "OTHER_DATABASE_URL")).rejects.toThrow(
+      "OTHER_DATABASE_URL must require TLS",
+    );
+  });
+
+  it("loads Neon's driver once the URL requires TLS", async () => {
+    driversLoaded.length = 0;
+    const { close } = await connect("postgresql://u@ep-cool-name-123.us-east-2.aws.neon.tech/neondb?sslmode=require");
+    await close();
+    expect(driversLoaded).toContain("@neondatabase/serverless");
   });
 });

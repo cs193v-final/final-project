@@ -5,13 +5,14 @@
 // migrations, see games.test.ts) and against `MemoryGameStore`.
 import "server-only";
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import type { GameOwner, GameState, GameStore, NewStoredGame, StoredGame } from "@/game/server-game";
-import { GameConflictError, GameNotFoundError } from "@/game/server-game";
+import { DuplicateDailyGameError, GameConflictError, GameNotFoundError } from "@/game/server-game";
 import { scoreGame } from "@/game/scoring";
 import type { Pack } from "@/game/types";
 import type { Db } from "./index";
+import { rowsOf } from "./rows";
 import { games, packs } from "./schema";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -24,7 +25,7 @@ export type PgGameStoreOptions = {
    * (foreign key), so it's off for the practice pack, whose puzzles are still
    * in code (`SAMPLE_PUZZLES`) until packs land (#52). Default: true.
    */
-  recordRounds?: boolean;
+  recordRounds?: boolean | ((state: GameState) => boolean);
 };
 
 /** The columns that say who owns a game. Exactly one is set. */
@@ -49,6 +50,7 @@ type GameRow = {
   anonOwnerHash: string | null;
   state: unknown;
   revision: number;
+  dailyDate: string | null;
 };
 
 function fromRow(row: GameRow): StoredGame {
@@ -58,16 +60,50 @@ function fromRow(row: GameRow): StoredGame {
   else throw new Error(`PgGameStore: game ${row.id} has no owner`);
   // Raw `execute` results may hand jsonb back as text, depending on the driver.
   const state = (typeof row.state === "string" ? JSON.parse(row.state) : row.state) as GameState;
-  return { id: row.id, owner, packId: row.packId, revision: Number(row.revision), state };
+  const game: StoredGame = { id: row.id, owner, packId: row.packId, revision: Number(row.revision), state };
+  // Raw `execute` results may return a date as a Date or as text, depending on the driver.
+  if (row.dailyDate !== null && row.dailyDate !== undefined) game.dailyDate = dailyDateText(row.dailyDate);
+  return game;
 }
 
-/** `db.execute` returns `{ rows }` on every driver we use (Neon HTTP, node-postgres, PGlite). */
-function rowsOf(result: unknown): Record<string, unknown>[] {
-  if (Array.isArray(result)) return result as Record<string, unknown>[];
-  const rows = (result as { rows?: unknown } | null)?.rows;
-  if (Array.isArray(rows)) return rows as Record<string, unknown>[];
-  throw new Error("PgGameStore: unexpected result from db.execute");
+/**
+ * A `date` column as "YYYY-MM-DD". node-postgres parses `date` to a Date at
+ * *local* midnight, so read it with local getters: `toISOString()` would move
+ * it back a day in any zone east of UTC (review of #119).
+ */
+export function dailyDateText(value: unknown): string {
+  if (value instanceof Date) {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  }
+  return String(value).slice(0, 10);
 }
+
+/** The two unique indexes that keep one daily game per owner per day (#58). */
+const DAILY_INDEXES = new Set(["games_daily_user_key", "games_daily_anon_key"]);
+
+/** A unique-index violation on one of `DAILY_INDEXES`, from any of our drivers (drizzle wraps it in `cause`). */
+export function isDuplicateDaily(error: unknown): boolean {
+  for (let e: unknown = error, depth = 0; e !== null && typeof e === "object" && depth < 4; depth++) {
+    const { code, constraint, message } = e as { code?: unknown; constraint?: unknown; message?: unknown };
+    if (code === "23505" && (DAILY_INDEXES.has(String(constraint)) || [...DAILY_INDEXES].some((i) => String(message).includes(i)))) {
+      return true;
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+const COLUMNS = {
+  id: games.id,
+  packId: games.packId,
+  userId: games.userId,
+  anonOwnerHash: games.anonOwnerHash,
+  state: games.state,
+  revision: games.revision,
+  dailyDate: games.dailyDate,
+};
+
 
 /**
  * A `GameStore` on the `games` table.
@@ -81,51 +117,52 @@ function rowsOf(result: unknown): Record<string, unknown>[] {
  * - Owner: `{ userId }` → `user_id`; `{ anonId }` → `anon_owner_hash`.
  */
 export class PgGameStore implements GameStore {
-  private readonly recordRounds: boolean;
+  private readonly recordRounds: (state: GameState) => boolean;
 
   constructor(
     private readonly db: Db,
     options: PgGameStoreOptions = {},
   ) {
-    this.recordRounds = options.recordRounds ?? true;
+    const record = options.recordRounds ?? true;
+    this.recordRounds = typeof record === "function" ? record : () => record;
   }
 
   async get(id: string): Promise<StoredGame | null> {
     // Ids come from URLs; anything that isn't a UUID can't exist (and would be
     // a Postgres type error).
     if (!UUID.test(id)) return null;
+    const [row] = await this.db.select(COLUMNS).from(games).where(eq(games.id, id));
+    return row === undefined ? null : fromRow(row);
+  }
+
+  async findDaily(owner: GameOwner, dailyDate: string): Promise<StoredGame | null> {
+    const { userId, anonOwnerHash } = ownerColumns(owner);
+    const ownerMatch = userId !== null ? eq(games.userId, userId) : eq(games.anonOwnerHash, anonOwnerHash!);
     const [row] = await this.db
-      .select({
-        id: games.id,
-        packId: games.packId,
-        userId: games.userId,
-        anonOwnerHash: games.anonOwnerHash,
-        state: games.state,
-        revision: games.revision,
-      })
+      .select(COLUMNS)
       .from(games)
-      .where(eq(games.id, id));
+      .where(and(ownerMatch, eq(games.dailyDate, dailyDate)));
     return row === undefined ? null : fromRow(row);
   }
 
   async create(game: NewStoredGame): Promise<StoredGame> {
-    const [row] = await this.db
-      .insert(games)
-      .values({
-        packId: game.packId,
-        ...ownerColumns(game.owner),
-        state: game.state,
-        revision: 0,
-        total: 0,
-      })
-      .returning({
-        id: games.id,
-        packId: games.packId,
-        userId: games.userId,
-        anonOwnerHash: games.anonOwnerHash,
-        state: games.state,
-        revision: games.revision,
-      });
+    let row: GameRow | undefined;
+    try {
+      [row] = await this.db
+        .insert(games)
+        .values({
+          packId: game.packId,
+          ...ownerColumns(game.owner),
+          state: game.state,
+          revision: 0,
+          total: 0,
+          dailyDate: game.dailyDate ?? null,
+        })
+        .returning(COLUMNS);
+    } catch (error) {
+      if (game.dailyDate !== undefined && isDuplicateDaily(error)) throw new DuplicateDailyGameError(game.dailyDate);
+      throw error;
+    }
     if (row === undefined) throw new Error("PgGameStore: insert returned no row");
     return fromRow(row);
   }
@@ -135,7 +172,7 @@ export class PgGameStore implements GameStore {
     const { rounds, total } = scoreGame(state.events, state.scoring);
     // Rounds are scored in play order, so position = index + 1. Every save
     // sends all finished rounds; ON CONFLICT skips the ones already written.
-    const roundRows = this.recordRounds
+    const roundRows = this.recordRounds(state)
       ? rounds.map((r, i) => ({
           position: i + 1,
           puzzle_id: r.puzzleId,
@@ -158,7 +195,7 @@ export class PgGameStore implements GameStore {
             finished_at = CASE WHEN ${state.finished}::boolean THEN coalesce(finished_at, now()) ELSE NULL END,
             updated_at = now()
         WHERE id = ${game.id}::uuid AND revision = ${game.revision}
-        RETURNING id, pack_id, user_id, anon_owner_hash, state, revision
+        RETURNING id, pack_id, user_id, anon_owner_hash, state, revision, daily_date
       ),
       new_rounds AS (
         INSERT INTO game_rounds (game_id, position, puzzle_id, outcome, reveal_level_reached,
@@ -172,7 +209,8 @@ export class PgGameStore implements GameStore {
           wrong_guess_penalty integer)
         ON CONFLICT (game_id, position) DO NOTHING
       )
-      SELECT id, pack_id AS "packId", user_id AS "userId", anon_owner_hash AS "anonOwnerHash", state, revision
+      SELECT id, pack_id AS "packId", user_id AS "userId", anon_owner_hash AS "anonOwnerHash", state, revision,
+             daily_date::text AS "dailyDate"
       FROM updated
     `);
 
@@ -194,4 +232,42 @@ export async function ensurePackRow(db: Db, pack: Pick<Pack, "id" | "kind" | "ti
     .insert(packs)
     .values({ id: pack.id, kind: pack.kind, title: pack.title, theme: pack.theme })
     .onConflictDoNothing({ target: packs.id });
+}
+
+/** What `startPracticeGame` needs to apply the unfinished-games cap (#85). */
+export type UnfinishedGames = {
+  /** How many of the owner's games of this pack aren't finished. */
+  count: number;
+  /** The owner's newest unfinished game of this pack that hasn't been played yet (revision 0), if any. */
+  untouchedId: string | null;
+  /** The owner's most recently played unfinished game of this pack, if any. */
+  latestId: string | null;
+};
+
+/**
+ * The owner's unfinished games of one pack, for the per-pack cap and for
+ * reuse (#85). One query.
+ *
+ * TODO(#85): this read and the insert that may follow aren't atomic, so two
+ * starts at the same moment can each insert a game and overshoot the cap by
+ * one or two. Fine at our scale (the start limits bound it); an
+ * `INSERT ... SELECT ... WHERE (count) < cap` would close it if it matters.
+ */
+export async function findUnfinishedGames(db: Db, owner: GameOwner, packId: string): Promise<UnfinishedGames> {
+  const { userId, anonOwnerHash } = ownerColumns(owner);
+  const mine = userId !== null ? sql`user_id = ${userId}::uuid` : sql`anon_owner_hash = ${anonOwnerHash}`;
+  const result = await db.execute(sql`
+    SELECT
+      (SELECT count(*) FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL) AS "count",
+      (SELECT id FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL AND revision = 0
+        ORDER BY created_at DESC LIMIT 1) AS "untouchedId",
+      (SELECT id FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL
+        ORDER BY updated_at DESC LIMIT 1) AS "latestId"
+  `);
+  const [row] = rowsOf(result);
+  return {
+    count: Number(row?.count ?? 0),
+    untouchedId: (row?.untouchedId as string | null | undefined) ?? null,
+    latestId: (row?.latestId as string | null | undefined) ?? null,
+  };
 }

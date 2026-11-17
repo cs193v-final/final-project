@@ -109,7 +109,7 @@ The owner of each type makes the final call. Change a type only through a PR its
 | `GuessOutcome`, `RoundState` | Jacky | Settled (#22, #23) | |
 | `ScoringEvent` | Jacky (emits), Ethan (consumes) | Settled (#22, #27) | |
 | `ScoringConfig`, `RoundResult` | Ethan | Settled (#27) | |
-| `PackKind`, `Pack`, `DailyEntry` | Joseph | Settled (#52), checked by `parseContent` in `src/game/packs.ts`. The daily reset time zone is still open (#58). | #52, #58 |
+| `PackKind`, `Pack`, `DailyEntry` | Joseph | Settled (#52), checked by `parseContent` in `src/game/packs.ts`. `DailyEntry.date` is in the reset time zone, midnight Pacific (#58). | #52, #58 |
 | `GameAction` | Jacky | **Proposal**. Moved from `round.ts` (which re-exports it); same shape as before. | #54 |
 | `PublicRound` | Jacky (image fields: Darian) | **Proposal** | #54, #57 |
 | `GameView` | Jacky | **Proposal** | #54 |
@@ -120,7 +120,7 @@ The owner of each type makes the final call. Change a type only through a PR its
 
 These are functions, not types in `src/game/`. They run only on the server.
 
-- **Jacky (#54):** `startGame(packId, user | null) → GameView`, `act(gameId, action: GameAction) → GameView`, `getGame(gameId) → GameView` (resume after a refresh).
+- **Jacky (#54):** `startGame(packId, user | null) → GameView`, `act(gameId, action: GameAction, revision) → GameView`, where `revision` is the `GameView.revision` the player saw; a stale one is a conflict and changes nothing (#107), `getGame(gameId) → GameView` (resume after a refresh).
   - Route Handlers vs Server Actions is Jacky's call; the types are the contract.
   - The server reuses the framework-free logic in `src/game/` (guess checking, the round state machine, scoring).
   - Games belong to the logged-in user, or to an anonymous cookie if we allow anonymous play.
@@ -240,6 +240,10 @@ The values in use are in `src/game/scoring-config.ts`, and that's the only place
 | Accounts | Username and password. No password reset for now, so we don't store emails (#53). |
 | Custom lobbies | Share a code and play any time, not live multiplayer (#67) |
 | Where puzzles and progress live | Puzzles, games, results and sessions in Neon; answers only on the server (#47, #54) |
+| Daily reset time | Midnight `America/Los_Angeles` (Joseph, #58). One place to change it: `DEFAULT_DAILY_RESET` in `src/game/daily-date.ts` (#63), dailyDateFor's default; the daily uses it, and streaks and the leaderboard should too. |
+| Theme shown or hidden | Shown before the first image, on an intro screen ("Today: Fruit") (Joseph, #58) |
+| Anonymous play | Anyone can play the daily without an account; only games started while logged in get leaderboard entries and streaks, and an anonymous game never moves to an account (Joseph, #58; Ethan and Jacky agreed in the reviews of #100 and #119). #62 and #63 filter on `user_id IS NOT NULL`. |
+| Daily replays | One daily game per logged-in player per day, enforced by the database (#58, part 2); after it, you see your result. An anonymous player gets one per browser (cookie), which can't be enforced: a private window is a new player. |
 | Image storage | Postgres. Each zoom level is cut ahead of time into its own WebP in `image_files`, served at `/img/<random id>.webp`; the server only sends the current level's URL. Not Vercel Blob, whose store and token only the Vercel owner could manage (#57; details in `TECHNICAL.md`) |
 
 ### Still open (NOT settled)
@@ -248,9 +252,6 @@ Don't treat these as decided. Ask the owner, or keep them configurable.
 
 | Decision | Notes | Issue |
 |---|---|---|
-| Daily reset time | Default proposal: midnight `America/Los_Angeles` | #58 |
-| Theme shown or hidden | Shown before play, or hidden for a bonus? | #58 |
-| Anonymous play | Default proposal: anyone can play daily; only logged-in players get leaderboard entries and streaks | #54, #62 |
 | Where non-public puzzle content lives | **Proposal (#52):** each of us keeps it in the git-ignored `content/` folder, and the seed script refuses committable content. Still to decide: how we share the files with each other (e.g. a private repo or a shared drive). | #52 |
 | Scoring values and wrong-guess rules | Placeholders in `src/game/scoring-config.ts`; flat or increasing penalties; a guess limit? | #21, #64 |
 | Number of reveal steps | Fixed or per puzzle | #21 (typo tolerance: Ethan decided it on #21 after the #115 user test; see "`GuessOutcome` and round states") |

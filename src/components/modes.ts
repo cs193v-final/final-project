@@ -31,7 +31,9 @@ export const MODES: readonly GameMode[] = [
     id: "daily",
     title: "Daily challenge",
     description: "Five images from today's theme, the same for everyone.",
-    status: "coming-soon", // #58
+    status: "available", // #58
+    href: "/daily",
+    cta: "Play today's",
   },
   {
     id: "stanford",

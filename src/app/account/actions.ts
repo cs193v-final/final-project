@@ -5,8 +5,9 @@
 import { redirect } from "next/navigation";
 
 import { login, register, type AuthResult, type FieldErrors } from "@/auth/accounts";
-import { describeError, endSession, requestIp, setSessionCookie } from "@/auth/session";
+import { endSession, requestIp, setSessionCookie } from "@/auth/session";
 import { getDb } from "@/db";
+import { errorSummary } from "@/server/error-summary";
 
 /** What the forms show after a failed submit. Never echoes the password. */
 export type AccountFormState = { username: string; errors: FieldErrors; message?: string } | undefined;
@@ -25,9 +26,10 @@ const UNAVAILABLE = "Something went wrong on our side. Please try again in a mom
 
 /**
  * Runs register or login. If the database fails, the form shows a short
- * message instead of an error page, and the log gets only the error's type:
- * Next would otherwise log the failed query with its parameters (the username
- * and the password hash).
+ * message instead of an error page, and the log gets the error by
+ * `errorForLog`'s rule (`errorSummary`): names, Postgres codes and messages
+ * that can't quote a value. Next would otherwise log the failed query with its
+ * parameters (the username and the password hash).
  */
 async function attempt(
   kind: "register" | "login",
@@ -39,7 +41,10 @@ async function attempt(
   try {
     result = await run(getDb, input, { ip: await requestIp(), now: new Date() });
   } catch (error) {
-    console.error(`${kind} failed: ${describeError(error)}`);
+    // A missing or malformed DATA_ENCRYPTION_KEY keeps its message, which
+    // never includes the key and says how to fix it; a failed query keeps
+    // only its names and Postgres code.
+    console.error(`${kind} failed: ${errorSummary(error)}`);
     const username = typeof input.username === "string" ? input.username : "";
     return { username, errors: {}, message: UNAVAILABLE };
   }

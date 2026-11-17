@@ -37,7 +37,9 @@ function backend() {
   const deps = { games: new MemoryGameStore(), puzzles: puzzleSourceFrom(PUZZLES) };
   return {
     start: vi.fn(() => runGameCall(() => startGame(deps, PACK, OWNER, SCORING_CONFIG))),
-    act: vi.fn((gameId: string, action: GameAction) => runGameCall(() => playMove(deps, gameId, OWNER, action))),
+    act: vi.fn((gameId: string, action: GameAction, revision: number) =>
+      runGameCall(() => playMove(deps, gameId, OWNER, action, revision)),
+    ),
     get: vi.fn((gameId: string) => runGameCall(() => getGame(deps, gameId, OWNER))),
   };
 }
@@ -47,7 +49,11 @@ type Backend = ReturnType<typeof backend>;
 async function gameAfter(server: Backend, moves: GameAction[]): Promise<GameResult> {
   const started = await server.start();
   if (!started.ok) throw new Error("start failed");
-  for (const move of moves) await server.act(started.view.gameId, move);
+  let revision = started.view.revision;
+  for (const move of moves) {
+    const result = await server.act(started.view.gameId, move, revision);
+    if (result.ok) revision = result.view.revision;
+  }
   return server.get(started.view.gameId);
 }
 
@@ -215,11 +221,11 @@ describe("answer feedback with motion allowed", () => {
     const started = await (server.start.mock.results[0]!.value as Promise<GameResult>);
     if (!started.ok) throw new Error("start failed");
     // Another tab solves the image first, so this tab's guess is a conflict and the game is reloaded.
-    await server.act(started.view.gameId, { type: "guess", guess: "golden gate bridge" });
+    await server.act(started.view.gameId, { type: "guess", guess: "golden gate bridge" }, started.view.revision);
     server.act.mockResolvedValueOnce({ ok: false, error: "conflict" });
 
     await user.type(input(), "golden gate bridge{Enter}");
-    expect(await screen.findByRole("alert")).toHaveTextContent("changed in another tab");
+    expect(await screen.findByRole("alert")).toHaveTextContent("updated since you last saw it");
     expect(status()).toHaveTextContent("Correct! It's Golden Gate Bridge.");
     expect(confetti()).not.toBeInTheDocument();
     expect(animated()).toHaveLength(0);

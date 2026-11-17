@@ -69,13 +69,17 @@ export const users = pgTable(
   "users",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    // Stored as typed (for display). Uniqueness ignores case, see the index below.
-    username: text("username").notNull(),
+    // The username as typed (for display), encrypted with this user's key
+    // (AES-256-GCM, src/crypto/vault.ts, #84). Never stored in plain text.
+    usernameEncrypted: text("username_encrypted").notNull(),
+    // Keyed hash (HMAC) of the lowercased username: what login looks up and
+    // what keeps usernames unique ignoring case, without storing the name.
+    usernameIndex: text("username_index").notNull(),
     // argon2/bcrypt hash including its salt and parameters. Never the password.
     passwordHash: text("password_hash").notNull(),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("users_username_lower_key").on(sql`lower(${t.username})`)],
+  (t) => [uniqueIndex("users_username_index_key").on(t.usernameIndex)],
 );
 
 export const sessions = pgTable(
@@ -98,9 +102,9 @@ export const sessions = pgTable(
 
 /**
  * Fixed-window counters for rate limiting login and sign-up (#53). One row per
- * key, e.g. `login:user:<SHA-256 of the lowercased username>` or
- * `login:ip:<SHA-256 of the IP>`. Never what was typed, and never a raw IP
- * address (src/auth/accounts.ts builds the keys). A row is only useful until its window ends; expired
+ * key, e.g. `login:user:<HMAC of the lowercased username>` or
+ * `login:ip:<HMAC of the IP>` (#84). Never what was typed, and never a raw
+ * username or IP address (src/auth/accounts.ts builds the keys). A row is only useful until its window ends; expired
  * rows are reset on the next hit and swept by `deleteExpiredRateLimits`.
  */
 export const rateLimits = pgTable(
@@ -263,7 +267,7 @@ export const packPuzzles = pgTable(
 export const dailySchedule = pgTable(
   "daily_schedule",
   {
-    // The day in the reset time zone (open decision). `mode: "string"` keeps
+    // The day in the reset time zone (midnight Pacific, #58). `mode: "string"` keeps
     // it as "YYYY-MM-DD", with no time-zone conversion in JavaScript.
     date: date("date", { mode: "string" }).primaryKey(),
     packId: text("pack_id")
@@ -304,8 +308,22 @@ export const games = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    // The daily challenge this game is (#58): the day it was started for, in
+    // the reset time zone. NULL for practice, Stanford and lobby games. Stored
+    // when the game starts, so a game started at 23:59 counts for that day,
+    // and changing the reset time later doesn't move past games (#63).
+    dailyDate: date("daily_date", { mode: "string" }),
   },
   (t) => [
+    // One daily game per owner per day (#58). For logged-in players this is
+    // the rule; an anonymous owner is one browser cookie, so a private window
+    // is a new owner (the brief says so).
+    uniqueIndex("games_daily_user_key")
+      .on(t.userId, t.dailyDate)
+      .where(sql`${t.dailyDate} IS NOT NULL AND ${t.userId} IS NOT NULL`),
+    uniqueIndex("games_daily_anon_key")
+      .on(t.anonOwnerHash, t.dailyDate)
+      .where(sql`${t.dailyDate} IS NOT NULL AND ${t.anonOwnerHash} IS NOT NULL`),
     index("games_user_id_created_at_idx").on(t.userId, t.createdAt),
     index("games_anon_owner_hash_idx").on(t.anonOwnerHash),
     // Leaderboards (#62): finished games of a pack, by score.
