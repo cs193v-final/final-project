@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { GAME_NAME } from "@/site";
+import { FOCUS_RING } from "./ui/controls";
 
 export type SiteHeaderProps = {
   /**
@@ -32,7 +33,7 @@ export function SiteHeader({ account }: SiteHeaderProps) {
           // label (WCAG "label in name"), so voice control "click Zoom Out" works.
           aria-label={`${GAME_NAME} home`}
           aria-current={onHome ? "page" : undefined}
-          className="-mx-2 inline-block rounded-md px-2 py-2 font-semibold tracking-tight hover:bg-zinc-100 dark:hover:bg-zinc-900"
+          className={`-mx-2 inline-block rounded-md px-2 py-2 font-semibold tracking-tight hover:bg-zinc-100 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
         >
           {GAME_NAME}
         </Link>
