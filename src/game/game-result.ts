@@ -20,8 +20,8 @@ export type GameError =
    */
   | "conflict"
   /**
-   * Too many games or moves in a short time, or too many unfinished games
-   * (#85, limits in src/server/limits.ts). Nothing was changed. Like a 429.
+   * Too many games started or moves made in a short time (#85, limits in
+   * src/server/limits.ts). Nothing was changed. Like a 429.
    */
   | "rate-limited"
   /** Anything else (database down, ...). Logged on the server. */

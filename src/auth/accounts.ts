@@ -12,6 +12,7 @@ import {
 import type { PublicUser } from "@/game/types";
 
 import { getDummyPasswordHash, hashPassword, newToken, sha256Hex, verifyPassword } from "./crypto";
+import { limitsAddress } from "./limits-address";
 import { checkNewPassword, checkUsername, usernameKey } from "./rules";
 
 export const SESSION_DAYS = 30;
@@ -53,20 +54,9 @@ export type AuthResult =
   | { ok: false; reason: "wrong-credentials"; message: string }
   | { ok: false; reason: "rate-limited"; message: string };
 
-/**
- * Whether the per-address limits apply. On Vercel always: its edge sets the
- * client's real address. Anywhere else (`next dev`, CI's `next start`), Next
- * fills the address in from the socket, so every request from this machine
- * shares one loopback address, or none; one shared count there would lock all
- * local and e2e runs out of sign-up after 5 accounts an hour. The
- * per-username login limit still applies.
- */
-export function limitsAddress(ip: string | null, onVercel = Boolean(process.env.VERCEL)): boolean {
-  if (onVercel) return true;
-  if (ip === null) return false;
-  const address = ip.toLowerCase().replace(/^::ffff:/, "");
-  return !(address === "::1" || address === "localhost" || /^127\./.test(address));
-}
+// `limitsAddress` lives in ./limits-address.ts so the game server (#85) can use
+// it without loading this module (and its argon2 warm-up).
+export { limitsAddress };
 
 export const ipKey = (prefix: string, ip: string | null) => `${prefix}:ip:${ip ? sha256Hex(ip) : "unknown"}`;
 /**

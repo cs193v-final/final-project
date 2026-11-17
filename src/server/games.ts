@@ -7,8 +7,8 @@
 // server-game.ts (rules, scoring, answer hiding) → PgGameStore → Postgres
 import "server-only";
 
-import { headers } from "next/headers";
-
+import { limitsAddress } from "@/auth/limits-address";
+import { requestIp } from "@/auth/session";
 import { getDb, type Db } from "@/db";
 import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
@@ -64,15 +64,16 @@ function ensurePracticePack(db: Db): Promise<void> {
 
 /**
  * The client's IP address as a keyed hash (src/server/ip-key.ts), for rate
- * limiting only. On Vercel, `x-forwarded-for` is set by Vercel's edge (a
- * client-sent value is overwritten) and its first entry is the client;
- * `x-real-ip` is the same address. Elsewhere these headers can be forged, so
- * they're never used for anything but rate limits. No header: `"unknown"`.
+ * limiting only, or `null` when the per-IP limits don't apply. The address is
+ * read the same way as for login (`requestIp()`, `x-vercel-forwarded-for`
+ * first), and the same rule decides whether it counts (`limitsAddress`): on
+ * Vercel always (no address: one shared `"unknown"` bucket); elsewhere not for
+ * loopback or a missing address, so local and e2e runs don't share one count.
+ * The per-owner limits apply either way.
  */
-async function requestIpHash(): Promise<string> {
-  const h = await headers();
-  const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip")?.trim() || null;
-  return hashIp(ip, ipHmacKey());
+async function requestIpHash(): Promise<string | null> {
+  const ip = await requestIp();
+  return limitsAddress(ip) ? hashIp(ip, ipHmacKey()) : null;
 }
 
 /**

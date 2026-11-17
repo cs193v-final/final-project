@@ -282,7 +282,7 @@ describe("PracticeGame when a limit is hit (#85)", () => {
     server.start.mockResolvedValueOnce(LIMITED);
     render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/wait a few minutes, then try again/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/wait a while \(up to an hour\), then try again/);
     expect(window.location.search).toBe("");
     server.start.mockImplementation(realStart);
     await user.click(screen.getByRole("button", { name: "Try again" }));
@@ -295,7 +295,7 @@ describe("PracticeGame when a limit is hit (#85)", () => {
     const zoom = screen.getByRole("button", { name: "Zoom out" });
     await user.click(zoom);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/wait a few minutes, then try again/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/wait a while \(up to an hour\), then try again/);
     expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
     expect(screen.getByText("Zoom level 1 of 3")).toBeInTheDocument();
 

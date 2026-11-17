@@ -20,6 +20,10 @@ describe("hashIp", () => {
     expect(hashIp(" 2001:DB8::1 ", key)).toBe(hashIp("2001:db8::1", key));
   });
 
+  it("counts an IPv4-mapped IPv6 address with its plain IPv4 form", () => {
+    expect(hashIp("::FFFF:203.0.113.7", key)).toBe(hashIp("203.0.113.7", key));
+  });
+
   it("puts requests without an address in one shared bucket", () => {
     expect(hashIp(null, key)).toBe("unknown");
     expect(hashIp("  ", key)).toBe("unknown");

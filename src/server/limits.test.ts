@@ -47,7 +47,7 @@ const IP_B = hashIp("198.51.100.20", KEY);
 type Check = typeof checkStartLimits;
 
 /** Runs `check` and returns the limit that refused it, or null if it was allowed. */
-async function refusedBy(check: Check, owner: GameOwner, ip: string, now: Date): Promise<string | null> {
+async function refusedBy(check: Check, owner: GameOwner, ip: string | null, now: Date): Promise<string | null> {
   try {
     await check(db, owner, ip, now);
     return null;
@@ -99,6 +99,14 @@ describe("game rate limit keys", () => {
     // Actions are counted separately, and so is another player.
     expect(await refusedBy(checkActionLimits, owner, IP_A, T0)).toBeNull();
     expect(await refusedBy(checkStartLimits, anon("someone else"), IP_A, T0)).toBeNull();
+  });
+
+  it("counts only the owner when the per-IP limit doesn't apply (no address hash)", async () => {
+    const owner = anon("local player");
+    for (let i = 0; i < GAME_LIMITS.startsPerOwner.max; i++) expect(await refusedBy(checkStartLimits, owner, null, T0)).toBeNull();
+    expect(await refusedBy(checkStartLimits, owner, null, T0)).toBe("startsPerOwner");
+    const { rows } = await pg.query<{ key: string }>("SELECT key FROM rate_limits");
+    expect(rows.map((r) => r.key)).toEqual([`game:start:owner:${ownerKey(owner)}`]);
   });
 
   it("stores only the keyed hash of an address and the owner id, never the raw address", async () => {

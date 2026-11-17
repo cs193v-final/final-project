@@ -268,6 +268,9 @@ describe("rate limits through the game server functions (#85)", () => {
     }
     state.jar.clear();
     expect(await startPracticeGame()).toEqual({ ok: false, error: "rate-limited" });
+    // The IPv4-mapped form of the same address shares its bucket.
+    state.headers = { "x-forwarded-for": "::ffff:203.0.113.7" };
+    expect(await startPracticeGame()).toEqual({ ok: false, error: "rate-limited" });
     // Another address behind the same proxy hop is counted on its own.
     state.headers = { "x-forwarded-for": "198.51.100.20, 10.0.0.1" };
     expect((await startPracticeGame()).ok).toBe(true);
@@ -277,13 +280,47 @@ describe("rate limits through the game server functions (#85)", () => {
     expect(rows.map((r) => r.key).join(" ")).not.toMatch(/203\.0\.113\.7|198\.51\.100\.20|10\.0\.0\.1/);
   }, 120_000);
 
-  it("uses x-real-ip when there's no x-forwarded-for, and one shared bucket with neither", async () => {
-    state.headers = { "x-real-ip": "192.0.2.44" };
+  it("reads the address like login does: x-vercel-forwarded-for first, then x-forwarded-for, then x-real-ip", async () => {
+    const ipKeys = async () =>
+      (await pg.query<{ key: string }>("SELECT key FROM rate_limits WHERE key LIKE 'game:start:ip:%' ORDER BY key")).rows.map((r) => r.key);
+    state.headers = { "x-vercel-forwarded-for": "192.0.2.1", "x-forwarded-for": "192.0.2.2", "x-real-ip": "192.0.2.3" };
     await started();
-    state.headers = {};
+    const vercelFirst = await ipKeys();
+    state.headers = { "x-forwarded-for": "192.0.2.1", "x-real-ip": "192.0.2.3" };
     await started();
-    const { rows } = await pg.query<{ key: string }>("SELECT key FROM rate_limits WHERE key LIKE 'game:start:ip:%'");
-    expect(rows.map((r) => r.key)).toContain("game:start:ip:unknown");
-    expect(rows).toHaveLength(2);
+    expect(await ipKeys()).toEqual(vercelFirst);
+    state.headers = { "x-real-ip": "192.0.2.1" };
+    await started();
+    expect(await ipKeys()).toEqual(vercelFirst);
+  });
+
+  it("off Vercel, skips the per-IP limits for loopback or missing addresses, but still counts per player", async () => {
+    vi.stubEnv("VERCEL", "");
+    try {
+      const cases: Record<string, string>[] = [{}, { "x-forwarded-for": "127.0.0.1" }, { "x-forwarded-for": "::1" }, { "x-forwarded-for": "::ffff:127.0.0.1" }];
+      for (const headers of cases) {
+        state.headers = headers;
+        await started();
+      }
+      const { rows } = await pg.query<{ key: string }>("SELECT key FROM rate_limits ORDER BY key");
+      expect(rows.map((r) => r.key)).toEqual([expect.stringMatching(/^game:start:owner:anon:[0-9a-f]{64}$/)]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("on Vercel, counts every address, and requests with none share one `unknown` bucket", async () => {
+    vi.stubEnv("VERCEL", "1");
+    try {
+      state.headers = {};
+      await started();
+      state.headers = { "x-forwarded-for": "127.0.0.1" };
+      await started();
+      const { rows } = await pg.query<{ key: string }>("SELECT key FROM rate_limits WHERE key LIKE 'game:start:ip:%'");
+      expect(rows.map((r) => r.key)).toContain("game:start:ip:unknown");
+      expect(rows).toHaveLength(2);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

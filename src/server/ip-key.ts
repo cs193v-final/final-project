@@ -40,11 +40,12 @@ export function ipHmacKey(env: Readonly<Record<string, string | undefined>> = pr
 
 /**
  * HMAC-SHA-256 of a client IP address, as hex, or `"unknown"` when the request
- * had none (every such request then shares one bucket). Trimmed and
- * lowercased first, so `2001:DB8::1` and `2001:db8::1` count together.
+ * had none (every such request then shares one bucket). Trimmed, lowercased
+ * and with an IPv4-mapped prefix removed first, so `2001:DB8::1` and
+ * `2001:db8::1`, or `::ffff:203.0.113.7` and `203.0.113.7`, count together.
  */
 export function hashIp(ip: string | null, key: Buffer): string {
-  const normalized = ip?.trim().toLowerCase();
+  const normalized = ip?.trim().toLowerCase().replace(/^::ffff:/, "");
   if (!normalized) return "unknown";
   return createHmac("sha256", key).update(normalized, "utf8").digest("hex");
 }

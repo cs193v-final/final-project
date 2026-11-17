@@ -74,27 +74,29 @@ async function hit(db: PgDb, name: LimitName, key: string, now: Date): Promise<v
 /**
  * Count one hit on the IP limit, then (only if that passed) on the owner
  * limit. IP first, so a client inventing owner cookies can't create
- * `rate_limits` rows faster than its IP limit.
+ * `rate_limits` rows faster than its IP limit. `ipHash` is `null` when the
+ * per-IP limit doesn't apply (loopback or no address off Vercel, see
+ * `limitsAddress`); then only the owner limit is counted.
  */
 async function hitBoth(
   db: PgDb,
   kind: "start" | "action",
   owner: GameOwner,
-  ipHash: string,
+  ipHash: string | null,
   now: Date,
 ): Promise<void> {
   const [ipLimit, ownerLimit]: [LimitName, LimitName] =
     kind === "start" ? ["startsPerIp", "startsPerOwner"] : ["actionsPerIp", "actionsPerOwner"];
-  await hit(db, ipLimit, `game:${kind}:ip:${ipHash}`, now);
+  if (ipHash !== null) await hit(db, ipLimit, `game:${kind}:ip:${ipHash}`, now);
   await hit(db, ownerLimit, `game:${kind}:owner:${ownerKey(owner)}`, now);
 }
 
 /** Before starting (or reusing) a game. Throws `RateLimitedError` over a limit. */
-export function checkStartLimits(db: PgDb, owner: GameOwner, ipHash: string, now: Date): Promise<void> {
+export function checkStartLimits(db: PgDb, owner: GameOwner, ipHash: string | null, now: Date): Promise<void> {
   return hitBoth(db, "start", owner, ipHash, now);
 }
 
 /** Before a game action or load. Throws `RateLimitedError` over a limit. */
-export function checkActionLimits(db: PgDb, owner: GameOwner, ipHash: string, now: Date): Promise<void> {
+export function checkActionLimits(db: PgDb, owner: GameOwner, ipHash: string | null, now: Date): Promise<void> {
   return hitBoth(db, "action", owner, ipHash, now);
 }
