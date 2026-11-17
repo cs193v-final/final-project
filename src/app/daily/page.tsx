@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
-import { DailyIntro } from "@/components/daily/DailyIntro";
-import { DAILY_RESET, loadDailyIntro } from "@/server/daily";
+import { DailyIntroScreen } from "@/components/daily/DailyIntroScreen";
+import { loadDailyIntro } from "@/server/daily";
 import { GAME_NAME } from "@/site";
 
 export const metadata: Metadata = {
@@ -32,10 +32,10 @@ async function Today() {
     console.error("Couldn't load today's daily challenge", error);
     return null;
   });
-  if (intro !== null) return <DailyIntro intro={intro} reset={DAILY_RESET} />;
+  if (intro !== null) return <DailyIntroScreen intro={intro} />;
   return (
     <p role="alert" className="max-w-md text-center text-zinc-700 dark:text-zinc-300">
-      Couldn&apos;t load today&apos;s challenge. Please try again in a moment.
+      Couldn&apos;t load today&apos;s challenge. Please try again later.
     </p>
   );
 }

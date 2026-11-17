@@ -96,7 +96,7 @@ The owner of each type makes the final call. Change a type only through a PR its
 | `GuessOutcome`, `RoundState` | Jacky | Settled (#22, #23) | |
 | `ScoringEvent` | Jacky (emits), Ethan (consumes) | Settled (#22, #27) | |
 | `ScoringConfig`, `RoundResult` | Ethan | Settled (#27) | |
-| `PackKind`, `Pack`, `DailyEntry` | Joseph | Settled (#52), checked by `parseContent` in `src/game/packs.ts`. The daily reset time zone is still open (#58). | #52, #58 |
+| `PackKind`, `Pack`, `DailyEntry` | Joseph | Settled (#52), checked by `parseContent` in `src/game/packs.ts`. `DailyEntry.date` is in the reset time zone, midnight Pacific (#58). | #52, #58 |
 | `GameAction` | Jacky | **Proposal**. Moved from `round.ts` (which re-exports it); same shape as before. | #54 |
 | `PublicRound` | Jacky (image fields: Darian) | **Proposal** | #54, #57 |
 | `GameView` | Jacky | **Proposal** | #54 |
@@ -227,10 +227,9 @@ The values in use are in `src/game/scoring-config.ts`, and that's the only place
 | Accounts | Username and password. No password reset for now, so we don't store emails (#53). |
 | Custom lobbies | Share a code and play any time, not live multiplayer (#67) |
 | Where puzzles and progress live | Puzzles, games, results and sessions in Neon; answers only on the server (#47, #54) |
-| Daily reset time | Midnight `America/Los_Angeles` (Joseph, #58). Configurable: `DAILY_RESET` in `src/server/daily.ts`, using `DEFAULT_DAILY_RESET` (#63). |
+| Daily reset time | Midnight `America/Los_Angeles` (Joseph, #58). One place to change it: `DEFAULT_DAILY_RESET` in `src/game/daily-date.ts` (#63), which every caller uses. |
 | Theme shown or hidden | Shown before the first image, on an intro screen ("Today: Fruit") (Joseph, #58) |
-| Daily replays | One daily game per player per day; after it, you see your result. Enforced by the database (#58, part 2) |
-| Anonymous play | Anyone can play the daily without an account; only logged-in players get leaderboard entries and streaks (Joseph, #58; affects #54, #62, #63) |
+| Daily replays | One daily game per logged-in player per day, enforced by the database (#58, part 2); after it, you see your result. An anonymous player gets one per browser (cookie), which can't be enforced: a private window is a new player. |
 
 ### Still open (NOT settled)
 
@@ -238,6 +237,7 @@ Don't treat these as decided. Ask the owner, or keep them configurable.
 
 | Decision | Notes | Issue |
 |---|---|---|
+| Anonymous play | **Proposal (Joseph, #58):** anyone can play the daily without an account; only games started while logged in get leaderboard entries and streaks. Ethan agreed for #62 (review of #100). Waiting on Jacky for #54 and #63. | #54, #58, #62 |
 | Where non-public puzzle content lives | **Proposal (#52):** each of us keeps it in the git-ignored `content/` folder, and the seed script refuses committable content. Still to decide: how we share the files with each other (e.g. a private repo or a shared drive). | #52 |
 | Image storage | Vercel Blob or Postgres | #57 |
 | Scoring values and wrong-guess rules | Placeholders in `src/game/scoring-config.ts`; flat or increasing penalties; a guess limit? | #21, #64 |

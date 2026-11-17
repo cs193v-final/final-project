@@ -1,13 +1,9 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 
-import type { DailyResetConfig } from "@/game/daily-date";
+import { ButtonLink, PrototypeNotice } from "@/components/ui/controls";
 
-/** What the intro may show: the same shape as `DailyIntro` in `@/db/daily`, with no puzzle data. */
-export type DailyIntroData = {
-  date: string; // "YYYY-MM-DD"
-  pack: { title: string; theme: string; puzzleCount: number } | null;
-};
+import type { DailyIntro } from "@/game/daily";
+import type { DailyResetConfig } from "@/game/daily-date";
 
 /** "Friday, November 20" for "2026-11-20". The date is already a calendar day, so format it in UTC. */
 export function formatDailyDate(date: string): string {
@@ -16,29 +12,29 @@ export function formatDailyDate(date: string): string {
   );
 }
 
-/** "midnight Pacific time", "6:00 UTC", ... for the line saying when the next challenge starts. */
+/** "midnight Pacific Time", "6:00 Coordinated Universal Time", ...: the zone's name, for any zone. */
 export function resetLabel({ timeZone, resetHour }: Readonly<DailyResetConfig>): string {
-  const zone = timeZone === "America/Los_Angeles" ? "Pacific time" : timeZone;
+  const name = (style: "longGeneric" | "long") =>
+    new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: style })
+      .formatToParts(new Date(0))
+      .find((part) => part.type === "timeZoneName")?.value;
+  // "Pacific Time" for most zones; a zone with no generic name (UTC) gives
+  // "GMT+00:00", so use its long name ("Coordinated Universal Time") instead.
+  const generic = name("longGeneric");
+  const zone = generic && !generic.startsWith("GMT") ? generic : (name("long") ?? timeZone);
   return `${resetHour === 0 ? "midnight" : `${resetHour}:00`} ${zone}`;
 }
 
 /**
  * The daily challenge's first screen (#58): today's theme before the first
  * image (decided: shown up front), how many images, and that the first game is
- * the one that counts (decided: one game per player per day). `start` is the
+ * the one that counts (one daily game per logged-in player; an anonymous
+ * player's limit is per browser and can't be enforced, see the brief). `start` is the
  * Start button, which needs server games (#54); without it the screen says so.
  */
-export function DailyIntro({
-  intro,
-  reset,
-  start,
-}: {
-  intro: DailyIntroData;
-  reset: Readonly<DailyResetConfig>;
-  start?: ReactNode;
-}) {
+export function DailyIntroScreen({ intro, start }: { intro: DailyIntro; start?: ReactNode }) {
   const day = formatDailyDate(intro.date);
-  const next = `A new challenge starts at ${resetLabel(reset)}.`;
+  const next = `A new challenge starts at ${resetLabel(intro.reset)}.`;
 
   if (intro.pack === null) {
     return (
@@ -50,12 +46,7 @@ export function DailyIntro({
         <p className="text-zinc-700 dark:text-zinc-300">
           There isn&apos;t one scheduled for today. Try the practice images while you wait. {next}
         </p>
-        <Link
-          href="/play"
-          className="rounded-lg bg-zinc-900 px-5 py-2.5 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-        >
-          Play practice
-        </Link>
+        <ButtonLink href="/play">Play practice</ButtonLink>
       </section>
     );
   }
@@ -68,13 +59,9 @@ export function DailyIntro({
         Today: {theme}
       </h2>
       <p className="text-lg text-zinc-700 dark:text-zinc-300">
-        {puzzleCount} {puzzleCount === 1 ? "image" : "images"}, the same for everyone. You get one game, so make it count.
+        {puzzleCount} {puzzleCount === 1 ? "image" : "images"}, the same for everyone. Your first game is the one that counts.
       </p>
-      {start ?? (
-        <p className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
-          Playing the daily arrives with server-side games.
-        </p>
-      )}
+      {start ?? <PrototypeNotice>Playing the daily arrives with server-side games.</PrototypeNotice>}
       <p className="text-sm text-zinc-600 dark:text-zinc-400">{next}</p>
     </section>
   );
