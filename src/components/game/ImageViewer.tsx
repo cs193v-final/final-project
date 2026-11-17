@@ -19,8 +19,11 @@ type LoadState = "loading" | "loaded" | "error";
  * `revealLevel` (#10). It only displays: it doesn't track score or change the
  * level. The Zoom out button (#11) asks the round logic for the next level.
  *
- * A new `imageUrl` starts fresh (loading, 4:3, no animation from the previous
- * image's crop), with or without a new `key`.
+ * With per-level images (#57) each zoom level is its own `imageUrl`. While the
+ * next level loads, the last one that loaded stays on screen, at its own shape,
+ * and the new one fades in on top once it's ready, so zooming out never shows
+ * an empty frame. Give each puzzle its own `key` (PracticeGame uses the round
+ * position), so a new puzzle starts fresh instead of over the last one.
  */
 export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageViewerProps) {
   const { imageUrl, reveal } = puzzle;
@@ -29,21 +32,25 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
   const transform = cropTransformCss(reveal, level);
 
   // Size the frame to the image's own shape once it loads, so the focus point
-  // (a fraction of the image) maps exactly onto the frame. 4:3 until then.
-  // Each result is tagged with the URL it belongs to, so a new imageUrl starts
-  // fresh ("loading", 4:3) even without a new `key`.
+  // (a fraction of the image) maps exactly onto the frame. 4:3 until the first
+  // image loads. Each result is tagged with the URL it belongs to.
   const [result, setResult] = useState<{ url: string; load: LoadState; aspect: number }>({
     url: imageUrl,
     load: "loading",
     aspect: 4 / 3,
   });
-  const current = result.url === imageUrl ? result : { load: "loading" as const, aspect: 4 / 3 };
+  // The last image that finished loading: shown under a new one until that loads.
+  const [shown, setShown] = useState<{ url: string; aspect: number } | null>(null);
+  const current = result.url === imageUrl ? result : { load: "loading" as const, aspect: shown?.aspect ?? 4 / 3 };
   const { load, aspect } = current;
   const img = useRef<HTMLImageElement>(null);
+  const previous = shown !== null && shown.url !== imageUrl && load === "loading" ? shown : null;
 
   function measure(el: HTMLImageElement, url: string) {
     if (el.naturalWidth > 0 && el.naturalHeight > 0) {
-      setResult({ url, load: "loaded", aspect: el.naturalWidth / el.naturalHeight });
+      const loaded = el.naturalWidth / el.naturalHeight;
+      setResult({ url, load: "loaded", aspect: loaded });
+      setShown({ url, aspect: loaded });
     }
   }
 
@@ -69,24 +76,42 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
             {imageUrl === "" ? "No image for this puzzle yet" : "The image couldn't load"}
           </p>
         ) : (
-          // A plain <img>, not next/image: next/image serves a copy sized to the
-          // frame, which looks blocky when scaled up 8×. This needs the
-          // full-resolution file.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={imageUrl}
-            ref={img}
-            src={imageUrl}
-            // Never put the answer in alt text: screen readers (and anyone
-            // inspecting the page) would get it for free.
-            alt={`Mystery image, ${caption.toLowerCase()}`}
-            draggable={false}
-            onLoad={(e) => measure(e.currentTarget, imageUrl)}
-            onError={() => setResult({ url: imageUrl, load: "error", aspect: 4 / 3 })}
-            onContextMenu={(e) => e.preventDefault()}
-            className="absolute inset-0 h-full w-full origin-top-left select-none transition-transform duration-500 ease-out motion-reduce:transition-none"
-            style={{ transform }}
-          />
+          <>
+            {previous && (
+              // The last level, kept on screen until the new one has loaded.
+              // A copy for sighted players only: screen readers hear the new one.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={previous.url}
+                src={previous.url}
+                alt=""
+                aria-hidden="true"
+                data-previous-level
+                draggable={false}
+                className="absolute inset-0 h-full w-full select-none"
+              />
+            )}
+            {/* A plain <img>, not next/image: next/image serves a copy sized to
+                the frame, which looks blocky when scaled up 8×. This needs the
+                full-resolution file. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              key={imageUrl}
+              ref={img}
+              src={imageUrl}
+              // Never put the answer in alt text: screen readers (and anyone
+              // inspecting the page) would get it for free.
+              alt={`Mystery image, ${caption.toLowerCase()}`}
+              draggable={false}
+              onLoad={(e) => measure(e.currentTarget, imageUrl)}
+              onError={() => setResult({ url: imageUrl, load: "error", aspect: 4 / 3 })}
+              onContextMenu={(e) => e.preventDefault()}
+              // While a later level loads over the last one, it stays invisible,
+              // then fades in (instantly with reduced motion).
+              className={`absolute inset-0 h-full w-full origin-top-left select-none transition-[transform,opacity] duration-500 ease-out motion-reduce:transition-none ${previous ? "opacity-0" : "opacity-100"}`}
+              style={{ transform }}
+            />
+          </>
         )}
       </div>
       <figcaption aria-live="polite" className="text-center text-sm text-zinc-600 dark:text-zinc-400">

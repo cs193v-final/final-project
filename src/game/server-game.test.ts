@@ -300,6 +300,110 @@ describe("aiSolvedLevel (#56)", () => {
   });
 });
 
+describe("per-level images (#57)", () => {
+  /** Fake cut levels: one opaque URL per zoom level for each puzzle. */
+  function levelSrcs(puzzles: readonly Puzzle[]): Map<string, string[]> {
+    return new Map(
+      puzzles.map((p, i) => [p.id, p.reveal.zoomLevels.map((_, level) => `/img/${String(i).padStart(2, "0")}${String(level).padStart(30, "f")}.webp`)]),
+    );
+  }
+
+  function withLevels(puzzles: readonly Puzzle[] = OPAQUE_SAMPLES, srcs = levelSrcs(puzzles)) {
+    const base = setup(puzzles);
+    const lookups: string[][] = [];
+    const deps: GameDeps = {
+      ...base.deps,
+      levels: {
+        async getLevelSrcs(ids) {
+          lookups.push([...ids]);
+          return new Map(ids.flatMap((id) => (srcs.has(id) ? [[id, srcs.get(id)!] as const] : [])));
+        },
+      },
+    };
+    return { ...base, deps, srcs, lookups };
+  }
+
+  /** Every URL in a serialized view that isn't `allowed`: none may be another level, or a puzzle's original image. */
+  function expectOnlyImage(view: GameView, allowed: string, srcs: Map<string, string[]>, puzzles: readonly Puzzle[]): void {
+    const json = JSON.stringify(view);
+    expect(view.round?.imageSrc).toBe(allowed);
+    expect(view.round).not.toHaveProperty("reveal");
+    for (const src of [...srcs.values()].flat()) if (src !== allowed) expect(json).not.toContain(src);
+    for (const p of puzzles) expect(json).not.toContain(p.imageUrl);
+  }
+
+  it("sends only the URL of the level reached while playing, and no crop settings", async () => {
+    const { deps, pack, puzzles, srcs } = withLevels();
+    const view = await startGame(deps, pack, ALICE, CONFIG);
+    expectOnlyImage(view, srcs.get("p1")![0]!, srcs, puzzles);
+    expectNoAnswers(view, puzzles);
+  });
+
+  it("sends the next level's URL only after a zoom out, never one further", async () => {
+    const { deps, pack, puzzles, srcs } = withLevels();
+    const { gameId } = await startGame(deps, pack, ALICE, CONFIG);
+    const levels = srcs.get("p1")!;
+    for (let level = 1; level < levels.length; level++) {
+      const view = await act(deps, gameId, ALICE, { type: "reveal" });
+      expectOnlyImage(view, levels[level]!, srcs, puzzles);
+    }
+    // A refresh (getGame) gives the same level, not a later one.
+    expectOnlyImage(await getGame(deps, gameId, ALICE), levels.at(-1)!, srcs, puzzles);
+  });
+
+  it("sends the full image's level once the round is over, then the next puzzle's tightest level", async () => {
+    const { deps, pack, puzzles, srcs } = withLevels();
+    const { gameId } = await startGame(deps, pack, ALICE, CONFIG);
+    const answered = await act(deps, gameId, ALICE, { type: "guess", guess: puzzles[0]!.answer });
+    expect(answered.round?.state).toBe("correct");
+    expectOnlyImage(answered, srcs.get("p1")!.at(-1)!, srcs, puzzles);
+    const next = await act(deps, gameId, ALICE, { type: "next" });
+    expectOnlyImage(next, srcs.get("p2")![0]!, srcs, puzzles);
+  });
+
+  it("looks up only the current puzzle's levels, and none once the game is finished", async () => {
+    const { deps, pack, lookups } = withLevels();
+    const { gameId } = await startGame(deps, pack, ALICE, CONFIG);
+    await act(deps, gameId, ALICE, { type: "skip" });
+    await act(deps, gameId, ALICE, { type: "next" });
+    expect(lookups).toEqual([["p1"], ["p1"], ["p2"]]);
+    for (let i = 1; i < OPAQUE_SAMPLES.length; i++) {
+      await act(deps, gameId, ALICE, { type: "skip" });
+      await act(deps, gameId, ALICE, { type: "next" });
+    }
+    const before = lookups.length;
+    const finished = await getGame(deps, gameId, ALICE);
+    expect(finished.finished).toBe(true);
+    expect(lookups).toHaveLength(before);
+  });
+
+  it("still sends a public practice image whole, with its crop settings, until it's cut", async () => {
+    const practice = OPAQUE_SAMPLES.map((p) => ({ ...p, imageUrl: `/puzzles/${p.id}.jpg` }));
+    const { deps, pack } = withLevels(practice, new Map());
+    const view = await startGame(deps, pack, ALICE, CONFIG);
+    expect(view.round?.imageSrc).toBe("/puzzles/p1.jpg");
+    expect(view.round?.reveal).toEqual(practice[0]!.reveal);
+  });
+
+  it("never sends a private image that hasn't been cut: the call fails instead", async () => {
+    const daily = OPAQUE_SAMPLES.map((p) => ({ ...p, imageUrl: `images/${p.id}.jpg` }));
+    const { deps, pack } = withLevels(daily, new Map());
+    await expect(startGame(deps, pack, ALICE, CONFIG)).rejects.toThrow(/p1 has no cut level images/);
+  });
+
+  it("treats a puzzle with a missing level as not cut", async () => {
+    const daily = OPAQUE_SAMPLES.map((p) => ({ ...p, imageUrl: `images/${p.id}.jpg` }));
+    const srcs = levelSrcs(daily);
+    const gap = [...srcs.get("p1")!];
+    delete gap[1];
+    srcs.set("p1", gap);
+    const { deps, pack } = withLevels(daily, srcs);
+    await expect(startGame(deps, pack, ALICE, CONFIG)).rejects.toThrow(/p1 has no cut level images/);
+    srcs.set("p1", srcs.get("p1")!.slice(0, 1)); // too few levels
+    await expect(startGame(deps, pack, ALICE, CONFIG)).rejects.toThrow(/p1 has no cut level images/);
+  });
+});
+
 describe("after a round ends", () => {
   it("shows the answer and credit once the round is answered", async () => {
     const { deps, pack, puzzles } = setup();
