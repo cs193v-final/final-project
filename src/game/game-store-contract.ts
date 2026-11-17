@@ -5,11 +5,13 @@ import { describe, expect, it } from "vitest";
 import { SAMPLE_PUZZLES } from "../puzzles/index.ts";
 import {
   act,
+  DuplicateDailyGameError,
   GameConflictError,
   GameNotFoundError,
   getGame,
   puzzleSourceFrom,
   startGame,
+  startOrResumeDaily,
   type GameDeps,
   type GameOwner,
   type GameState,
@@ -47,6 +49,14 @@ function state(packId: string, overrides: Partial<GameState> = {}): GameState {
     lastOutcome: null,
     ...overrides,
   };
+}
+
+/** Two consecutive days no other test has used, since a store may be shared by the tests of one file. */
+let dayCounter = 0;
+function freshDays(): [string, string] {
+  const day = Date.UTC(2030, 0, 1) + dayCounter++ * 2 * 86_400_000;
+  const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  return [iso(day), iso(day + 86_400_000)];
 }
 
 export function describeGameStoreContract(name: string, setup: () => Promise<GameStoreContext>): void {
@@ -129,6 +139,93 @@ export function describeGameStoreContract(name: string, setup: () => Promise<Gam
       view = await act(deps, view.gameId, alice, { type: "next" }, view.revision);
       expect(view).toMatchObject({ finished: true, round: null, total: 80 });
       expect(await getGame(deps, view.gameId, alice)).toEqual(view);
+    });
+
+    // Daily games (#58): one per owner per day.
+
+    it("stores a daily game's day, and findDaily finds it for that owner and day only", async () => {
+      const [day, nextDay] = freshDays();
+      const { store, alice, bob, packId } = await setup();
+      const game = await store.create({ owner: alice, packId, state: state(packId), dailyDate: day });
+      expect(game.dailyDate).toBe(day);
+      expect(await store.get(game.id)).toEqual(game);
+      expect(await store.findDaily(alice, day)).toEqual(game);
+      expect(await store.findDaily(bob, day)).toBeNull();
+      expect(await store.findDaily(alice, nextDay)).toBeNull();
+    });
+
+    it("refuses a second daily game for the same owner and day, but not for another owner or day", async () => {
+      const [day, nextDay] = freshDays();
+      const { store, alice, bob, packId } = await setup();
+      await store.create({ owner: alice, packId, state: state(packId), dailyDate: day });
+      await expect(store.create({ owner: alice, packId, state: state(packId), dailyDate: day })).rejects.toBeInstanceOf(
+        DuplicateDailyGameError,
+      );
+      await expect(store.create({ owner: bob, packId, state: state(packId), dailyDate: day })).resolves.toBeDefined();
+      await expect(store.create({ owner: alice, packId, state: state(packId), dailyDate: nextDay })).resolves.toBeDefined();
+    });
+
+    it("leaves other games out of it: no day, not found by findDaily, any number per owner", async () => {
+      const [day] = freshDays();
+      const { store, alice, packId } = await setup();
+      const a = await store.create({ owner: alice, packId, state: state(packId) });
+      await store.create({ owner: alice, packId, state: state(packId) });
+      expect(a).not.toHaveProperty("dailyDate");
+      expect(await store.findDaily(alice, day)).toBeNull();
+    });
+
+    it("keeps the day through saves", async () => {
+      const [day] = freshDays();
+      const { store, alice, packId } = await setup();
+      const game = await store.create({ owner: alice, packId, state: state(packId), dailyDate: day });
+      const saved = await store.save({ ...game, state: state(packId, { index: 1 }) });
+      expect(saved.dailyDate).toBe(day);
+      expect((await store.findDaily(alice, day))!.revision).toBe(1);
+    });
+
+    it("startOrResumeDaily starts once, then resumes the same game, also when two start at once", async () => {
+      const [day, nextDay] = freshDays();
+      const { store, alice, bob, packId } = await setup();
+      const deps: GameDeps = { games: store, puzzles: puzzleSourceFrom(CONTRACT_PUZZLES) };
+      const pack: Pack = { id: packId, kind: "daily", title: "Fruit", theme: "Fruit", puzzleIds: CONTRACT_PUZZLES.map((p) => p.id) };
+
+      const [first, second] = await Promise.all([
+        startOrResumeDaily(deps, pack, day, alice, CONFIG),
+        startOrResumeDaily(deps, pack, day, alice, CONFIG),
+      ]);
+      expect(second.gameId).toBe(first.gameId);
+
+      const moved = await act(deps, first.gameId, alice, { type: "reveal" }, first.revision);
+      const resumed = await startOrResumeDaily(deps, pack, day, alice, CONFIG);
+      expect(resumed).toEqual(moved);
+
+      const bobs = await startOrResumeDaily(deps, pack, day, bob, CONFIG);
+      expect(bobs.gameId).not.toBe(first.gameId);
+      const tomorrow = await startOrResumeDaily(deps, pack, nextDay, alice, CONFIG);
+      expect(tomorrow.gameId).not.toBe(first.gameId);
+    });
+
+    it("startOrResumeDaily returns a finished daily game as it is, with no new game", async () => {
+      const [day] = freshDays();
+      const { store, alice, packId } = await setup();
+      const deps: GameDeps = { games: store, puzzles: puzzleSourceFrom(CONTRACT_PUZZLES) };
+      const pack: Pack = { id: packId, kind: "daily", title: "Fruit", theme: "Fruit", puzzleIds: CONTRACT_PUZZLES.map((p) => p.id) };
+      let view = await startOrResumeDaily(deps, pack, day, alice, CONFIG);
+      for (let i = 0; i < CONTRACT_PUZZLES.length; i++) {
+        view = await act(deps, view.gameId, alice, { type: "skip" }, view.revision);
+        view = await act(deps, view.gameId, alice, { type: "next" }, view.revision);
+      }
+      expect(view.finished).toBe(true);
+      expect(await startOrResumeDaily(deps, pack, day, alice, CONFIG)).toEqual(view);
+    });
+
+    it("only a daily pack can be a daily game", async () => {
+      const [day] = freshDays();
+      const { store, alice, packId } = await setup();
+      const deps: GameDeps = { games: store, puzzles: puzzleSourceFrom(CONTRACT_PUZZLES) };
+      const practice: Pack = { id: packId, kind: "practice", title: "Practice", theme: "Mixed", puzzleIds: CONTRACT_PUZZLES.map((p) => p.id) };
+      await expect(startOrResumeDaily(deps, practice, day, alice, CONFIG)).rejects.toThrow("only a daily pack");
+      expect(await store.findDaily(alice, day)).toBeNull();
     });
   });
 }

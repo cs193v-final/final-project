@@ -3,8 +3,12 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { DailyIntroScreen } from "@/components/daily/DailyIntroScreen";
+import { DailyPlay } from "@/components/daily/DailyPlay";
 import { ButtonLink, TextLink } from "@/components/ui/controls";
-import { loadDailyIntro } from "@/server/daily";
+import { actAction, getGameAction } from "@/app/play/actions";
+import { loadDailyIntro, loadTodaysDailyGame } from "@/server/daily";
+
+import { startDailyAction } from "./actions";
 import { GAME_NAME } from "@/site";
 
 export const metadata: Metadata = {
@@ -14,7 +18,8 @@ export const metadata: Metadata = {
 /**
  * The daily challenge (#58). Today's pack depends on the time of the request,
  * so it's read at request time, inside Suspense (Next 16 Cache Components).
- * Not linked from the home screen until the game itself is playable (#54).
+ * A player who already started today's game sees it again (resumed, or their
+ * result): one daily game per player per day.
  */
 export default function DailyPage() {
   return (
@@ -36,11 +41,23 @@ export default function DailyPage() {
 
 async function Today() {
   await connection();
-  const intro = await loadDailyIntro().catch((error: unknown) => {
-    console.error("Couldn't load today's daily challenge", error);
-    return null;
-  });
-  if (intro !== null && !intro.broken) return <DailyIntroScreen intro={intro} />;
+  // One clock reading per request, so the intro and the player's game are for
+  // the same day even at the reset. Both loads at once (no extra round trip).
+  const now = new Date();
+  const [intro, initial] = await Promise.all([
+    loadDailyIntro(now).catch((error: unknown) => {
+      console.error("Couldn't load today's daily challenge", error);
+      return null;
+    }),
+    loadTodaysDailyGame(now).catch((error: unknown) => {
+      console.error("Couldn't load this player's daily game", error);
+      return null;
+    }),
+  ]);
+  if (intro !== null && !intro.broken) {
+    if (intro.pack === null) return <DailyIntroScreen intro={intro} />;
+    return <DailyPlay intro={intro} initial={initial} start={startDailyAction} act={actAction} get={getGameAction} />;
+  }
   return (
     <div className="flex max-w-md flex-col items-center gap-4 text-center">
       <p role="alert" className="text-zinc-700 dark:text-zinc-300">
