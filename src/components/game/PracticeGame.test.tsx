@@ -18,6 +18,7 @@ function puzzle(id: string, answer: string, acceptedAnswers: string[] = []): Puz
     acceptedAnswers,
     reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [4, 2, 1] },
     credit: { source: "test", license: "CC0" },
+    aiSolvedLevel: null,
   };
 }
 const PUZZLES = [puzzle("p1", "Golden Gate Bridge", ["Golden Gate"]), puzzle("p2", "Big Ben")];

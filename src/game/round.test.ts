@@ -10,6 +10,7 @@ function puzzle(id: string, answer: string, zoomLevels = [8, 4, 2, 1]): Puzzle {
     acceptedAnswers: [],
     reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels },
     credit: { source: "test", license: "CC0" },
+    aiSolvedLevel: null,
   };
 }
 

@@ -31,6 +31,8 @@ Preview and production credentials are **never** stored in files. Jacky (the dep
 
 Schema and migrations (#47): the schema is `src/db/schema.ts` and the SQL migrations are in `drizzle/`. After changing the schema, run `npm run db:generate` and commit the new migration. `npm run db:migrate` applies migrations to the database in `DATABASE_URL_UNPOOLED` (your dev database from `.env.local` by default). Jacky applies them to preview and production; who runs what, and when, is in [TECHNICAL.md → Database](TECHNICAL.md#database-47).
 
+Puzzle content (#52): `npm run db:seed -- --dry-run` checks content files, and `npm run db:seed` loads the practice pack plus the private content in the git-ignored `content/` folder into your dev database. Never commit daily, Stanford or lobby content. Details: [TECHNICAL.md → Content and the seed script](TECHNICAL.md#content-and-the-seed-script-52).
+
 ### 3. Run the app
 The app is [Next.js](https://nextjs.org) (see `AGENTS.md` → Stack). With Node 24+:
 ```bash
@@ -44,6 +46,7 @@ Checks (CI runs the same ones): `npm run lint`, `npm run typecheck`, `npm test`,
 **End-to-end tests** (`npm run test:e2e`, Playwright) start the app and play it in a headless browser, so they need a database too. Either run them with your `.env.local` (they then write test games to your dev database), or point them at a local Postgres; a variable set in the shell wins over `.env.local`:
 ```bash
 DATABASE_URL_UNPOOLED=postgresql://postgres@127.0.0.1:5432/zoomout npm run db:migrate
+DATABASE_URL_UNPOOLED=postgresql://postgres@127.0.0.1:5432/zoomout npm run db:seed   # optional: /play works without it
 DATABASE_URL=postgresql://postgres@127.0.0.1:5432/zoomout npm run test:e2e
 ```
 A database on localhost is reached with node-postgres and no TLS; anything else with Neon's driver (see [TECHNICAL.md → Database](TECHNICAL.md#database-47)). On your own computer, run `npx playwright install chromium` once first.
@@ -79,7 +82,7 @@ Every pull request and every push to `main` runs [`.github/workflows/ci.yml`](.g
 | Secret scan + hook tests (gitleaks) | On PRs, scans the PR's commits; on `main`, scans the **full** history. A backup for hooks that weren't installed or were skipped. Then `scripts/test-hooks.sh` checks that the hooks block fake credentials (also safe to run locally) |
 | Shell lint | `shellcheck` on the hook and setup scripts |
 | App checks | `npm run lint`, `typecheck`, `test` and `build` for the Next.js app |
-| End-to-end tests | Builds the app, starts a throwaway Postgres (service container), runs `npm run db:migrate`, then the Playwright tests on a desktop and a phone viewport |
+| End-to-end tests | Builds the app, starts a throwaway Postgres (service container), runs `npm run db:migrate` and `npm run db:seed`, then the Playwright tests on a desktop and a phone viewport |
 
 CI installs a pinned gitleaks (`GITLEAKS_VERSION` + `GITLEAKS_SHA256` in `ci.yml`); update both together.
 

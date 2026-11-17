@@ -84,3 +84,29 @@ describe("startPracticeGame / actOnGame / loadGame", () => {
     expect(await loadGame(view.gameId)).toEqual({ ok: true, view });
   });
 });
+
+describe("one practice pack (#52)", () => {
+  it("plays #52's practice pack, and the seed script can load it after games exist without a second pack", async () => {
+    const { PRACTICE_CONTENT, PRACTICE_PACK } = await import("@/puzzles");
+    const { seedContent } = await import("@/db/content");
+    const db = state.db as Parameters<typeof seedContent>[0];
+    const view = await started();
+    expect(view.pack.id).toBe(PRACTICE_PACK.id);
+
+    // The app inserted the pack row on first use; seeding now adds its
+    // puzzles and puzzle list to that same row (it has games, but no list yet).
+    await seedContent(db, PRACTICE_CONTENT);
+    await seedContent(db, PRACTICE_CONTENT); // and again: nothing changes
+    const packRows = await pg.query<{ id: string }>("SELECT id FROM packs WHERE kind = 'practice'");
+    expect(packRows.rows).toEqual([{ id: PRACTICE_PACK.id }]);
+    const order = await pg.query<{ puzzle_id: string }>(
+      "SELECT puzzle_id FROM pack_puzzles WHERE pack_id = $1 ORDER BY position",
+      [PRACTICE_PACK.id],
+    );
+    expect(order.rows.map((r) => r.puzzle_id)).toEqual(PRACTICE_PACK.puzzleIds);
+
+    // And games keep working on the seeded pack.
+    expect((await startPracticeGame()).ok).toBe(true);
+    expect(await actOnGame(view.gameId, { type: "skip" })).toMatchObject({ ok: true });
+  });
+});

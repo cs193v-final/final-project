@@ -33,9 +33,9 @@ const ALICE: GameOwner = { userId: "alice" };
 const BOB: GameOwner = { userId: "bob" };
 
 /**
- * The sample puzzles with opaque ids and image paths. Today's sample ids and
- * file names spell out the answer ("giraffe", "/puzzles/giraffe.jpg"); #52 and
- * #57 fix that. These copies test what this module controls: everything else.
+ * The sample puzzles with short ids ("p1") and image paths, so stored-state
+ * expectations stay readable. The real sample data (opaque ids since #52) is
+ * checked too, below.
  */
 const OPAQUE_SAMPLES: Puzzle[] = SAMPLE_PUZZLES.map((p, i) => ({
   ...p,
@@ -102,7 +102,7 @@ describe("startGame", () => {
         reveal: puzzles[0]!.reveal,
         wrongGuesses: 0,
         pointsAvailable: 100,
-        aiSolvedLevel: null,
+        aiSolvedLevel: puzzles[0]!.aiSolvedLevel,
       },
       results: [],
       total: 0,
@@ -273,14 +273,30 @@ describe("no answers reach the browser while a round is playing", () => {
     }
   });
 
-  // Known gap, not this module's doing: the sample puzzle ids and image file
-  // names spell out the answers ("/puzzles/giraffe.jpg"), and `imageSrc` and
-  // `results[].puzzleId` carry them. Opaque ids (#52) and per-level images
-  // (#57) fix it; when they land this test starts passing, so remove `.fails`.
-  it.fails("also holds for the sample puzzles as they are stored today (#52, #57)", async () => {
+  // Since #52 the practice pack's ids and image names are opaque, so the real
+  // data passes too (this was an expected failure before). The full image is
+  // still sent until per-level images (#57), but its name gives nothing away.
+  it("also holds for the practice puzzles as stored in the repo, through a whole game", async () => {
     const { deps, pack, puzzles } = setup(SAMPLE_PUZZLES);
+    const views: GameView[] = [await startGame(deps, pack, ALICE, CONFIG)];
+    const gameId = views[0]!.gameId;
+    for (const [i, puzzle] of puzzles.entries()) {
+      for (const action of scriptFor(puzzle, i)) views.push(await act(deps, gameId, ALICE, action));
+    }
+    expect(views.at(-1)?.finished).toBe(true);
+    for (const view of views) expectNoAnswers(view, puzzles);
+  });
+});
+
+describe("aiSolvedLevel (#56)", () => {
+  it("passes on the level the AI solved the puzzle at, and nothing else about the AI", async () => {
+    const withAi = OPAQUE_SAMPLES.map((p, i) => ({ ...p, aiSolvedLevel: i === 0 ? 2 : null }));
+    const { deps, pack, puzzles } = setup(withAi);
     const view = await startGame(deps, pack, ALICE, CONFIG);
-    expectNoAnswers(view, puzzles);
+    expect(view.round?.aiSolvedLevel).toBe(2);
+    const next = await act(deps, view.gameId, ALICE, { type: "skip" }).then(() => act(deps, view.gameId, ALICE, { type: "next" }));
+    expect(next.round?.aiSolvedLevel).toBeNull();
+    expectNoAnswers(next, puzzles);
   });
 });
 

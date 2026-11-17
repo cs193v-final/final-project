@@ -19,30 +19,26 @@ import {
   startGame,
   type GameDeps,
 } from "@/game/server-game";
-import type { GameAction, Pack } from "@/game/types";
-import { SAMPLE_PUZZLES } from "@/puzzles";
+import type { GameAction } from "@/game/types";
+import { PRACTICE_PACK, SAMPLE_PUZZLES } from "@/puzzles";
 
 import { currentOrNewOwner, currentOwner } from "./owner";
 
 /**
- * The practice pack. Its puzzles stay in code (`SAMPLE_PUZZLES`) until packs
- * move to the database (#52, Joseph); then this becomes a `packs` row like
- * any other. The id is fixed and opaque; its row is inserted on first use.
+ * /play plays #52's practice pack (`PRACTICE_PACK` from src/puzzles/, one id
+ * everywhere) and reads its puzzles from the repo copy (`SAMPLE_PUZZLES`), not
+ * from the database. So /play works on a database that has been migrated but
+ * not seeded: its `packs` row is inserted on first use (`ensurePackRow`, ON
+ * CONFLICT DO NOTHING), and the seed script upserts the same row and adds the
+ * puzzles. Reading them from the database, and then writing `game_rounds`, is
+ * a follow-up once seeding is part of every deploy.
  */
-export const PRACTICE_PACK: Pack = {
-  id: "pk_3f9c2a7e51d84b06",
-  kind: "practice",
-  title: "Practice",
-  theme: "Mixed",
-  puzzleIds: SAMPLE_PUZZLES.map((p) => p.id),
-};
-
 function deps(db: Db): GameDeps {
   return {
-    // No game_rounds rows yet: they reference `puzzles`, and the practice
-    // puzzles aren't in the database until #52.
+    // No game_rounds rows yet: they reference `puzzles`, which only the seed
+    // script fills in.
     games: new PgGameStore(db, { recordRounds: false }),
-    // TODO(#52): look puzzles up in the database, by the game's pack.
+    // TODO(follow-up to #52): getPuzzles(db, ids) from src/db/content.ts.
     puzzles: puzzleSourceFrom(SAMPLE_PUZZLES),
   };
 }
