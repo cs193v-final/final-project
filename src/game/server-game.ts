@@ -104,7 +104,10 @@ export type NewStoredGame = Omit<StoredGame, "id" | "revision">;
 
 /** Where games are kept. In-memory for tests; Postgres (#47) in the app. */
 export interface GameStore {
-  /** The game with this id, or null. Doesn't check the owner; the service does. */
+  /**
+   * The game with this id, or null. Doesn't check the owner; the service does.
+   * Throws `GameUnreadableError` if the row exists but its state can't be read.
+   */
   get(id: string): Promise<StoredGame | null>;
   /** Store a new game with a fresh, unguessable id and revision 0. */
   create(game: NewStoredGame): Promise<StoredGame>;
@@ -184,6 +187,23 @@ export class DuplicateDailyGameError extends Error {
   constructor(readonly dailyDate: string) {
     super(`This owner already has a daily game for ${dailyDate}`);
     this.name = "DuplicateDailyGameError";
+  }
+}
+
+/**
+ * The game exists but its stored state can't be read: it doesn't decrypt
+ * (another tier's DATA_ENCRYPTION_KEY, or a damaged row, #84). Carries the
+ * stored owner so the service can answer a stranger with `GameNotFoundError`,
+ * as for any game that isn't theirs. The message names only the game id.
+ */
+export class GameUnreadableError extends Error {
+  constructor(
+    readonly gameId: string,
+    readonly owner: GameOwner,
+    options?: ErrorOptions,
+  ) {
+    super(`Game ${gameId}'s stored state can't be decrypted (wrong key or damaged row)`, options);
+    this.name = "GameUnreadableError";
   }
 }
 
@@ -530,7 +550,14 @@ async function load(
   owner: GameOwner,
 ): Promise<{ game: StoredGame; puzzles: Puzzle[] }> {
   checkOwner(owner);
-  const game = await deps.games.get(gameId);
+  let game: StoredGame | null;
+  try {
+    game = await deps.games.get(gameId);
+  } catch (error) {
+    // Someone else's game looks missing, readable or not.
+    if (error instanceof GameUnreadableError && !sameOwner(error.owner, owner)) throw new GameNotFoundError();
+    throw error;
+  }
   if (game === null || !sameOwner(game.owner, owner)) throw new GameNotFoundError();
   if (game.state.schemaVersion !== 1) {
     throw new Error(`server-game: unsupported schemaVersion ${String(game.state.schemaVersion)}`);

@@ -16,10 +16,10 @@ import { randomUUID } from "node:crypto";
 
 import { and, eq, sql } from "drizzle-orm";
 
-import type { Vault } from "@/crypto/vault";
+import { DecryptionError, type Vault } from "@/crypto/vault";
 
 import type { GameOwner, GameState, GameStore, NewStoredGame, StoredGame } from "@/game/server-game";
-import { DuplicateDailyGameError, GameConflictError, GameNotFoundError } from "@/game/server-game";
+import { DuplicateDailyGameError, GameConflictError, GameNotFoundError, GameUnreadableError } from "@/game/server-game";
 import { scoreGame } from "@/game/scoring";
 import type { Pack } from "@/game/types";
 import type { Db } from "./index";
@@ -88,7 +88,12 @@ function fromRow(vault: Vault, row: GameRow): StoredGame {
   const owner = ownerOf(row);
   let state: GameState;
   if (row.stateEncrypted !== null) {
-    state = vault.decryptJson<GameState>(stateKeyId(row.id), STATE_FIELD, row.stateEncrypted);
+    try {
+      state = vault.decryptJson<GameState>(stateKeyId(row.id), STATE_FIELD, row.stateEncrypted);
+    } catch (error) {
+      if (error instanceof DecryptionError) throw new GameUnreadableError(row.id, owner, { cause: error });
+      throw error;
+    }
   } else {
     // Written before #84. Raw `execute` results may hand jsonb back as text, depending on the driver.
     state = (typeof row.state === "string" ? JSON.parse(row.state) : row.state) as GameState;

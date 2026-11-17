@@ -10,7 +10,7 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { CONTRACT_PUZZLES, describeGameStoreContract } from "@/game/game-store-contract";
-import { act, GameConflictError, GameNotFoundError, getGame, puzzleSourceFrom, startGame, type GameDeps, type GameOwner, type GameState } from "@/game/server-game";
+import { act, GameConflictError, GameNotFoundError, GameUnreadableError, getGame, puzzleSourceFrom, startGame, type GameDeps, type GameOwner, type GameState } from "@/game/server-game";
 import type { GameAction } from "@/game/types";
 import type { Pack, ScoringConfig } from "@/game/types";
 
@@ -225,7 +225,17 @@ describe("PgGameStore encryption (#84)", () => {
   it("can't be read with another key", async () => {
     const { gameId } = await startGame(deps(new PgGameStore(db, vault)), PACK, bob, CONFIG);
     const other = new PgGameStore(db, new Vault(Buffer.alloc(32, 8)));
-    await expect(other.get(gameId)).rejects.toThrow();
+    const error = await other.get(gameId).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GameUnreadableError);
+    expect(error).toMatchObject({ gameId, owner: bob });
+  });
+
+  it("with another key, the owner gets GameUnreadableError and a stranger gets GameNotFoundError", async () => {
+    const { gameId } = await startGame(deps(new PgGameStore(db, vault)), PACK, bob, CONFIG);
+    const other = deps(new PgGameStore(db, new Vault(Buffer.alloc(32, 8))));
+    await expect(getGame(other, gameId, bob)).rejects.toBeInstanceOf(GameUnreadableError);
+    await expect(getGame(other, gameId, alice)).rejects.toBeInstanceOf(GameNotFoundError);
+    await expect(act(other, gameId, alice, { type: "skip" }, 0)).rejects.toBeInstanceOf(GameNotFoundError);
   });
 
   it("can't be moved to another game", async () => {
