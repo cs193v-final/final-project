@@ -209,8 +209,15 @@ describe("PgGameStore encryption (#84)", () => {
     const cols = await stateColumns(gameId);
     expect(cols.state).toBeNull();
     // What the player did (a wrong guess on the first puzzle) is only in the encrypted copy.
-    const { rows } = await pg.query<{ row: string }>("SELECT row_to_json(g)::text AS row FROM games g WHERE id = $1", [gameId]);
-    for (const leak of ["wrongGuess", "events", CONTRACT_PUZZLES[0]!.id]) expect(rows[0]!.row).not.toContain(leak);
+    // Every other column is searched; the ciphertext itself is left out, because it's
+    // random base64url and would contain a short string like a puzzle id by chance.
+    const { rows } = await pg.query<{ row: string }>(
+      "SELECT (to_jsonb(g) - 'state_encrypted')::text AS row FROM games g WHERE id = $1",
+      [gameId],
+    );
+    for (const leak of ["wrongGuess", "events", "zzz wrong", CONTRACT_PUZZLES[0]!.id]) expect(rows[0]!.row).not.toContain(leak);
+    // And the ciphertext is the vault's format, not JSON with the state in it.
+    expect(cols.state_encrypted).toMatch(/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     const state = vault.decryptJson<{ events: unknown[] }>(stateKeyId(gameId), STATE_FIELD, cols.state_encrypted!);
     expect(JSON.stringify(state.events)).toContain("wrongGuess");
   });
