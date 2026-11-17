@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { HOW_TO_PLAY, StartScreen } from "./StartScreen.tsx";
+import { SCORING_CONFIG } from "@/game/scoring-config";
+import type { ScoringConfig } from "@/game/types";
+import { HOW_TO_PLAY, howToPlay, StartScreen } from "./StartScreen.tsx";
 
 const html = renderToStaticMarkup(<StartScreen />);
 
@@ -27,9 +29,29 @@ describe("StartScreen", () => {
 
   it("explains what costs points and that you can skip", () => {
     const rules = HOW_TO_PLAY.join(" ");
-    expect(rules).toMatch(/zoom costs points/u);
-    expect(rules).toMatch(/Wrong guesses cost points/u);
+    expect(rules).toMatch(/zoom costs/u);
+    expect(rules).toMatch(/Wrong guesses cost/u);
     expect(rules).toMatch(/skip/u);
+  });
+
+  it("explains the point values once, from the scoring config (#146, from user test #90)", () => {
+    const rules = HOW_TO_PLAY.join(" ");
+    const { basePoints, revealPenalty, wrongGuessPenalty, minPoints, skipPoints } = SCORING_CONFIG;
+    expect(rules).toContain(`scores up to ${basePoints} points`);
+    expect(rules).toContain(`every zoom costs ${revealPenalty} points`);
+    expect(rules).toContain(`Wrong guesses cost ${wrongGuessPenalty} points each`);
+    expect(rules).toContain(`at least ${minPoints} points`);
+    expect(rules).toContain(`for ${skipPoints} points`);
+  });
+
+  it("follows the config when the values change, so numbers live in one place (#64)", () => {
+    const config: ScoringConfig = { basePoints: 50, revealPenalty: 5, wrongGuessPenalty: 1, minPoints: 2, skipPoints: 1 };
+    const rules = howToPlay(config).join(" ");
+    expect(rules).toContain("scores up to 50 points");
+    expect(rules).toContain("every zoom costs 5 points");
+    expect(rules).toContain("Wrong guesses cost 1 point each");
+    expect(rules).toContain("at least 2 points");
+    expect(rules).toContain("for 1 point.");
   });
 
   it("offers the mode picker before the how-to-play steps (#50)", () => {
@@ -45,7 +67,8 @@ describe("StartScreen", () => {
     expect(html).not.toMatch(/<a[^>]*>[^<]*leaderboard/iu);
   });
 
-  it("labels the prototype as a placeholder for the daily game", () => {
-    expect(html).toContain("Daily puzzles aren&#x27;t built yet");
+  it("labels what's still a placeholder (#58: the daily is built now)", () => {
+    expect(html).toContain("Prototype: point values are still being tuned.");
+    expect(html).not.toContain("Daily puzzles aren");
   });
 });

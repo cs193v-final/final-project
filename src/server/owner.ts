@@ -6,8 +6,9 @@
 // that digest is what `games.anon_owner_hash` stores, so a database leak
 // doesn't let anyone act on someone else's games.
 //
-// Whether anonymous players may start *daily* games is an open decision
-// (#54/#62); today only the practice pack can be started (src/server/games.ts).
+// Anonymous players may play the daily too (settled in #58 with Jacky and
+// Ethan): only games started while logged in count for leaderboards and
+// streaks (#62, #63 filter on user_id IS NOT NULL).
 import "server-only";
 
 import { cookies, headers } from "next/headers";

@@ -1,0 +1,3 @@
+ALTER TABLE "games" ADD COLUMN "daily_date" date;--> statement-breakpoint
+CREATE UNIQUE INDEX "games_daily_user_key" ON "games" USING btree ("user_id","daily_date") WHERE "games"."daily_date" IS NOT NULL AND "games"."user_id" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "games_daily_anon_key" ON "games" USING btree ("anon_owner_hash","daily_date") WHERE "games"."daily_date" IS NOT NULL AND "games"."anon_owner_hash" IS NOT NULL;

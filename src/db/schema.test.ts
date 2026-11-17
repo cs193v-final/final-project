@@ -37,10 +37,11 @@ async function rows<T>(query: string, params: unknown[] = []): Promise<T[]> {
 let counter = 0;
 const nextId = (prefix: string) => `${prefix}-${++counter}`;
 
-async function addUser(username = nextId("user")): Promise<string> {
+/** `usernameIndex` stands in for the keyed hash of the lowercased username (#84). */
+async function addUser(usernameIndex = nextId("user")): Promise<string> {
   const [row] = await rows<{ id: string }>(
-    "INSERT INTO users (username, password_hash) VALUES ($1, 'hash') RETURNING id",
-    [username],
+    "INSERT INTO users (username_encrypted, username_index, password_hash) VALUES ('v1.encrypted', $1, 'hash') RETURNING id",
+    [usernameIndex],
   );
   return row!.id;
 }
@@ -133,7 +134,7 @@ describe("migrations", () => {
 });
 
 describe("users and sessions", () => {
-  it("store only hashes: no plain password or token columns", async () => {
+  it("store only hashes and encrypted values: no plain password, token or username columns", async () => {
     const columns = await rows<{ table_name: string; column_name: string }>(
       `SELECT table_name, column_name FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name IN ('users', 'sessions')
@@ -145,15 +146,16 @@ describe("users and sessions", () => {
       "sessions.created_at",
       "sessions.expires_at",
       "users.id",
-      "users.username",
       "users.password_hash",
       "users.created_at",
+      "users.username_encrypted",
+      "users.username_index",
     ]);
   });
 
-  it("reject a username that differs from an existing one only by case", async () => {
-    await addUser("Ansel");
-    await expect(addUser("ansel")).rejects.toThrow(/users_username_lower_key/);
+  it("reject a second user with the same username index (the app lowercases before hashing, #84)", async () => {
+    await addUser("hmac-of-ansel");
+    await expect(addUser("hmac-of-ansel")).rejects.toThrow(/users_username_index_key/);
   });
 
   it("delete a user's sessions and games along with the user", async () => {

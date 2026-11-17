@@ -21,8 +21,9 @@ export function ScoreHeader({ index, count, total }: { index: number; count: num
 
 /**
  * What the current image is worth (#16). While playing: points for a correct
- * answer right now, and what a zoom-out would drop it to, so players see the
- * trade-off before clicking. After the round: what it earned.
+ * answer right now. How zooming and wrong guesses change that is explained
+ * once in How to play, not on every round (#146, from user test #90). After
+ * the round: what it earned.
  */
 export function RoundValue({
   round,
@@ -30,12 +31,12 @@ export function RoundValue({
   pointsNow,
   config = SCORING_CONFIG,
 }: {
-  round: Pick<Round, "state" | "revealLevel" | "maxRevealLevel" | "wrongGuesses">;
+  round: Pick<Round, "state" | "revealLevel" | "wrongGuesses">;
   /** This round's result, once it has ended. */
   result?: RoundResult | undefined;
   /** What a correct answer is worth now, as the server worked it out (`PublicRound.pointsAvailable`). */
   pointsNow?: number | undefined;
-  /** Only for the "if you zoom out" hint (and `pointsNow` when not given). TODO(#64): the game's own config. */
+  /** Only used when `pointsNow` isn't given. TODO(#64): the game's own config. */
   config?: ScoringConfig;
 }) {
   if (round.state !== "playing") {
@@ -48,12 +49,9 @@ export function RoundValue({
   }
 
   const now = pointsNow ?? pointsIfCorrect(round.revealLevel, round.wrongGuesses, config);
-  const afterZoom = Math.min(now, pointsIfCorrect(round.revealLevel + 1, round.wrongGuesses, config));
-  const canZoom = round.revealLevel < round.maxRevealLevel;
   return (
     <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
       Worth <strong className="font-semibold text-zinc-900 dark:text-zinc-100">{pts(now)}</strong> now
-      {canZoom && afterZoom < now ? ` · ${afterZoom} if you zoom out` : ""}
     </p>
   );
 }

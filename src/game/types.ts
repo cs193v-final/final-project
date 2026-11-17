@@ -97,9 +97,9 @@ export type Pack = {
   scoring?: ScoringConfig; // per-pack override (type: Ethan; storage: Jacky, #64); default when absent. The seed script doesn't load it yet.
 };
 
-/** Owner: Joseph. Settled (#52); the reset time zone is still open (#58). Which pack is a given day's daily challenge. */
+/** Owner: Joseph. Settled (#52). Which pack is a given day's daily challenge. */
 export type DailyEntry = {
-  date: string; // "YYYY-MM-DD" in the reset time zone (open decision; default America/Los_Angeles)
+  date: string; // "YYYY-MM-DD" in the reset time zone: midnight America/Los_Angeles (#58, DEFAULT_DAILY_RESET)
   packId: string;
 };
 
@@ -152,6 +152,12 @@ export type GameView = {
   results: RoundResult[]; // finished rounds so far, scored on the server
   total: number;
   finished: boolean;
+  /**
+   * Once the whole game is finished (never while a round is played, #54): each
+   * image's answer, index = position - 1, so a result loaded later (a reload,
+   * the daily the next visit) can name the images (#58).
+   */
+  answers?: string[];
 };
 
 /** Owner: Ethan. PROPOSAL (#53). What other code and the browser may know about a user. */

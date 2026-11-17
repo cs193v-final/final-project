@@ -6,6 +6,7 @@
 
 import type { GameView } from "./types.ts";
 import { GameConflictError, GameNotFoundError, InvalidGameActionError } from "./server-game.ts";
+import { errorForLog, type LoggedError } from "./log-safe.ts";
 
 export type GameError =
   /** No such game, or not this player's (the two look the same). Like a 404. */
@@ -44,10 +45,14 @@ export class RateLimitedError extends Error {
  * player's action to a newer state they haven't seen (two tabs both pressing
  * Skip would skip a round nobody looked at). The player sees the current game
  * and decides again.
+ *
+ * Anything else is logged, after `errorForLog` removes the values from it
+ * (#60), whichever `log` is passed. The default logs it as one JSON line, so
+ * deep causes aren't cut to `[Object]` and the line is easy to search.
  */
 export async function runGameCall(
   call: () => Promise<GameView>,
-  log: (error: unknown) => void = (error) => console.error("game call failed:", error),
+  log: (error: LoggedError) => void = (error) => console.error("game call failed:", JSON.stringify(error)),
 ): Promise<GameResult> {
   try {
     return { ok: true, view: await call() };
@@ -56,7 +61,7 @@ export async function runGameCall(
     if (error instanceof GameNotFoundError) return { ok: false, error: "not-found" };
     if (error instanceof InvalidGameActionError) return { ok: false, error: "invalid" };
     if (error instanceof RateLimitedError) return { ok: false, error: "rate-limited" };
-    log(error);
+    log(errorForLog(error));
     return { ok: false, error: "unavailable" };
   }
 }

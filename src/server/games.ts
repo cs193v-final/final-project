@@ -10,6 +10,7 @@ import "server-only";
 import { limitsAddress } from "@/auth/limits-address";
 import { requestIp } from "@/auth/session";
 import { getDb, type Db } from "@/db";
+import { getPuzzles } from "@/db/content";
 import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
 import { runGameCall, type GameResult } from "@/game/game-result";
@@ -38,15 +39,23 @@ import { currentOrNewOwner, currentOwner } from "./owner";
  * puzzles. Reading them from the database, and then writing `game_rounds`, is
  * a follow-up once seeding is part of every deploy.
  */
-function deps(db: Db): GameDeps {
+export function deps(db: Db): GameDeps {
+  const practice = puzzleSourceFrom(SAMPLE_PUZZLES);
+  const practiceIds = new Set(SAMPLE_PUZZLES.map((p) => p.id));
   return {
-    // No game_rounds rows yet: they reference `puzzles`, which only the seed
-    // script fills in.
-    games: new PgGameStore(db, { recordRounds: false }),
-    // TODO(follow-up to #52): getPuzzles(db, ids) from src/db/content.ts.
-    puzzles: puzzleSourceFrom(SAMPLE_PUZZLES),
+    // game_rounds rows reference `puzzles`. Practice puzzles may not be seeded
+    // (they're read from the repo), so practice games don't record rounds;
+    // every other pack's puzzles are in the database, so those do (the daily
+    // result's per-image stats, #58, and leaderboards, #62, read them).
+    games: new PgGameStore(db, { recordRounds: (state) => state.pack.kind !== "practice" }),
+    // Practice puzzles from the repo copy (so /play works on an unseeded
+    // database); everything else, e.g. the daily (#58), from the database.
+    puzzles: {
+      getPuzzles: (ids) => (ids.every((id) => practiceIds.has(id)) ? practice.getPuzzles(ids) : getPuzzles(db, ids)),
+    },
     // Per-level images (#57), cut by `npm run db:seed`. A practice puzzle that
-    // isn't cut yet is still shown whole and cropped in the browser.
+    // isn't cut yet is still shown whole and cropped in the browser; any other
+    // puzzle without levels can't be shown (server-game.ts refuses it).
     levels: { getLevelSrcs: (puzzleIds) => getLevelSrcs(db, puzzleIds) },
   };
 }

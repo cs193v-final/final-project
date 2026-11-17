@@ -1,14 +1,27 @@
+import { SCORING_CONFIG } from "@/game/scoring-config";
+import type { ScoringConfig } from "@/game/types";
 import { GAME_NAME } from "@/site";
 import { ModePicker } from "./ModePicker";
 import { PrototypeNotice, SectionHeading } from "./ui/controls";
 
-/** The how-to-play steps, in order. Kept free of point values until scoring (#15) is settled. */
-export const HOW_TO_PLAY = [
-  "Each image starts zoomed way in.",
-  "Type what you think it is. A correct guess ends the round.",
-  "Stuck? Zoom out to see more, but every zoom costs points.",
-  "Wrong guesses cost points too. You can skip to the next image.",
-] as const;
+const pts = (n: number) => `${n} ${n === 1 ? "point" : "points"}`;
+
+/**
+ * The how-to-play steps, in order. Points are explained here, once, with the
+ * values from the scoring config (#64), instead of on every round (#146, from
+ * user test #90).
+ */
+export function howToPlay(config: ScoringConfig = SCORING_CONFIG): readonly string[] {
+  return [
+    "Each image starts zoomed way in.",
+    `Type what you think it is. A correct guess ends the round and scores up to ${pts(config.basePoints)}.`,
+    `Stuck? Zoom out to see more, but every zoom costs ${pts(config.revealPenalty)}.`,
+    `Wrong guesses cost ${pts(config.wrongGuessPenalty)} each. A correct guess always scores at least ${pts(config.minPoints)}.`,
+    `You can skip to the next image, for ${pts(config.skipPoints)}.`,
+  ];
+}
+
+export const HOW_TO_PLAY = howToPlay();
 
 /**
  * Start screen (#18), now the home screen (#50): the game name, the modes to
@@ -41,7 +54,7 @@ export function StartScreen() {
         </ol>
       </section>
 
-      <PrototypeNotice>Prototype: 3 practice images. Daily puzzles aren&apos;t built yet.</PrototypeNotice>
+      <PrototypeNotice>Prototype: point values are still being tuned.</PrototypeNotice>
     </main>
   );
 }
