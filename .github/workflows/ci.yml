@@ -111,6 +111,14 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # The app encrypts usernames with DATA_ENCRYPTION_KEY (#84), as on every
+      # real tier. A fresh random key for this job only, so no key is ever in
+      # the repo; it's masked in the logs and gone when the job ends.
+      - name: Make a throwaway encryption key
+        run: |
+          key="$(openssl rand -base64 32)"
+          echo "::add-mask::$key"
+          echo "DATA_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
       # Only Chromium: both projects (desktop and phone) use it. The version
       # matches @playwright/test in package.json.
       - run: npx playwright install --with-deps chromium
