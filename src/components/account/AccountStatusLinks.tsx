@@ -36,14 +36,28 @@ const WELCOME_TEXT: Record<Welcome, (username: string) => string> = {
 /**
  * "Logged in as …", once, on the page a login or sign-up lands on (it adds
  * `?welcome=`). Without it, going home after logging in (#132) gives a screen
- * reader nothing but the home page's title. A `role="status"` region that is
- * already on the page, so the text is announced when it appears: the header
- * renders it logged out too (with `username` null), so it exists before the
- * login redirect fills it in. The flag is then removed from the URL, so
- * reloading or sharing the link doesn't repeat it, and the message goes away
- * on the next page, for good: coming back to that page doesn't repeat it.
+ * reader nothing but the home page's title.
+ *
+ * The `role="status"` region is rendered logged out too (empty), so the same
+ * element is already on the page when a login switches the header over and
+ * fills it in: many screen readers don't announce a live region that's added
+ * together with its text. Only its text (`WelcomeText`) reads the URL, and only
+ * when logged in, so the logged-out header doesn't re-render on URL changes.
  */
 export function WelcomeStatus({ username }: { username: string | null }) {
+  return (
+    <p role="status" className="text-zinc-700 dark:text-zinc-300">
+      {username === null ? null : <WelcomeText username={username} />}
+    </p>
+  );
+}
+
+/**
+ * The message itself. The flag is removed from the URL, so reloading or sharing
+ * the link doesn't repeat it, and the message goes away on the next page, for
+ * good: coming back to that page doesn't repeat it.
+ */
+function WelcomeText({ username }: { username: string }) {
   const pathname = usePathname();
   const welcome = parseWelcome(useSearchParams().get(WELCOME_PARAM));
   const [shown, setShown] = useState<{ welcome: Welcome; pathname: string } | null>(null);
@@ -70,10 +84,5 @@ export function WelcomeStatus({ username }: { username: string | null }) {
     if (shown && shown.pathname !== pathname) setShown(null);
   }, [pathname, shown]);
 
-  const text = shown && username && shown.pathname === pathname ? WELCOME_TEXT[shown.welcome](username) : "";
-  return (
-    <p role="status" className="text-zinc-700 dark:text-zinc-300">
-      {text}
-    </p>
-  );
+  return shown && shown.pathname === pathname ? WELCOME_TEXT[shown.welcome](username) : null;
 }
