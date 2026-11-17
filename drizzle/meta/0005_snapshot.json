@@ -1,5 +1,5 @@
 {
-  "id": "c33efd4f-b4ec-428f-aa43-8c53860ad6be",
+  "id": "b85f310d-9be9-44a3-8ac5-fee4baeba1f7",
   "prevId": "e134fabb-2c09-48ab-a89d-c146851cd9dd",
   "version": "7",
   "dialect": "postgresql",
@@ -244,13 +244,7 @@
           "name": "state",
           "type": "jsonb",
           "primaryKey": false,
-          "notNull": false
-        },
-        "state_encrypted": {
-          "name": "state_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "revision": {
           "name": "revision",
@@ -285,9 +279,59 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "daily_date": {
+          "name": "daily_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
+        "games_daily_user_key": {
+          "name": "games_daily_user_key",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "daily_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"games\".\"daily_date\" IS NOT NULL AND \"games\".\"user_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "games_daily_anon_key": {
+          "name": "games_daily_anon_key",
+          "columns": [
+            {
+              "expression": "anon_owner_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "daily_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"games\".\"daily_date\" IS NOT NULL AND \"games\".\"anon_owner_hash\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "games_user_id_created_at_idx": {
           "name": "games_user_id_created_at_idx",
           "columns": [
@@ -382,10 +426,6 @@
         "games_single_owner": {
           "name": "games_single_owner",
           "value": "\"games\".\"user_id\" IS NULL OR \"games\".\"anon_owner_hash\" IS NULL"
-        },
-        "games_one_state": {
-          "name": "games_one_state",
-          "value": "(\"games\".\"state\" IS NULL) <> (\"games\".\"state_encrypted\" IS NULL)"
         }
       },
       "isRLSEnabled": false

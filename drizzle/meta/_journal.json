@@ -40,8 +40,15 @@
     {
       "idx": 5,
       "version": "7",
-      "when": 1794901276690,
-      "tag": "0005_encrypt_game_state",
+      "when": 1794934743318,
+      "tag": "0005_daily_games",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794935372291,
+      "tag": "0006_encrypt_game_state",
       "breakpoints": true
     }
   ]

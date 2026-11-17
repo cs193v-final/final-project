@@ -2,7 +2,7 @@
 // The app already reads those and encrypts each one the next time it's saved;
 // this finishes the job for games nobody will save again (finished or
 // abandoned ones), so no plain state is left. Run once per tier after
-// migration 0005, with that tier's DATA_ENCRYPTION_KEY:
+// migration 0006, with that tier's DATA_ENCRYPTION_KEY:
 //
 //   npm run db:encrypt-games
 //
