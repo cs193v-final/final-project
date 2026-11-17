@@ -1,7 +1,6 @@
 // Register and log in (#53): the rules, hashing and rate limits, given a
 // database client. Cookies live in `./session.ts`; this file never touches the
 // request, so it's tested directly against PGlite.
-import type { PublicUser } from "../game/types.ts";
 import {
   clearRateLimit,
   findLoginRow,
@@ -9,9 +8,11 @@ import {
   insertSession,
   insertUser,
   type PgDb,
-} from "../db/accounts.ts";
-import { getDummyPasswordHash, hashPassword, newSessionToken, sha256Hex, verifyPassword } from "./crypto.ts";
-import { checkNewPassword, checkUsername, usernameKey } from "./rules.ts";
+} from "@/db/accounts";
+import type { PublicUser } from "@/game/types";
+
+import { getDummyPasswordHash, hashPassword, newToken, sha256Hex, verifyPassword } from "./crypto";
+import { checkNewPassword, checkUsername, usernameKey } from "./rules";
 
 export const SESSION_DAYS = 30;
 
@@ -52,6 +53,21 @@ export type AuthResult =
   | { ok: false; reason: "wrong-credentials"; message: string }
   | { ok: false; reason: "rate-limited"; message: string };
 
+/**
+ * Whether the per-address limits apply. On Vercel always: its edge sets the
+ * client's real address. Anywhere else (`next dev`, CI's `next start`), Next
+ * fills the address in from the socket, so every request from this machine
+ * shares one loopback address, or none; one shared count there would lock all
+ * local and e2e runs out of sign-up after 5 accounts an hour. The
+ * per-username login limit still applies.
+ */
+export function limitsAddress(ip: string | null, onVercel = Boolean(process.env.VERCEL)): boolean {
+  if (onVercel) return true;
+  if (ip === null) return false;
+  const address = ip.toLowerCase().replace(/^::ffff:/, "");
+  return !(address === "::1" || address === "localhost" || /^127\./.test(address));
+}
+
 export const ipKey = (prefix: string, ip: string | null) => `${prefix}:ip:${ip ? sha256Hex(ip) : "unknown"}`;
 /**
  * Hashed, never the typed name: people type emails, or their password, into
@@ -63,7 +79,7 @@ const RATE_LIMITED = "Too many attempts. Wait a few minutes and try again.";
 const WRONG_CREDENTIALS = "That username and password don't match.";
 
 async function startSession(db: PgDb, user: PublicUser, now: Date): Promise<AuthResult> {
-  const token = newSessionToken();
+  const token = newToken();
   const expiresAt = new Date(now.getTime() + SESSION_DAYS * DAY_MS);
   await insertSession(db, sha256Hex(token), user.id, expiresAt);
   return { ok: true, user, session: { token, expiresAt } };
@@ -89,7 +105,7 @@ export async function register(
 
   const db = resolve(source);
   const { max, windowMs } = RATE_LIMITS.registerPerIp;
-  if ((await hitRateLimit(db, ipKey("register", req.ip), windowMs, req.now)) > max) {
+  if (limitsAddress(req.ip) && (await hitRateLimit(db, ipKey("register", req.ip), windowMs, req.now)) > max) {
     return { ok: false, reason: "rate-limited", message: RATE_LIMITED };
   }
 
@@ -128,8 +144,10 @@ export async function login(
   // nothing about whether its guess was right. The address first: a client
   // that's over its own limit stops here, without adding to the username's
   // count, so it can't keep locking someone else's account.
-  const ipHits = await hitRateLimit(db, ipKey("login", req.ip), RATE_LIMITS.loginPerIp.windowMs, req.now);
-  if (ipHits > RATE_LIMITS.loginPerIp.max) return { ok: false, reason: "rate-limited", message: RATE_LIMITED };
+  if (limitsAddress(req.ip)) {
+    const ipHits = await hitRateLimit(db, ipKey("login", req.ip), RATE_LIMITS.loginPerIp.windowMs, req.now);
+    if (ipHits > RATE_LIMITS.loginPerIp.max) return { ok: false, reason: "rate-limited", message: RATE_LIMITED };
+  }
   const userHits = await hitRateLimit(db, loginUserKey(username), RATE_LIMITS.loginPerUser.windowMs, req.now);
   if (userHits > RATE_LIMITS.loginPerUser.max) return { ok: false, reason: "rate-limited", message: RATE_LIMITED };
 
