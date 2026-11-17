@@ -121,6 +121,14 @@ describe("TextInput", () => {
     await user.type(box, "x");
     expect(onChange).toHaveBeenCalled();
   });
+
+  it("passes a ref to the box, so focus can move to it (e.g. after a form error)", () => {
+    const ref = createRef<HTMLInputElement>();
+    render(<TextInput ref={ref} aria-label="Username" />);
+    expect(ref.current).toBe(screen.getByRole("textbox", { name: "Username" }));
+    ref.current?.focus();
+    expect(ref.current).toHaveFocus();
+  });
 });
 
 describe("every control meets the same focus and size rules (WCAG 2.2 AA)", () => {

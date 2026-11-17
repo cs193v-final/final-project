@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ComponentProps, InputHTMLAttributes, ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { buttonClass, FOCUS_RING, joinClasses, TEXT_INPUT, type ButtonVariant } from "./styles";
 
 /**
@@ -40,8 +40,11 @@ export function TextLink({ className, ...rest }: ComponentProps<typeof Link>) {
   );
 }
 
-/** A text box. It's an `<input>`: pass `id` and pair it with a `<label htmlFor>`. Defaults to `type="text"`. */
-export function TextInput({ className, type = "text", ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+/**
+ * A text box. It's an `<input>`: pass `id` and pair it with a `<label htmlFor>`.
+ * Defaults to `type="text"`. Takes a `ref`, like `Button`, e.g. to focus it on an error.
+ */
+export function TextInput({ className, type = "text", ...rest }: ComponentProps<"input">) {
   return <input {...rest} type={type} className={joinClasses(TEXT_INPUT, className)} />;
 }
 

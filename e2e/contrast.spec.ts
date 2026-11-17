@@ -89,14 +89,16 @@ async function boundaryFailures(page: Page): Promise<string[]> {
     };
 
     const failures: string[] = [];
-    for (const el of document.querySelectorAll("button, input, select, textarea")) {
+    // `a` covers ButtonLink ("Start practice"); text-only links are skipped below.
+    for (const el of document.querySelectorAll("a, button, input, select, textarea")) {
       if (!el.checkVisibility()) continue;
       const style = getComputedStyle(el);
       const behind = backgroundBehind(el.parentElement);
       const own = toRgba(style.backgroundColor);
       const hasBorder = parseFloat(style.borderTopWidth) > 0 && toRgba(style.borderTopColor)[3] > 0;
       const hasFill = own[3] > 0.99 && ratio(own, behind) > 1.05;
-      if (!hasBorder && !hasFill && el.tagName === "BUTTON") continue; // a text-only button
+      // A text-only button or link. A box with neither still fails: nothing shows where it is.
+      if (!hasBorder && !hasFill && (el.tagName === "BUTTON" || el.tagName === "A")) continue;
       const best = Math.max(hasFill ? ratio(own, behind) : 1, hasBorder ? ratio(toRgba(style.borderTopColor), behind) : 1);
       const name = el.getAttribute("aria-label") ?? (el.textContent?.trim() || (el as HTMLInputElement).name || el.tagName.toLowerCase());
       if (best < 3) failures.push(`"${name.slice(0, 30)}" ${hasBorder ? "border" : "background"} ${best.toFixed(2)}:1`);
@@ -127,5 +129,6 @@ for (const colorScheme of ["light", "dark"] as const) {
     }
     await expect(page.getByRole("button", { name: "Play again" })).toBeVisible();
     expect(await contrastFailures(page), "final score").toEqual([]);
+    expect(await boundaryFailures(page), "final score controls").toEqual([]);
   });
 }

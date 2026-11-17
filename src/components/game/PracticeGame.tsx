@@ -158,7 +158,9 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       </p>
       {problem === "unavailable" ? (
         // After a redeploy only a reload fixes "Failed to find Server Action".
-        <Button variant="quiet" onClick={() => window.location.reload()} className="text-sm">
+        // Always underlined: it sits next to the message, and on a touch screen
+        // there's no hover to show it can be pressed.
+        <Button variant="quiet" onClick={() => window.location.reload()} className="text-sm underline">
           Reload the page
         </Button>
       ) : null}
