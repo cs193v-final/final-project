@@ -24,6 +24,36 @@ regex = '''(?i)\bhost\s*=\s*\S+.*?\bpassword\s*=\s*['"]?([^\s'"]{4,})'''
 secretGroup = 1
 keywords = ["password"]
 
+# Neon passwords start with npg_ followed by random letters and digits
+# (12 today). Catches one on its own: a JSON field, a string literal, an
+# env line, or glued to other text (after a "\n" escape, before "_old").
+# No anchors on either side: \b fails next to a letter, digit or "_", and
+# in "\nnpg_..." the character before npg_ is the letter n. The bare prefix
+# in docs ("npg_", "npg_...") doesn't match: it needs 8+ letters/digits.
+[[rules]]
+id = "neon-password"
+description = "Neon Postgres password (npg_...)"
+regex = '''npg_[A-Za-z0-9]{8,}'''
+keywords = ["npg_"]
+  # Placeholders that only show the shape: npg_xxxxxxxx, npg_XXXXXXXX.
+  # Same shape as the placeholder-URL entry in the global [[allowlists]]
+  # below; change both together.
+  [[rules.allowlists]]
+  description = "Placeholder Neon password"
+  regexes = ['''^npg_(?:x+|X+)$''']
+  # Names and examples that aren't passwords: npg_password, npg_yourpassword,
+  # npg_example1, npg_REDACTED, setup_npg_connection. An entropy threshold
+  # can't separate these from real ones (npg_yourpassword scores 3.5, and
+  # about 1 in 1,000 random 12-character passwords score under 3.25), but a
+  # random password practically never contains one of these words.
+  [[rules.allowlists]]
+  description = "Words in names and examples, not in random passwords"
+  stopwords = ["password", "passwd", "example", "redacted", "placeholder", "changeme", "connection"]
+  # No allowlist for a password inside a full postgres:// URL: a leaked URL
+  # gives two findings (this rule and postgres-connection-url), and both
+  # fingerprints go in .gitleaksignore (README, "If a real secret gets
+  # committed"). A line-wide skip would also hide other passwords on that line.
+
 [[rules]]
 id = "env-file"
 description = "Environment file committed (use .env.example for templates)"
@@ -37,4 +67,6 @@ description = "Placeholder credentials in templates and docs"
 regexes = [
   '''(?i)postgres(?:ql)?://(USER|username)(:|%3A)(PASSWORD)@''',
   '''^(?i)(PASSWORD|<password>|your[-_]password)$''',
+  # Same placeholder shape as the neon-password rule's allowlist; change both together.
+  '''(?i)postgres(?:ql)?://[^:\s/@'"]+:npg_(?:x+|X+)@''',
 ]
