@@ -97,9 +97,9 @@ export type Pack = {
   scoring?: ScoringConfig; // per-pack override (type: Ethan; storage: Jacky, #64); default when absent. The seed script doesn't load it yet.
 };
 
-/** Owner: Joseph. Settled (#52); the reset time zone is still open (#58). Which pack is a given day's daily challenge. */
+/** Owner: Joseph. Settled (#52). Which pack is a given day's daily challenge. */
 export type DailyEntry = {
-  date: string; // "YYYY-MM-DD" in the reset time zone (open decision; default America/Los_Angeles)
+  date: string; // "YYYY-MM-DD" in the reset time zone: midnight America/Los_Angeles (#58, DEFAULT_DAILY_RESET)
   packId: string;
 };
 
