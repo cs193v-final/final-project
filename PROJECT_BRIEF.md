@@ -6,7 +6,7 @@
 
 ## Status at a glance
 
-As of the evening of Nov 16, 2026 (PST).
+As of Nov 17, 2026 (PST).
 
 | Area | Status |
 |---|---|
@@ -17,16 +17,16 @@ As of the evening of Nov 16, 2026 (PST).
 | Database schema | **Merged** (#74, closes #47). Zoom-level checks are approved (#82). |
 | Packs and seed script | **Merged** (#79, closes #52 and #36). |
 | Server-side games | **Approved, not merged yet** (#77, #54). |
-| Per-level images | **Approved, not merged yet** (#83, part of #57). Using them in the game comes after #77. |
-| Answer feedback (game feel) | **In review** (#70, #48). It includes #77 until #77 merges. |
+| Per-level images | **In review** (#83, part of #57); a later push dismissed the approval. Using them in the game comes after #77. |
+| Answer feedback (game feel) | **Approved, not merged yet** (#70, #48). It includes #77 until #77 merges. |
 | Data protection | **Partly merged** (#75, part of #60): TLS on every database connection, a check that no database variable is `NEXT_PUBLIC_`, and the stored-data inventory. Per-user access checks wait for #54 and #53. |
 | Configurable scoring | **In review** (#76, #64). |
-| Accounts | **On a branch, no PR yet** (`feat/accounts-53`, #53). |
+| Accounts | **In review** (#103, #53): username and password, sessions and rate-limited login. |
 | Daily streaks | **Logic merged** (#73, #81; part of #63). The query and the display wait for #53 and #58. |
 | Daily themes | **In PR:** today's pack and the intro screen (#100, part of #58). Content not started: #55 and #59. |
 | Accessibility, full-flow e2e tests | **Not started:** #49, #61. |
 | Checkpoint 2 backend | **Not started:** encryption (#84), game-server rate limits (#85), `COST-CONTROLS.md` (#86), secrets and `SECRETS.md` (#87), gitleaks on every checkout (#88), security audit (#95). |
-| Checkpoint 2 frontend | **Not started:** consistent controls (#89), user tests (#90–#93), deciding which features ship (#94). The user-test notes folder is approved (#99, #98). |
+| Checkpoint 2 frontend | **Started.** Merged: shared controls for consistent buttons, links and headings (#102, part of #89), and the user-test notes folder (#99, closes #98). Not started: user tests (#90–#93), deciding which features ship (#94). |
 | Leaderboard, Stanford mode, Beat the AI, name | **Not started** (Final presentation): #62, #65, #56 + #66, #51. Whether any move into Checkpoint 2 is #94. |
 | Custom lobbies (stretch) | **Not started.** #67, #68 |
 | Framework / language | **Chosen (#9):** Next.js 16 + React 19 + TypeScript, Tailwind CSS, Vitest. See `AGENTS.md` → Stack. |
