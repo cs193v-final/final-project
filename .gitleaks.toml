@@ -24,6 +24,15 @@ regex = '''(?i)\bhost\s*=\s*\S+.*?\bpassword\s*=\s*['"]?([^\s'"]{4,})'''
 secretGroup = 1
 keywords = ["password"]
 
+# Neon passwords start with npg_ followed by random letters and digits
+# (12 today). Catches one on its own: a JSON field, a string literal, an
+# env line. The bare prefix in docs ("npg_", "npg_...") doesn't match.
+[[rules]]
+id = "neon-password"
+description = "Neon Postgres password (npg_...)"
+regex = '''\bnpg_[A-Za-z0-9]{8,}\b'''
+keywords = ["npg_"]
+
 [[rules]]
 id = "env-file"
 description = "Environment file committed (use .env.example for templates)"

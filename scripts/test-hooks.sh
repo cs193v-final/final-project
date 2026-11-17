@@ -100,5 +100,26 @@ try_push refs/heads/feature "$zero"
 if [ $rc -eq 0 ]; then pass "pre-push allows a clean new branch"
 else fail "pre-push blocked a clean new branch: $out"; fi
 
+# 9-11. A bare Neon password (npg_...) is blocked even outside a connection URL.
+# Built at runtime so this file holds no npg_ token of its own.
+fakenpg="npg_${fakepw}"
+printf '{ "host": "ep-fake-123.neon.tech", "password": "%s" }\n' "$fakenpg" > creds.json
+printf 'const pw = "%s";\n' "$fakenpg" > pw.ts
+printf 'DATABASE_URL=%s://fakeuser@ep-fake-123.neon.tech/neondb\nDB_PASSWORD=%s\n' \
+  "$scheme" "$fakenpg" > config.sh
+for f in creds.json pw.ts config.sh; do
+  try_commit "Neon password in $f" "$f"
+  if blocked Commit && [[ "$out" == *neon-password* ]]; then pass "Neon password in $f is blocked"
+  else fail "Neon password in $f was not blocked (rc=$rc)"; fi
+  rm -f "$f"
+done
+
+# 12. Docs that only mention the prefix are allowed.
+printf 'Neon passwords start with "npg_", like npg_... or npg_\xe2\x80\xa6 (never commit one).\n' > neon.md
+try_commit "npg_ prefix in docs" neon.md
+if [ $rc -eq 0 ]; then pass "the bare npg_ prefix in docs is allowed"
+else fail "the bare npg_ prefix in docs was blocked: $out"; fi
+rm -f neon.md
+
 echo
 if [ $fails -eq 0 ]; then echo "All hook tests passed."; else echo "$fails hook test(s) failed."; exit 1; fi
