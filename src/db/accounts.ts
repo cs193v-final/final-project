@@ -8,7 +8,7 @@
 // username and its keyed hash (`usernameIndex`). Encrypting and decrypting is
 // done by `src/auth/accounts.ts`, which has the key. No function returns the
 // password hash except `findLoginRow`, which login needs to check a password.
-import { and, eq, gt, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lte, lt, ne, or, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import { rateLimits, sessions, users } from "./schema.ts";
@@ -53,6 +53,28 @@ export async function findLoginRow(
 
 export async function insertSession(db: PgDb, tokenHash: string, userId: string, expiresAt: Date): Promise<void> {
   await db.insert(sessions).values({ tokenHash, userId, expiresAt });
+}
+
+/**
+ * Ends the user's sessions beyond the newest `keep`, plus any of theirs that
+ * have expired at `now`, in one statement. `newest` (the session just
+ * started) is never deleted and counts as one of the `keep`, so the rest are
+ * the newest `keep - 1` live sessions by `created_at` (token hash breaks
+ * ties). Returns how many were removed. Uses `sessions_user_id_idx`.
+ */
+export async function trimSessions(db: PgDb, userId: string, newest: string, keep: number, now: Date): Promise<number> {
+  const others = and(eq(sessions.userId, userId), ne(sessions.tokenHash, newest));
+  const beyondCap = db
+    .select({ tokenHash: sessions.tokenHash })
+    .from(sessions)
+    .where(and(others, gt(sessions.expiresAt, now)))
+    .orderBy(desc(sessions.createdAt), desc(sessions.tokenHash))
+    .offset(Math.max(keep - 1, 0));
+  const removed = await db
+    .delete(sessions)
+    .where(and(others, or(lte(sessions.expiresAt, now), inArray(sessions.tokenHash, beyondCap))))
+    .returning({ t: sessions.tokenHash });
+  return removed.length;
 }
 
 /** The session's user (username still encrypted), if the session exists and hasn't expired at `now`. */
