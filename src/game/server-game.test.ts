@@ -20,6 +20,13 @@ import {
 } from "./server-game.ts";
 import type { GameAction, GameView, Pack, Puzzle, ScoringConfig, ScoringEvent } from "./types.ts";
 
+/** Plays a move on the game as it is now (reads its current revision first), for tests about other things than stale tabs. */
+async function playNow(deps: GameDeps, gameId: string, owner: GameOwner, action: GameAction) {
+  const { revision } = await getGame(deps, gameId, owner);
+  return act(deps, gameId, owner, action, revision);
+}
+
+
 // Fixed numbers so these tests don't change when playtesting tweaks SCORING_CONFIG.
 const CONFIG: ScoringConfig = {
   basePoints: 100,
@@ -143,7 +150,7 @@ describe("a full game played through", () => {
   it("ends finished, with every round scored on the server exactly as scoreGame scores the same events", async () => {
     const { deps, pack, puzzles } = setup();
     let view = await startGame(deps, pack, ALICE, CONFIG);
-    for (const action of ACTIONS) view = await act(deps, view.gameId, ALICE, action);
+    for (const action of ACTIONS) view = await act(deps, view.gameId, ALICE, action, view.revision);
 
     // The same actions through round.ts directly give the expected events.
     let game = createGame(puzzles);
@@ -173,20 +180,20 @@ describe("a full game played through", () => {
     const generous = { ...CONFIG, basePoints: 1000 };
     let view = await startGame(deps, pack, ALICE, generous);
     expect(view.round?.pointsAvailable).toBe(1000);
-    view = await act(deps, view.gameId, ALICE, { type: "guess", guess: OPAQUE_SAMPLES[0]!.answer });
+    view = await act(deps, view.gameId, ALICE, { type: "guess", guess: OPAQUE_SAMPLES[0]!.answer }, view.revision);
     expect(view.total).toBe(1000);
   });
 
   it("updates pointsAvailable and the running total as the game goes", async () => {
     const { deps, pack } = setup();
     let view = await startGame(deps, pack, ALICE, CONFIG);
-    view = await act(deps, view.gameId, ALICE, { type: "reveal" });
+    view = await act(deps, view.gameId, ALICE, { type: "reveal" }, view.revision);
     expect(view.round?.pointsAvailable).toBe(80);
-    view = await act(deps, view.gameId, ALICE, { type: "guess", guess: WRONG });
+    view = await act(deps, view.gameId, ALICE, { type: "guess", guess: WRONG }, view.revision);
     expect(view.round).toMatchObject({ wrongGuesses: 1, pointsAvailable: 70 });
     expect(view.lastOutcome).toEqual({ kind: "incorrect", normalizedGuess: WRONG });
     expect(view.total).toBe(0);
-    view = await act(deps, view.gameId, ALICE, { type: "guess", guess: OPAQUE_SAMPLES[0]!.answer });
+    view = await act(deps, view.gameId, ALICE, { type: "guess", guess: OPAQUE_SAMPLES[0]!.answer }, view.revision);
     expect(view.total).toBe(70);
     expect(view.results).toHaveLength(1);
   });
@@ -227,13 +234,13 @@ describe("no answers reach the browser while a round is playing", () => {
     for (const [i, puzzle] of puzzles.entries()) {
       for (const action of scriptFor(puzzle, i)) {
         seenTypes.add(action.type);
-        views.push(await act(deps, gameId, ALICE, action));
+        views.push(await playNow(deps, gameId, ALICE, action));
         views.push(await getGame(deps, gameId, ALICE));
       }
     }
     // After the game: every action type is rejected and the views stay safe.
     for (const action of [{ type: "reveal" }, { type: "guess", guess: WRONG }, { type: "skip" }, { type: "next" }] as const) {
-      views.push(await act(deps, gameId, ALICE, action));
+      views.push(await playNow(deps, gameId, ALICE, action));
     }
 
     expect(seenTypes).toEqual(new Set(["reveal", "guess", "skip", "next"]));
@@ -268,7 +275,7 @@ describe("no answers reach the browser while a round is playing", () => {
               : r < 0.85
                 ? { type: "skip" }
                 : { type: "next" };
-        view = await act(deps, view.gameId, ALICE, action);
+        view = await act(deps, view.gameId, ALICE, action, view.revision);
         expectNoAnswers(view, puzzles);
       }
     }
@@ -282,7 +289,7 @@ describe("no answers reach the browser while a round is playing", () => {
     const views: GameView[] = [await startGame(deps, pack, ALICE, CONFIG)];
     const gameId = views[0]!.gameId;
     for (const [i, puzzle] of puzzles.entries()) {
-      for (const action of scriptFor(puzzle, i)) views.push(await act(deps, gameId, ALICE, action));
+      for (const action of scriptFor(puzzle, i)) views.push(await playNow(deps, gameId, ALICE, action));
     }
     expect(views.at(-1)?.finished).toBe(true);
     for (const view of views) expectNoAnswers(view, puzzles);
@@ -295,7 +302,7 @@ describe("aiSolvedLevel (#56)", () => {
     const { deps, pack, puzzles } = setup(withAi);
     const view = await startGame(deps, pack, ALICE, CONFIG);
     expect(view.round?.aiSolvedLevel).toBe(2);
-    const next = await act(deps, view.gameId, ALICE, { type: "skip" }).then(() => act(deps, view.gameId, ALICE, { type: "next" }));
+    const next = await playNow(deps, view.gameId, ALICE, { type: "skip" }).then(() => playNow(deps, view.gameId, ALICE, { type: "next" }));
     expect(next.round?.aiSolvedLevel).toBeNull();
     expectNoAnswers(next, puzzles);
   });
@@ -305,7 +312,7 @@ describe("after a round ends", () => {
   it("shows the answer and credit once the round is answered", async () => {
     const { deps, pack, puzzles } = setup();
     const start = await startGame(deps, pack, ALICE, CONFIG);
-    const view = await act(deps, start.gameId, ALICE, { type: "guess", guess: puzzles[0]!.answer });
+    const view = await playNow(deps, start.gameId, ALICE, { type: "guess", guess: puzzles[0]!.answer });
     expect(view.round).toMatchObject({
       state: "correct",
       answer: puzzles[0]!.answer,
@@ -317,7 +324,7 @@ describe("after a round ends", () => {
   it("shows the answer and credit once the round is skipped", async () => {
     const { deps, pack, puzzles } = setup();
     const start = await startGame(deps, pack, ALICE, CONFIG);
-    const view = await act(deps, start.gameId, ALICE, { type: "skip" });
+    const view = await playNow(deps, start.gameId, ALICE, { type: "skip" });
     expect(view.round).toMatchObject({ state: "skipped", answer: puzzles[0]!.answer, credit: puzzles[0]!.credit });
   });
 
@@ -325,7 +332,7 @@ describe("after a round ends", () => {
     const { deps, pack, puzzles } = setup();
     const alternate = puzzles[0]!.acceptedAnswers[0]!; // "Giraffes"
     const start = await startGame(deps, pack, ALICE, CONFIG);
-    const view = await act(deps, start.gameId, ALICE, { type: "guess", guess: alternate });
+    const view = await playNow(deps, start.gameId, ALICE, { type: "guess", guess: alternate });
     expect(view.round?.state).toBe("correct");
     // The canonical answer is shown instead of the alternate that matched.
     expect(view.lastOutcome).toEqual({ kind: "correct", matched: puzzles[0]!.answer });
@@ -336,8 +343,8 @@ describe("after a round ends", () => {
   it("hides the answer again when the next round starts", async () => {
     const { deps, pack, puzzles } = setup();
     const start = await startGame(deps, pack, ALICE, CONFIG);
-    await act(deps, start.gameId, ALICE, { type: "skip" });
-    const view = await act(deps, start.gameId, ALICE, { type: "next" });
+    await playNow(deps, start.gameId, ALICE, { type: "skip" });
+    const view = await playNow(deps, start.gameId, ALICE, { type: "next" });
     expect(view.round).toMatchObject({ position: 2, state: "playing" });
     expect(view.lastOutcome).toBeUndefined();
     expectNoAnswers(view, puzzles);
@@ -351,7 +358,7 @@ describe("ownership", () => {
     const before = store.raw(gameId);
 
     await expect(getGame(deps, gameId, BOB)).rejects.toBeInstanceOf(GameNotFoundError);
-    await expect(act(deps, gameId, BOB, { type: "skip" })).rejects.toBeInstanceOf(GameNotFoundError);
+    await expect(act(deps, gameId, BOB, { type: "skip" }, 0)).rejects.toBeInstanceOf(GameNotFoundError);
     expect(store.raw(gameId)).toBe(before);
   });
 
@@ -377,10 +384,10 @@ describe("resuming after a refresh", () => {
   it("getGame on a later request returns the same view the last action did", async () => {
     const { deps, pack, store, puzzles } = setup();
     const start = await startGame(deps, pack, ALICE, CONFIG);
-    await act(deps, start.gameId, ALICE, { type: "skip" });
-    await act(deps, start.gameId, ALICE, { type: "next" });
-    await act(deps, start.gameId, ALICE, { type: "reveal" });
-    const last = await act(deps, start.gameId, ALICE, { type: "guess", guess: WRONG });
+    await playNow(deps, start.gameId, ALICE, { type: "skip" });
+    await playNow(deps, start.gameId, ALICE, { type: "next" });
+    await playNow(deps, start.gameId, ALICE, { type: "reveal" });
+    const last = await playNow(deps, start.gameId, ALICE, { type: "guess", guess: WRONG });
 
     // A new request: fresh deps objects, same underlying store.
     const later: GameDeps = { games: store, puzzles: puzzleSourceFrom(puzzles) };
@@ -389,7 +396,7 @@ describe("resuming after a refresh", () => {
     expect(resumed.round).toMatchObject({ position: 2, revealLevel: 1, wrongGuesses: 1 });
 
     // And play carries on from there.
-    const next = await act(later, start.gameId, ALICE, { type: "guess", guess: puzzles[1]!.answer });
+    const next = await act(later, start.gameId, ALICE, { type: "guess", guess: puzzles[1]!.answer }, resumed.revision);
     expect(next.results.map((r) => r.outcome)).toEqual(["skipped", "correct"]);
   });
 });
@@ -403,29 +410,29 @@ describe("invalid actions are rejected like round.ts rejects them: nothing chang
 
   it("guess, reveal and skip after the round ended", async () => {
     const { deps, store, view: start, puzzles } = await started();
-    const ended = await act(deps, start.gameId, ALICE, { type: "skip" });
+    const ended = await playNow(deps, start.gameId, ALICE, { type: "skip" });
     const raw = store.raw(start.gameId);
     for (const action of [
       { type: "guess", guess: puzzles[0]!.answer },
       { type: "reveal" },
       { type: "skip" },
     ] as const) {
-      expect(await act(deps, start.gameId, ALICE, action)).toEqual(ended);
+      expect(await playNow(deps, start.gameId, ALICE, action)).toEqual(ended);
     }
     expect(store.raw(start.gameId)).toBe(raw);
   });
 
   it("next while playing, reveal at the full image, and a blank guess", async () => {
     const { deps, store, view: start, puzzles } = await started();
-    expect(await act(deps, start.gameId, ALICE, { type: "next" })).toEqual(start);
-    expect(await act(deps, start.gameId, ALICE, { type: "guess", guess: "  " })).toEqual(start);
+    expect(await playNow(deps, start.gameId, ALICE, { type: "next" })).toEqual(start);
+    expect(await playNow(deps, start.gameId, ALICE, { type: "guess", guess: "  " })).toEqual(start);
 
     let view = start;
     for (let i = 1; i < puzzles[0]!.reveal.zoomLevels.length; i++) {
-      view = await act(deps, start.gameId, ALICE, { type: "reveal" });
+      view = await playNow(deps, start.gameId, ALICE, { type: "reveal" });
     }
     const raw = store.raw(start.gameId);
-    expect(await act(deps, start.gameId, ALICE, { type: "reveal" })).toEqual(view);
+    expect(await playNow(deps, start.gameId, ALICE, { type: "reveal" })).toEqual(view);
     expect(store.raw(start.gameId)).toBe(raw);
     expect(view.round?.wrongGuesses).toBe(0);
   });
@@ -434,12 +441,12 @@ describe("invalid actions are rejected like round.ts rejects them: nothing chang
     const { deps, view: start, puzzles } = await started();
     let view = start;
     for (let i = 0; i < puzzles.length; i++) {
-      await act(deps, start.gameId, ALICE, { type: "skip" });
-      view = await act(deps, start.gameId, ALICE, { type: "next" });
+      await playNow(deps, start.gameId, ALICE, { type: "skip" });
+      view = await playNow(deps, start.gameId, ALICE, { type: "next" });
     }
     expect(view).toMatchObject({ finished: true, round: null });
     for (const action of [{ type: "reveal" }, { type: "skip" }, { type: "next" }, { type: "guess", guess: "x" }] as const) {
-      expect(await act(deps, start.gameId, ALICE, action)).toEqual(view);
+      expect(await playNow(deps, start.gameId, ALICE, action)).toEqual(view);
     }
   });
 
@@ -447,7 +454,7 @@ describe("invalid actions are rejected like round.ts rejects them: nothing chang
     const { deps, view } = await started();
     const bad = [null, "skip", [], {}, { type: "score", points: 1000 }, { type: "guess" }, { type: "guess", guess: 42 }];
     for (const action of bad) {
-      await expect(act(deps, view.gameId, ALICE, action as unknown as GameAction)).rejects.toBeInstanceOf(
+      await expect(playNow(deps, view.gameId, ALICE, action as unknown as GameAction)).rejects.toBeInstanceOf(
         InvalidGameActionError,
       );
     }
@@ -493,6 +500,26 @@ describe("act with the revision the player saw (#107)", () => {
     expect(store.raw(tabA.gameId)).toBe(before);
   });
 
+  it("throws InvalidGameActionError for a malformed revision and changes nothing", async () => {
+    const { deps, pack, store } = setup();
+    const view = await startGame(deps, pack, ALICE, CONFIG);
+    const before = store.raw(view.gameId);
+    for (const bad of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, "0", null, undefined]) {
+      await expect(act(deps, view.gameId, ALICE, { type: "skip" }, bad as number), String(bad)).rejects.toBeInstanceOf(
+        InvalidGameActionError,
+      );
+    }
+    expect(store.raw(view.gameId)).toBe(before);
+  });
+
+  it("checks the owner before the revision, so a stranger with a malformed one still gets GameNotFoundError", async () => {
+    const { deps, pack } = setup();
+    const view = await startGame(deps, pack, ALICE, CONFIG);
+    for (const bad of [-1, "x", undefined]) {
+      await expect(act(deps, view.gameId, BOB, { type: "skip" }, bad as number)).rejects.toBeInstanceOf(GameNotFoundError);
+    }
+  });
+
   it("checks the owner before the revision, so a stranger still gets GameNotFoundError", async () => {
     const { deps, pack } = setup();
     const view = await startGame(deps, pack, ALICE, CONFIG);
@@ -504,8 +531,8 @@ describe("stored record", () => {
   it("is plain JSON with the round state, events and config, and no answers", async () => {
     const { deps, pack, store, puzzles } = setup();
     const { gameId } = await startGame(deps, pack, { anonId: "anon-1" }, CONFIG);
-    await act(deps, gameId, { anonId: "anon-1" }, { type: "reveal" });
-    await act(deps, gameId, { anonId: "anon-1" }, { type: "guess", guess: WRONG });
+    await act(deps, gameId, { anonId: "anon-1" }, { type: "reveal" }, 0);
+    await act(deps, gameId, { anonId: "anon-1" }, { type: "guess", guess: WRONG }, 1);
 
     const raw = store.raw(gameId)!;
     const stored = JSON.parse(raw) as StoredGame;
@@ -537,7 +564,7 @@ describe("stored record", () => {
     const { deps, pack, store } = setup();
     const { gameId } = await startGame(deps, pack, ALICE, CONFIG);
     const stale = (await store.get(gameId))!;
-    await act(deps, gameId, ALICE, { type: "reveal" });
+    await act(deps, gameId, ALICE, { type: "reveal" }, 0);
     await expect(store.save(stale)).rejects.toBeInstanceOf(GameConflictError);
     expect((await store.get(gameId))!.state.round.revealLevel).toBe(1);
   });

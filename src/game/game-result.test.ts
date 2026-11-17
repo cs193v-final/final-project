@@ -93,8 +93,8 @@ describe("two tabs acting on the same game at once", () => {
 
     const racing: GameDeps = { games: raceStore(inner, 2), puzzles: plain.puzzles };
     const results = await Promise.all([
-      runGameCall(() => act(racing, gameId, OWNER, action)),
-      runGameCall(() => act(racing, gameId, OWNER, action)),
+      runGameCall(() => act(racing, gameId, OWNER, action, 0)),
+      runGameCall(() => act(racing, gameId, OWNER, action, 0)),
     ]);
 
     expect(results.map((r) => (r.ok ? "ok" : r.error)).sort()).toEqual(["conflict", "ok"]);
