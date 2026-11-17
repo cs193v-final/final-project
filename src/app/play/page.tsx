@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Suspense } from "react";
 import { PracticeGame } from "@/components/game/PracticeGame";
+import { PrototypeNotice, TextLink } from "@/components/ui/controls";
 import { loadGame } from "@/server/games";
 import { actAction, getGameAction, startGameAction } from "./actions";
 
@@ -13,14 +13,14 @@ export default function PlayPage({ searchParams }: PageProps<"/play">) {
   return (
     <main className="flex flex-1 flex-col items-center gap-6 px-4 py-10">
       <nav aria-label="Back" className="w-full max-w-md">
-        <Link href="/" className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white">
-          ← Back to start
-        </Link>
+        {/* "Home", like the site header (#80). The arrow is decoration, so the link's name is just "Home". */}
+        <TextLink href="/" className="gap-1">
+          <span aria-hidden="true">←</span>
+          Home
+        </TextLink>
       </nav>
       <h1 className="text-3xl font-semibold tracking-tight">Practice</h1>
-      <p className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
-        Prototype: point values are still being tuned.
-      </p>
+      <PrototypeNotice>Prototype: point values are still being tuned.</PrototypeNotice>
       {/* The game depends on the request (URL and owner cookie), so it streams in at request time. */}
       <Suspense fallback={<p className="text-zinc-600 dark:text-zinc-400">Loading the game…</p>}>
         <Game searchParams={searchParams} />
