@@ -7,6 +7,8 @@
 // server-game.ts (rules, scoring, answer hiding) → PgGameStore → Postgres
 import "server-only";
 
+import { connection } from "next/server";
+
 import { limitsAddress } from "@/auth/limits-address";
 import { requestIp } from "@/auth/session";
 import { getVault } from "@/crypto/vault";
@@ -131,6 +133,12 @@ export async function actOnGame(gameId: unknown, action: unknown, revision: unkn
 
 /** The current owner's game as it is now (resume after a refresh). Counts toward the action limits (#85). */
 export async function loadGame(gameId: unknown): Promise<GameResult> {
+  // Finding the owner reads the request (cookies, and the session for a
+  // logged-in player). Mark request time here, outside runGameCall: while Next
+  // prerenders /play, connection() rejects to stop the render, and that
+  // signal has to reach Next. Inside runGameCall it would be caught, logged as
+  // "game call failed" and turned into "unavailable".
+  await connection();
   return runGameCall(async () => {
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();

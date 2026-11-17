@@ -15,6 +15,8 @@ const state = vi.hoisted(() => ({
   jar: new Map<string, string>(),
   /** Request headers besides x-forwarded-proto, e.g. x-forwarded-for. */
   headers: {} as Record<string, string>,
+  /** Stands in for Next's connection(): resolves at request time, rejects while prerendering. */
+  connection: async (): Promise<void> => {},
 }));
 
 // Game states are stored encrypted (#84); the app reads the key from the
@@ -22,6 +24,7 @@ const state = vi.hoisted(() => ({
 vi.stubEnv("DATA_ENCRYPTION_KEY", Buffer.alloc(32, 5).toString("base64"));
 
 vi.mock("@/db", () => ({ getDb: () => state.db }));
+vi.mock("next/server", () => ({ connection: () => state.connection() }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (state.jar.has(name) ? { name, value: state.jar.get(name)! } : undefined),
@@ -51,6 +54,7 @@ beforeEach(async () => {
   state.jar.clear();
   state.headers = {};
   await pg.exec("DELETE FROM rate_limits;");
+  state.connection = async () => {};
 });
 
 async function started() {
@@ -58,6 +62,20 @@ async function started() {
   if (!result.ok) throw new Error(`start failed: ${result.error}`);
   return result.view;
 }
+
+describe("loadGame while Next prerenders /play", () => {
+  it("lets Next's prerender signal through instead of logging it and reporting \"unavailable\"", async () => {
+    const view = await started();
+    const signal = new Error("During prerendering, `connection()` rejects when the prerender is complete.");
+    state.connection = async () => {
+      throw signal;
+    };
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(loadGame(view.gameId)).rejects.toBe(signal);
+    expect(log).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+});
 
 describe("startPracticeGame / actOnGame / loadGame", () => {
   it("starts a practice game for a new anonymous owner and plays it", async () => {
