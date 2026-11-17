@@ -1,7 +1,7 @@
 [
   {
-    "id": "giraffe",
-    "imageUrl": "/puzzles/giraffe.jpg",
+    "id": "pz-dbdb4dee",
+    "imageUrl": "/puzzles/pz-dbdb4dee.jpg",
     "answer": "Giraffe",
     "acceptedAnswers": ["Giraffes"],
     "reveal": {
@@ -15,8 +15,8 @@
     }
   },
   {
-    "id": "strawberry",
-    "imageUrl": "/puzzles/strawberry.jpg",
+    "id": "pz-683182e7",
+    "imageUrl": "/puzzles/pz-683182e7.jpg",
     "answer": "Strawberry",
     "acceptedAnswers": ["Strawberries"],
     "reveal": {
@@ -30,8 +30,8 @@
     }
   },
   {
-    "id": "golden-gate-bridge",
-    "imageUrl": "/puzzles/golden-gate-bridge.jpg",
+    "id": "pz-af6d3bbb",
+    "imageUrl": "/puzzles/pz-af6d3bbb.jpg",
     "answer": "Golden Gate Bridge",
     "acceptedAnswers": ["Golden Gate"],
     "reveal": {

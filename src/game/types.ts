@@ -5,9 +5,17 @@
 // copied here unchanged so the guessing and round logic can compile; their
 // owners make the final call.
 
-/** Owner: Joseph. Finalized in #17 unchanged from the brief; validated by `parsePuzzle` in `puzzles.ts`. */
+/**
+ * Owner: Joseph. Finalized in #17; validated by `parsePuzzle` in `puzzles.ts`.
+ * Server-only once games run on the server (#54): it holds the answer.
+ *
+ * #52: `id` is opaque (never contains the answer, checked by `findAnswerLeaks`
+ * in `packs.ts`), and `aiSolvedLevel` was added for Beat the AI (#56).
+ * How `imageUrl` works once each zoom level is its own image is #57 (Darian);
+ * until then it's the full image.
+ */
 export type Puzzle = {
-  id: string;
+  id: string; // opaque, e.g. "pz-7c1e9a40"; lowercase letters, digits, "-" and "_"
   imageUrl: string; // file in the app's static assets, or a URL
   answer: string; // canonical answer, shown after the round
   acceptedAnswers: string[]; // alternates, compared after normalization
@@ -16,6 +24,7 @@ export type Puzzle = {
     zoomLevels: number[]; // e.g. [8, 4, 2, 1]: index 0 = tightest crop, last = full image
   };
   credit: { source: string; license: string; url?: string }; // image source + usage permission
+  aiSolvedLevel: RevealLevel | null; // first reveal level the AI solved it at (#56); null = never, or not run yet
 };
 
 /**
@@ -66,4 +75,82 @@ export type RoundResult = {
   wrongGuesses: number;
   points: number;
   breakdown: { base: number; revealPenalty: number; wrongGuessPenalty: number };
+};
+
+// ---------------------------------------------------------------------------
+// Week 9 plan (#46): PROPOSALs for the server-side game, packs, accounts and
+// leaderboards. Types only. The owner of each type makes the final call; change
+// one only through a PR that its owner reviews. `PackKind`, `Pack` and
+// `DailyEntry` are settled in #52 and validated by `parseContent` (`packs.ts`).
+// ---------------------------------------------------------------------------
+
+/** Owner: Joseph. Settled (#52). Which mode a pack belongs to. */
+export type PackKind = "practice" | "daily" | "stanford" | "lobby";
+
+/** Owner: Joseph. Settled (#52). A set of puzzles played together, in order. */
+export type Pack = {
+  id: string; // opaque; never derived from the theme or the answers
+  kind: PackKind;
+  title: string; // e.g. "Landmarks"
+  theme: string; // shown before play (open decision: hide it for a bonus?)
+  puzzleIds: string[]; // play order; usually 5
+  scoring?: ScoringConfig; // per-pack override (type: Ethan; storage: Jacky, #64); default when absent. The seed script doesn't load it yet.
+};
+
+/** Owner: Joseph. Settled (#52); the reset time zone is still open (#58). Which pack is a given day's daily challenge. */
+export type DailyEntry = {
+  date: string; // "YYYY-MM-DD" in the reset time zone (open decision; default America/Los_Angeles)
+  packId: string;
+};
+
+/**
+ * Owner: Jacky. PROPOSAL (#54). Everything a player can do in a game.
+ *
+ * Moved here from `round.ts` (which re-exports it) so the browser and the
+ * server share one definition. The field is `guess`, as `step` already uses.
+ */
+export type GameAction =
+  | { type: "reveal" }
+  | { type: "guess"; guess: string }
+  | { type: "skip" }
+  | { type: "next" };
+
+/**
+ * Owner: Jacky (image fields: Darian). PROPOSAL (#54, #57).
+ * Everything the browser may see about the current puzzle. No answer until the round ends.
+ */
+export type PublicRound = {
+  position: number; // 1-based
+  puzzleCount: number;
+  state: RoundState;
+  revealLevel: RevealLevel;
+  levelCount: number;
+  imageSrc: string; // Darian (#57): the image for revealLevel ONLY
+  wrongGuesses: number;
+  pointsAvailable: number;
+  aiSolvedLevel: RevealLevel | null; // Darian (Beat the AI, #56); null = the AI never got it
+  answer?: string; // only once state !== "playing"
+  credit?: Puzzle["credit"]; // only once state !== "playing"
+};
+
+/** Owner: Jacky. PROPOSAL (#54). Returned by every game call (`startGame`, `act`, `getGame`). */
+export type GameView = {
+  gameId: string;
+  pack: Pick<Pack, "id" | "kind" | "title" | "theme">;
+  round: PublicRound | null; // null once the game is over
+  lastOutcome?: GuessOutcome;
+  results: RoundResult[]; // finished rounds so far, scored on the server
+  total: number;
+  finished: boolean;
+};
+
+/** Owner: Ethan. PROPOSAL (#53). What other code and the browser may know about a user. */
+export type PublicUser = { id: string; username: string };
+
+/** Owner: Ethan. PROPOSAL (#62). One row of a leaderboard. */
+export type LeaderboardEntry = {
+  rank: number;
+  username: string;
+  score: number;
+  beatAiCount: number;
 };

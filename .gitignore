@@ -27,3 +27,6 @@ npm-debug.log*
 # env files: real values only in .env.local; the template is committed
 .env*
 !.env.example
+
+# private puzzle content for the seed script (#52): never commit it
+/content/

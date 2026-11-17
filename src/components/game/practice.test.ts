@@ -10,6 +10,7 @@ function puzzle(id: string, answer: string): Puzzle {
     acceptedAnswers: [],
     reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [4, 2, 1] },
     credit: { source: "test", license: "CC0" },
+    aiSolvedLevel: null,
   };
 }
 const PUZZLES = [puzzle("p1", "Eiffel Tower"), puzzle("p2", "Big Ben")];

@@ -1,81 +1,145 @@
 # Zoom Out: Project Brief
 
-> **Zoom Out** is a working title; the repo doesn't have a project name yet.
+> **Zoom Out** is a working title. Picking the name and look is #51.
 > This brief is for every teammate and every teammate's coding agent. Read it before you start work.
-> Last updated: Nov 10, 2026.
+> Last updated: Nov 16, 2026 (Week 9 plan, #46).
 
 ## Status at a glance
 
 | Area | Status |
 |---|---|
-| Game code (viewer, guessing, scoring, puzzles) | **In progress.** Merged: the Next.js scaffold (#24); guess checking (#22), the round state machine (#23), scoring (#27) and the puzzle loader (#32), as framework-free logic in `src/game/`; the three sample puzzles (#32); the image viewer (#30), the Zoom out button (#31) and the start screen (#33). In review: the guess UI and `/play` page (#25). Not started: the live score and final score screen (#16), and wiring everything into one playable game and deploying it (#19). |
+| Three-image practice game | **Done and live** (Week 8). Start screen, `/play` with the viewer, Zoom out, guessing, live score and final score screen. Everything runs in the browser, and the answers are sent to it. In review: a back link on `/play` (#43, closes #42) and Playwright e2e tests (#45, closes #44). |
+| Week 9 plan | **This update** (#46). Issues #47–#68, milestones "Checkpoint 2" and "Final presentation", new `PROPOSAL` types in `src/game/types.ts`. |
+| Foundation: schema, packs, server-side games, per-level images | **Not started.** #47, #52, #54, #57 (Checkpoint 2) |
+| Accounts | **Not started.** #53 (Checkpoint 2) |
+| Daily themes | **Not started.** #58, content #55 and #59 (Checkpoint 2) |
+| Data protection, game feel, accessibility, navigation, e2e tests | **Not started.** #60, #48, #49, #50, #61 (Checkpoint 2) |
+| Leaderboard, streaks, configurable scoring, Stanford mode, Beat the AI, name | **Not started.** #62, #63, #64, #65, #56 + #66, #51 (Final presentation) |
+| Custom lobbies (stretch) | **Not started.** #67, #68 |
 | Framework / language | **Chosen (#9):** Next.js 16 + React 19 + TypeScript, Tailwind CSS, Vitest. See `AGENTS.md` → Stack. |
-| Hosting + database | **Set up.** Vercel project + Neon Postgres (dev / preview / prod), merged in #3. See `README.md` for local env setup. |
-| Secret-scanning hooks + CI | **Set up.** gitleaks hooks (#5) and GitHub Actions CI (#7) are merged. Run `scripts/install-gitleaks.sh` after cloning. |
-| Course requirements summary | **Done.** [`INSTRUCTIONS.md`](INSTRUCTIONS.md), merged in #1. |
+| Hosting + database | **Set up, not connected.** Vercel + Neon Postgres (dev / preview / prod), from #3. See `README.md`. |
+| Secret-scanning hooks + CI | **Set up.** gitleaks hooks (#5) and GitHub Actions CI (#7). Run `scripts/install-gitleaks.sh` after cloning. |
 
-Everything under "Project overview" below is **planned**, not built. The Week 8 checklist notes what's already in code.
+Everything under "Project overview" below is **planned** unless the status table says it's done.
 
 ---
 
 ## Project overview (planned)
 
-A **daily image-guessing game**. Each image starts tightly zoomed in. Players either submit a guess or click **Zoom out** to reveal more of the image. Each reveal lowers the points available. Wrong guesses also cost points; the exact rules are still to be decided.
+A **daily image-guessing game**. Each image starts tightly zoomed in. Players either guess or click **Zoom out** to see more. Every zoom-out and every wrong guess lowers the points available.
 
-**Final version:**
-- **Five images per day**, the same for every player
-- A **practice mode**
-- Saved daily progress
-- Alternate accepted answers and basic typo handling
-- Score breakdown and streaks
-- Spoiler-free result sharing
-- A **content editor** for preparing and scheduling challenges
+**Foundation** (Checkpoint 2):
+- **Packs:** one data model for every mode. A pack is a theme, its ordered puzzles, and who can see it (`practice`, `daily`, `stanford` or `lobby`). Daily themes, Stanford mode and custom lobbies all reuse it (#52).
+- **Server-side game:** puzzles live in Neon. The browser asks the server for a round and gets **no answers**. Guesses are checked and scores calculated on the server. The answer and image credit are revealed only when the round ends (#54).
+- **Images per zoom level:** each level is served separately, so the browser never gets a more zoomed-out image than the player has reached. The full image is sent only at the last level or after the round (#57).
 
-**In scope:** daily and solo play. **Out of scope for now:** live multiplayer.
+**Modes and features:**
+- **Daily themes** (Checkpoint 2): every day, 5 images from one theme (fruits, animals, landmarks, ...), the same for everyone. The theme is shown at the start ("Today: Landmarks"). It resets at a fixed time, and progress survives a refresh (#58, #55, #59).
+- **Accounts** (Checkpoint 2): username and password. Passwords hashed with argon2 or bcrypt, sessions in Neon with `httpOnly`, `Secure`, `SameSite` cookies, rate-limited login, no emails as usernames, no password reset for now (#53).
+- **Practice mode:** the three sample puzzles, kept in the repo.
+- **Leaderboard:** a daily leaderboard per mode (and per lobby). Top 10 plus your own rank. Only server-calculated scores count (#62).
+- **Streaks:** days played in a row (#63).
+- **Stanford mode:** campus spots, flags, mascots. Our own photos where possible; logos and mascots only with a license that allows it (#65).
+- **Beat the AI:** an offline script runs CLIP (open source, `@huggingface/transformers` in Node) on every zoom level and records the first level where the AI's top guess is the answer. In game: "The AI got this at 5×. Can you beat it?" At the end: "You beat the AI on 3 of 5." No API keys, no cost per player (#56, #66).
+- **Custom lobbies (stretch):** a logged-in user uploads 3–5 photos with answers and a focus point and shares a hard-to-guess code. Friends play any time; the lobby has its own leaderboard. Uploads are size- and type-limited and re-encoded to strip metadata (especially GPS); answers stay on the server; delete and report (#67, #68).
 
-## Week 8 milestone: three-image practice game
+**From the Checkpoint 1 feedback** (`PROGRESS.md` §5):
+- **Accessibility:** colorblind-safe colors, never right/wrong by color alone, WCAG AA contrast, keyboard-playable (#49).
+- **Usability:** home/back on every screen, plus retry (#50, #42).
+- **Game feel:** a satisfying moment on a correct guess that respects `prefers-reduced-motion` (#48).
+- **Configurable scoring:** values stored per pack in the database, so tuning doesn't need a redeploy (#64).
+- **Identity:** a clear name and look (#51).
+- **Testing:** e2e tests of the whole flow in CI (#44, #61), and each of us plays the full flow with a test user.
+- **Our four features in the user flow:** daily themes, Stanford mode, leaderboard, Beat the AI. Custom lobbies would replace one if we keep them.
 
-A playable prototype to test the core gameplay before we build the daily-challenge system:
+**In scope:** daily and solo play, share-a-code lobbies. **Out of scope:** live multiplayer.
 
-- [ ] An image starts with a tight crop *(viewer merged in #30, puzzle data in #32; not in the playable game yet, #19)*
-- [ ] A **Zoom out** button reveals more, step by step *(button merged in #31; not in the playable game yet, #19)*
-- [ ] Guess submission, with correct answers recognized *(logic merged in #22 and #23; UI in review in #25)*
-- [ ] The score updates as you play *(scoring logic merged in #27; live display not started, #16)*
-- [ ] Moving to the next image after a correct answer or a skip *(logic merged in #23; UI in review in #25)*
-- [ ] A final score screen *(not started, #16)*
+### The repo is public
 
-Checkpoint 1 also requires `PROGRESS.md`, `TECHNICAL.md` and an updated `README.md` on `main` (see `INSTRUCTIONS.md`).
+Anything committed, including `public/` and `src/puzzles/`, is visible to everyone.
+- Only the **practice pack** lives in the repo.
+- **Daily, Stanford and lobby answers and images are never committed.** A seed/admin script loads them into the database from content kept outside the repo (#52). Where that content lives is an open decision (below).
+
+## Week 8 milestone: three-image practice game (done)
+
+All six items are done and live: tight initial crop, step-by-step Zoom out, guessing with alternate answers, live score, moving to the next image, and a final score screen (#22–#25, #27, #30–#33, #35, #37). Checkpoint 1 docs are on `main`.
 
 ---
 
-## Initial division of work
+## Division of work
 
-These are starting ownership areas, not fences. **Everyone** writes code, opens PRs, reviews another teammate's work, and helps test the integrated game.
+Balanced by effort, not issue count. Ownership areas aren't fences: **everyone** writes code, opens PRs, reviews a teammate's work, and plays the full flow.
 
-| Owner | Area | Responsibilities | Owns interface |
-|---|---|---|---|
-| **Darian** (`darian07-o`) | Image viewer + reveal controls | Image display and initial crop; progressive zoom-out steps and the reveal button; expose the current reveal level for scoring; works on desktop and mobile | `RevealLevel` |
-| **Jacky** (`Hombobow`) | Guess validation + round progression | Guess submission and answer checking; normalization (case, whitespace); round states, correct answers, skips, advancing. Coordinates with Joseph (accepted answers) and Ethan (scoring events) | `GuessOutcome`, round states, emits `ScoringEvent` |
-| **Ethan** (`ethanyng`) | Scoring + results | Points earned and deductions for reveals and wrong guesses; per-round and total scores; final score screen; keep scoring rules configurable during playtesting | `ScoringConfig`, `RoundResult` |
-| **Joseph** (`Joseph-G-McD`) | Puzzle data + game entry | Puzzle data format; load the three sample puzzles; accepted answers and crop/reveal settings in the data; start screen and instructions; record image sources and usage permissions | `Puzzle` |
+| Owner | Before Checkpoint 2 | After Checkpoint 2 | Stretch | Owns interface |
+|---|---|---|---|---|
+| **Darian** (`darian07-o`) | Week 9 plan (#46), per-level images (#57), game feel (#48), home and navigation (#50), daily content days 5–7 (#59) | Beat the AI script (#56) and badge (#66) | Create-a-round screen (#68) | `RevealLevel`, image fields of `PublicRound`, image endpoint |
+| **Jacky** (`Hombobow`) | Schema with Joseph (#47), server-side games (#54), data protection (#60) | Streaks (#63), configurable scoring (#64), punctuation in guesses (#29) | Lobbies backend (#67) | `GuessOutcome`, `RoundState`, `ScoringEvent` (emits), `GameAction`, `PublicRound`, `GameView`, game server functions, `getScoringConfig` |
+| **Ethan** (`ethanyng`) | Accounts (#53), accessibility (#49), full-flow e2e tests (#61); back link (#43) and Playwright (#45) in review | Leaderboard (#62) | none | `ScoringConfig`, `RoundResult`, `PublicUser`, `LeaderboardEntry`, account functions |
+| **Joseph** (`Joseph-G-McD`) | Schema with Jacky (#47), packs and seed script (#52), daily challenge (#58), daily content days 1–4 (#55) | Stanford mode (#65), name and identity (#51), start more zoomed in (#34) | none | `Puzzle`, `Pack`, `PackKind`, `DailyEntry`, database schema (with Jacky) |
+
+Everyone: playtest, then settle the open gameplay decisions (#21).
+
+**Critical path for Checkpoint 2:** schema (#47) → packs (#52) → server-side games (#54) → per-level images (#57), daily (#58), data protection (#60), e2e (#61). Land #47 first.
 
 ---
 
 ## Shared interfaces
 
-These types now live in code in [`src/game/types.ts`](src/game/types.ts) (#22). **That file is the source of truth;** this section summarizes it. Each type is marked with the PR where it was settled. All six are in code now, and none is still a proposal.
+[`src/game/types.ts`](src/game/types.ts) is the **source of truth**; this section summarizes it. It's framework-independent (no React or Next imports).
 
-The interface owner (table above) makes the final call. Change these only through a PR that the affected owners review.
+The owner of each type makes the final call. Change a type only through a PR its owner reviews. `PROPOSAL` types can still change; settled ones change only by agreement.
+
+| Type | Owner | Status | Issue |
+|---|---|---|---|
+| `Puzzle` | Joseph | Settled (#32). #52 made `id` opaque and added `aiSolvedLevel: RevealLevel \| null` (filled by #56). How `imageUrl` works per level is still open (with Darian, #57). Server-only data. | #52 |
+| `RevealLevel` | Darian | Settled (#22) | |
+| `GuessOutcome`, `RoundState` | Jacky | Settled (#22, #23) | |
+| `ScoringEvent` | Jacky (emits), Ethan (consumes) | Settled (#22, #27) | |
+| `ScoringConfig`, `RoundResult` | Ethan | Settled (#27) | |
+| `PackKind`, `Pack`, `DailyEntry` | Joseph | Settled (#52), checked by `parseContent` in `src/game/packs.ts`. The daily reset time zone is still open (#58). | #52, #58 |
+| `GameAction` | Jacky | **Proposal**. Moved from `round.ts` (which re-exports it); same shape as before. | #54 |
+| `PublicRound` | Jacky (image fields: Darian) | **Proposal** | #54, #57 |
+| `GameView` | Jacky | **Proposal** | #54 |
+| `PublicUser` | Ethan | **Proposal** | #53 |
+| `LeaderboardEntry` | Ethan | **Proposal**. How "your own rank" is returned (e.g. `{ top, you }`) is decided in #62. | #62 |
+
+### Server-side contracts
+
+These are functions, not types in `src/game/`. They run only on the server.
+
+- **Jacky (#54):** `startGame(packId, user | null) → GameView`, `act(gameId, action: GameAction) → GameView`, `getGame(gameId) → GameView` (resume after a refresh).
+  - Route Handlers vs Server Actions is Jacky's call; the types are the contract.
+  - The server reuses the framework-free logic in `src/game/` (guess checking, the round state machine, scoring).
+  - Games belong to the logged-in user, or to an anonymous cookie if we allow anonymous play.
+- **Jacky:** `getScoringConfig(packId) → ScoringConfig`, reading the per-pack override from the database (#64; Ethan owns the type and reviews). Streak queries (#63).
+- **Ethan (#53):** `getCurrentUser() → PublicUser | null` and `requireUser()`, in a server-only module; register, login and logout. Leaderboard queries (#62).
+- **Darian (#57):** an image endpoint or signed URL that returns only the image for the game's current level. Pre-cut images come from a script (e.g. `sharp`). Storage (Vercel Blob or Postgres) is decided with Jacky in #57.
+- **Joseph (#52):** a seed/admin script that loads packs, puzzles and the daily schedule into Neon from content kept outside the public repo.
+- **Database tables** (users, sessions, packs, puzzles, daily schedule, games/results, later lobbies): decided by Jacky and Joseph together, first, in #47.
 
 ### How the pieces connect
 
 ```
-Puzzle data (Joseph) ──► Image viewer (Darian) ──RevealLevel──┐
-        │                                                     ▼
-        └── acceptedAnswers ──► Guess + rounds (Jacky) ──ScoringEvent──► Scoring (Ethan)
-                                        │                                    │
-                                        └──── round ends ────────────► RoundResult ──► Final score screen
+ Browser                               Server (server-only code)                    Neon / storage
+ ───────                               ─────────────────────────                    ──────────────
+ Game screen ──GameAction───────────►  startGame · act · getGame (Jacky, #54) ◄──►  games, results,
+             ◄──GameView (no answer)─    reuses src/game/: checkGuess, step,        packs, puzzles,
+                                         scoreRound + getScoringConfig (#64)        answers, schedule
+ <img src=imageSrc> ────────────────►  image endpoint: current level only    ◄──►  per-level images
+                                         (Darian, #57)                              (Blob or Postgres)
+ Login / register ──────────────────►  getCurrentUser · requireUser (Ethan)  ◄──►  users, sessions
+ Leaderboard ───────────────────────►  leaderboard queries (Ethan, #62)      ◄──►  results
+
+ Offline scripts (never run in the browser):
+   seed from non-public content (Joseph, #52) ──► packs, puzzles, schedule
+   pre-cut images (Darian, #57) · Beat the AI solver (Darian, #56) ──► images, aiSolvedLevel
 ```
+
+The server owns puzzles, answers, scoring and images. The browser only ever sees `GameView`, `PublicUser` and `LeaderboardEntry`.
+
+**Known limitation:** everyone gets the same daily puzzles, so someone could learn the answers by skipping through on a second account. The leaderboard counts only each account's first game of the day (#62), which limits but doesn't stop it.
+
+The sections below describe the settled types as they work today, in the practice game.
 
 ### `Puzzle` (owner: Joseph): finalized in #32, unchanged from the proposal
 
@@ -93,7 +157,7 @@ type Puzzle = {
 };
 ```
 
-The three practice puzzles are in `src/puzzles/sample.json`, with images in `public/puzzles/`. Import them as `SAMPLE_PUZZLES` from `src/puzzles/index.ts`. They're checked by `parsePuzzles` in `src/game/puzzles.ts` when the module loads, so bad data fails the tests and the build with a `PuzzleDataError` that names the field. Where daily puzzles will live is an open decision.
+The three practice puzzles are in `src/puzzles/sample.json`, with images in `public/puzzles/` named by their opaque ids. Import them as `SAMPLE_PUZZLES`, and the practice pack as `PRACTICE_PACK`, from `src/puzzles/index.ts`. They're checked by `parsePuzzles` in `src/game/puzzles.ts` when the module loads, so bad data fails the tests and the build with a `PuzzleDataError` that names the field. Daily and Stanford puzzles go into the database through the seed script (`npm run db:seed`, #52), never into the repo.
 
 ### `RevealLevel` (owner: Darian): agreed in #22
 
@@ -149,22 +213,37 @@ type RoundResult = {
 };
 ```
 
-The values in use are in `src/game/scoring-config.ts`, and that's the only place to change them. They're placeholders for playtesting (#21): 100 base, −20 per zoom-out, −10 per wrong guess, a floor of 10 for a correct answer, and 0 for a skip. `validateScoringConfig` rejects a floor above the base and a skip worth more than the floor. `scoreRound` and `scoreGame` in `src/game/scoring.ts` turn `ScoringEvent`s into `RoundResult`s and a total. For the live score, use `pointsIfCorrect(game.round.revealLevel, game.round.wrongGuesses)`.
+The values in use are in `src/game/scoring-config.ts`, and that's the only place to change them until per-pack values in the database land (#64). They're placeholders for playtesting (#21): 100 base, −20 per zoom-out, −10 per wrong guess, a floor of 10 for a correct answer, and 0 for a skip. `validateScoringConfig` rejects a floor above the base and a skip worth more than the floor. `scoreRound` and `scoreGame` in `src/game/scoring.ts` turn `ScoringEvent`s into `RoundResult`s and a total. For the live score, use `pointsIfCorrect(game.round.revealLevel, game.round.wrongGuesses)`.
 
 ---
 
-## Open decisions (NOT settled)
+## Open decisions
 
-| Decision | Notes |
+### Settled
+
+| Decision | What we decided |
 |---|---|
-| Scoring values | Base points, reveal and wrong-guess penalties, the minimum, and what a skip earns. |
-| Wrong-guess rules | Flat penalty? Increasing? A guess limit per image? |
-| Number of reveal steps | Same for every image, or set per puzzle? |
-| Typo tolerance | How far a guess can be off (edit distance? per-answer?), and how it interacts with alternate answers. |
-| Daily reset time | Time and time zone, so every player sees the same five images. |
-| Persistence approach | Neon Postgres is provisioned (#3), but what gets stored (daily progress, streaks, puzzles) and where (browser vs. database, accounts or not) is open. |
-| Puzzle storage + editor | Static files vs. database; how the content editor schedules challenges. |
-| Image sourcing | Where images come from and which licenses we accept. |
+| Stack | Next.js 16 + React 19 + TypeScript, Tailwind, Vitest, Vercel, Neon (#9) |
+| Accounts | Username and password. No password reset for now, so we don't store emails (#53). |
+| Custom lobbies | Share a code and play any time, not live multiplayer (#67) |
+| Where puzzles and progress live | Puzzles, games, results and sessions in Neon; answers only on the server (#47, #54) |
+
+### Still open (NOT settled)
+
+Don't treat these as decided. Ask the owner, or keep them configurable.
+
+| Decision | Notes | Issue |
+|---|---|---|
+| Daily reset time | Default proposal: midnight `America/Los_Angeles` | #58 |
+| Theme shown or hidden | Shown before play, or hidden for a bonus? | #58 |
+| Anonymous play | Default proposal: anyone can play daily; only logged-in players get leaderboard entries and streaks | #54, #62 |
+| Where non-public puzzle content lives | **Proposal (#52):** each of us keeps it in the git-ignored `content/` folder, and the seed script refuses committable content. Still to decide: how we share the files with each other (e.g. a private repo or a shared drive). | #52 |
+| Image storage | Vercel Blob or Postgres | #57 |
+| Scoring values and wrong-guess rules | Placeholders in `src/game/scoring-config.ts`; flat or increasing penalties; a guess limit? | #21, #64 |
+| Number of reveal steps; typo tolerance | Fixed or per puzzle; edit distance or none | #21 |
+| Stanford mode | A fixed pack, or its own daily rotation | #65 |
+| Name and look | "Crumbscope" (proposal), "Zoom Out" (app), or other | #51 |
+| Image sourcing | Which licenses we accept; our own photos for Stanford | #55, #65 |
 
 ---
 
@@ -173,6 +252,7 @@ The values in use are in `src/game/scoring-config.ts`, and that's the only place
 1. **Read this brief and the repo's instructions first:** `README.md`, `AGENTS.md` and `INSTRUCTIONS.md`.
 2. **Look at the current code** before writing any. Don't assume something exists because this brief plans it.
 3. **Keep changes focused:** one issue per branch and PR. Never commit directly to `main` (it requires a PR and 1 approval).
-4. **Coordinate before changing a shared interface** (`Puzzle`, `RevealLevel`, `GuessOutcome`, `ScoringEvent`, `ScoringConfig`, `RoundResult`). Tag its owner in the PR.
+4. **Coordinate before changing a shared interface** (every type in `src/game/types.ts`). Tag its owner in the PR.
 5. **Never commit secrets.** Real values go in `.env.local`.
-6. **Document verification** in the PR: what you ran (tests, manual playthrough, devices) and what you saw.
+6. **The repo is public.** Never commit daily, Stanford or lobby puzzle answers or images.
+7. **Document verification** in the PR: what you ran (tests, manual playthrough, devices) and what you saw.
