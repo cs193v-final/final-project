@@ -48,7 +48,7 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
   // tick (before React re-renders); `pending` marks the controls as disabled.
   const inFlight = useRef(false);
   const [pending, setPending] = useState(false);
-  // False once the player has left /play (e.g. "Back to start" while a game is
+  // False once the player has left /play (e.g. "← Home" while a game is
   // starting). Results that arrive after that are ignored, so they can't
   // rewrite the URL of the page the player is on now.
   const mounted = useRef(false);
