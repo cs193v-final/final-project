@@ -20,6 +20,12 @@ const deleteSession = vi.fn<(db: unknown, hash: string) => Promise<void>>(async 
 const findSessionUser = vi.fn<(db: unknown, hash: string, now: Date) => Promise<unknown>>(async () => null);
 vi.mock("@/db", () => ({ getDb: () => ({}) }));
 vi.mock("@/db/accounts", () => ({ deleteSession, findSessionUser }));
+// The real sessionUser decrypts the stored username (#84); here the lookup
+// itself is what's under test, so it passes the row straight through.
+vi.mock("@/crypto/vault", () => ({ getVault: () => ({}) }));
+vi.mock("./accounts", () => ({
+  sessionUser: (db: unknown, _vault: unknown, hash: string, now: Date) => findSessionUser(db, hash, now),
+}));
 
 const { describeError, getCurrentUser, getCurrentUserOrLoggedOut, requestIp, SessionLookupError, SESSION_COOKIE, sessionCookieOptions, setSessionCookie } =
   await import("./session");

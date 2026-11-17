@@ -1,5 +1,5 @@
 {
-  "id": "b1d80dcd-d4de-46b3-bfd8-38155bfaa6bc",
+  "id": "e134fabb-2c09-48ab-a89d-c146851cd9dd",
   "prevId": "e3e17131-6f06-4ef8-8c4d-eb52807d2649",
   "version": "7",
   "dialect": "postgresql",
@@ -279,59 +279,9 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "daily_date": {
-          "name": "daily_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "games_daily_user_key": {
-          "name": "games_daily_user_key",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "daily_date",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"games\".\"daily_date\" IS NOT NULL AND \"games\".\"user_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "games_daily_anon_key": {
-          "name": "games_daily_anon_key",
-          "columns": [
-            {
-              "expression": "anon_owner_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "daily_date",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"games\".\"daily_date\" IS NOT NULL AND \"games\".\"anon_owner_hash\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "games_user_id_created_at_idx": {
           "name": "games_user_id_created_at_idx",
           "columns": [
@@ -994,8 +944,14 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "username": {
-          "name": "username",
+        "username_encrypted": {
+          "name": "username_encrypted",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "username_index": {
+          "name": "username_index",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -1015,13 +971,13 @@
         }
       },
       "indexes": {
-        "users_username_lower_key": {
-          "name": "users_username_lower_key",
+        "users_username_index_key": {
+          "name": "users_username_index_key",
           "columns": [
             {
-              "expression": "lower(\"username\")",
+              "expression": "username_index",
+              "isExpression": false,
               "asc": true,
-              "isExpression": true,
               "nulls": "last"
             }
           ],
