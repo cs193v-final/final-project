@@ -12,6 +12,7 @@ import { DuplicateDailyGameError, GameConflictError, GameNotFoundError } from "@
 import { scoreGame } from "@/game/scoring";
 import type { Pack } from "@/game/types";
 import type { Db } from "./index";
+import { rowsOf } from "./rows";
 import { games, packs } from "./schema";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -24,7 +25,7 @@ export type PgGameStoreOptions = {
    * (foreign key), so it's off for the practice pack, whose puzzles are still
    * in code (`SAMPLE_PUZZLES`) until packs land (#52). Default: true.
    */
-  recordRounds?: boolean;
+  recordRounds?: boolean | ((state: GameState) => boolean);
 };
 
 /** The columns that say who owns a game. Exactly one is set. */
@@ -103,13 +104,6 @@ const COLUMNS = {
   dailyDate: games.dailyDate,
 };
 
-/** `db.execute` returns `{ rows }` on every driver we use (Neon HTTP, node-postgres, PGlite). */
-function rowsOf(result: unknown): Record<string, unknown>[] {
-  if (Array.isArray(result)) return result as Record<string, unknown>[];
-  const rows = (result as { rows?: unknown } | null)?.rows;
-  if (Array.isArray(rows)) return rows as Record<string, unknown>[];
-  throw new Error("PgGameStore: unexpected result from db.execute");
-}
 
 /**
  * A `GameStore` on the `games` table.
@@ -123,13 +117,14 @@ function rowsOf(result: unknown): Record<string, unknown>[] {
  * - Owner: `{ userId }` → `user_id`; `{ anonId }` → `anon_owner_hash`.
  */
 export class PgGameStore implements GameStore {
-  private readonly recordRounds: boolean;
+  private readonly recordRounds: (state: GameState) => boolean;
 
   constructor(
     private readonly db: Db,
     options: PgGameStoreOptions = {},
   ) {
-    this.recordRounds = options.recordRounds ?? true;
+    const record = options.recordRounds ?? true;
+    this.recordRounds = typeof record === "function" ? record : () => record;
   }
 
   async get(id: string): Promise<StoredGame | null> {
@@ -177,7 +172,7 @@ export class PgGameStore implements GameStore {
     const { rounds, total } = scoreGame(state.events, state.scoring);
     // Rounds are scored in play order, so position = index + 1. Every save
     // sends all finished rounds; ON CONFLICT skips the ones already written.
-    const roundRows = this.recordRounds
+    const roundRows = this.recordRounds(state)
       ? rounds.map((r, i) => ({
           position: i + 1,
           puzzle_id: r.puzzleId,
@@ -237,4 +232,42 @@ export async function ensurePackRow(db: Db, pack: Pick<Pack, "id" | "kind" | "ti
     .insert(packs)
     .values({ id: pack.id, kind: pack.kind, title: pack.title, theme: pack.theme })
     .onConflictDoNothing({ target: packs.id });
+}
+
+/** What `startPracticeGame` needs to apply the unfinished-games cap (#85). */
+export type UnfinishedGames = {
+  /** How many of the owner's games of this pack aren't finished. */
+  count: number;
+  /** The owner's newest unfinished game of this pack that hasn't been played yet (revision 0), if any. */
+  untouchedId: string | null;
+  /** The owner's most recently played unfinished game of this pack, if any. */
+  latestId: string | null;
+};
+
+/**
+ * The owner's unfinished games of one pack, for the per-pack cap and for
+ * reuse (#85). One query.
+ *
+ * TODO(#85): this read and the insert that may follow aren't atomic, so two
+ * starts at the same moment can each insert a game and overshoot the cap by
+ * one or two. Fine at our scale (the start limits bound it); an
+ * `INSERT ... SELECT ... WHERE (count) < cap` would close it if it matters.
+ */
+export async function findUnfinishedGames(db: Db, owner: GameOwner, packId: string): Promise<UnfinishedGames> {
+  const { userId, anonOwnerHash } = ownerColumns(owner);
+  const mine = userId !== null ? sql`user_id = ${userId}::uuid` : sql`anon_owner_hash = ${anonOwnerHash}`;
+  const result = await db.execute(sql`
+    SELECT
+      (SELECT count(*) FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL) AS "count",
+      (SELECT id FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL AND revision = 0
+        ORDER BY created_at DESC LIMIT 1) AS "untouchedId",
+      (SELECT id FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL
+        ORDER BY updated_at DESC LIMIT 1) AS "latestId"
+  `);
+  const [row] = rowsOf(result);
+  return {
+    count: Number(row?.count ?? 0),
+    untouchedId: (row?.untouchedId as string | null | undefined) ?? null,
+    latestId: (row?.latestId as string | null | undefined) ?? null,
+  };
 }

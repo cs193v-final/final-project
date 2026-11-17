@@ -8,7 +8,7 @@ import { ButtonLink, TextLink } from "@/components/ui/controls";
 import { actAction, getGameAction } from "@/app/play/actions";
 import { loadDailyIntro, loadTodaysDailyGame } from "@/server/daily";
 
-import { startDailyAction } from "./actions";
+import { dailyStatsAction, startDailyAction } from "./actions";
 import { GAME_NAME } from "@/site";
 
 export const metadata: Metadata = {
@@ -56,7 +56,16 @@ async function Today() {
   ]);
   if (intro !== null && !intro.broken) {
     if (intro.pack === null) return <DailyIntroScreen intro={intro} />;
-    return <DailyPlay intro={intro} initial={initial} start={startDailyAction} act={actAction} get={getGameAction} />;
+    return (
+      <DailyPlay
+        intro={intro}
+        initial={initial}
+        start={startDailyAction}
+        act={actAction}
+        get={getGameAction}
+        loadStats={dailyStatsAction}
+      />
+    );
   }
   return (
     <div className="flex max-w-md flex-col items-center gap-4 text-center">

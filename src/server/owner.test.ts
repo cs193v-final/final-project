@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // A stand-in for the request's cookies and headers (next/headers only works inside a request).
 const jar = new Map<string, { value: string; options?: unknown }>();
@@ -16,7 +16,13 @@ vi.mock("next/headers", () => ({
 const { currentOrNewOwner, currentOwner, hashOwnerToken, isHttpsRequest, isOwnerToken, newOwnerToken, OWNER_COOKIE, ownerCookieOptions } =
   await import("./owner");
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 beforeEach(() => {
+  // Tests run as if locally unless they say otherwise.
+  vi.stubEnv("VERCEL", "");
   jar.clear();
   // What Next passes on for a deployed site behind Vercel's proxy.
   requestHeaders = { host: "zoom-out.example.com", "x-forwarded-proto": "https" };
@@ -92,6 +98,13 @@ describe("currentOwner / currentOrNewOwner", () => {
     requestHeaders = headers;
     await currentOrNewOwner();
     expect(jar.get(OWNER_COOKIE)!.options).toMatchObject({ secure });
+  });
+
+  it("sets a Secure cookie on Vercel even when the request says http (shares isHttpsRequest's rule, #155)", async () => {
+    vi.stubEnv("VERCEL", "1");
+    requestHeaders = { host: "zoom-out.vercel.app", "x-forwarded-proto": "http" };
+    await currentOrNewOwner();
+    expect(jar.get(OWNER_COOKIE)!.options).toMatchObject({ secure: true });
   });
 
   it("ignores a tampered cookie and replaces it on the next start", async () => {

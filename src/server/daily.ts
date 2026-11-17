@@ -5,6 +5,7 @@ import { cacheLife } from "next/cache";
 
 import { getDb } from "@/db";
 import { getDailyIntro, getDailyPack } from "@/db/daily";
+import { getDailyStats, type DailyStats } from "@/db/daily-stats";
 import { dailyDateFor, DEFAULT_DAILY_RESET } from "@/game/daily-date";
 import type { DailyIntro } from "@/game/daily";
 import { runGameCall, type GameResult } from "@/game/game-result";
@@ -94,4 +95,21 @@ export async function loadTodaysDailyGame(now = new Date()): Promise<GameResult 
     return view;
   });
   return notStarted ? null : result;
+}
+
+/**
+ * Per-image stats for the current player's *finished* daily of `date` (the
+ * day it was played, from the intro, so a game started before midnight and
+ * finished after it still has stats), or `null` (not started, still playing,
+ * or no owner cookie). Scoped to the caller's own game: no game id is taken,
+ * and a date only ever finds this owner's game. Aggregates only.
+ */
+export async function loadDailyStats(date: unknown): Promise<DailyStats | null> {
+  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(date)) return null;
+  const owner = await currentOwner();
+  if (owner === null) return null;
+  const db = getDb();
+  const game = await deps(db).games.findDaily(owner, date);
+  if (game === null || !game.state.finished) return null;
+  return getDailyStats(db, game.id);
 }

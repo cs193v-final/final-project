@@ -2,10 +2,12 @@
 
 import { useRef, useState } from "react";
 
-import { DailyIntroScreen, resetLabel } from "@/components/daily/DailyIntroScreen";
+import { DailyIntroScreen } from "@/components/daily/DailyIntroScreen";
+import { DailyResult } from "@/components/daily/DailyResult";
 import { PracticeGame } from "@/components/game/PracticeGame";
 import { Button } from "@/components/ui/controls";
 import type { DailyIntro } from "@/game/daily";
+import type { DailyStats } from "@/game/daily-result";
 import type { GameResult } from "@/game/game-result";
 import type { GameAction } from "@/game/types";
 
@@ -21,6 +23,8 @@ export type DailyPlayProps = {
   get: (gameId: string) => Promise<GameResult>;
   /** Today's intro (a day with a pack: the page shows the no-challenge screen otherwise). */
   intro: DailyIntro;
+  /** This player's per-image stats for a day once they've finished it (the Server Action). */
+  loadStats: (date: string) => Promise<DailyStats | null>;
 };
 
 const NOT_STARTED: Record<"day-over" | "no-daily", string> = {
@@ -36,7 +40,7 @@ const NOT_STARTED: Record<"day-over" | "no-daily", string> = {
  * to their result once it's finished. One game per player per day, so there's
  * no Play again.
  */
-export function DailyPlay({ initial, start, act, get, intro }: DailyPlayProps) {
+export function DailyPlay({ initial, start, act, get, intro, loadStats }: DailyPlayProps) {
   const [game, setGame] = useState<GameResult | null>(initial);
   const [notStarted, setNotStarted] = useState<"day-over" | "no-daily" | null>(null);
   const [pending, setPending] = useState(false);
@@ -103,11 +107,7 @@ export function DailyPlay({ initial, start, act, get, intro }: DailyPlayProps) {
       get={get}
       gameHref={() => "/daily"}
       replay={false}
-      afterFinish={
-        <p className="text-center text-zinc-700 dark:text-zinc-300">
-          That&apos;s today&apos;s challenge. A new one starts at {resetLabel()}.
-        </p>
-      }
+      afterFinish={(view) => <DailyResult intro={intro} view={view} loadStats={loadStats} />}
     />
   );
 }

@@ -7,9 +7,11 @@
 // server-game.ts (rules, scoring, answer hiding) → PgGameStore → Postgres
 import "server-only";
 
+import { limitsAddress } from "@/auth/limits-address";
+import { requestIp } from "@/auth/session";
 import { getDb, type Db } from "@/db";
 import { getPuzzles } from "@/db/content";
-import { ensurePackRow, PgGameStore } from "@/db/games";
+import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { SCORING_CONFIG } from "@/game/scoring-config";
@@ -24,6 +26,8 @@ import {
 import type { GameAction } from "@/game/types";
 import { PRACTICE_PACK, SAMPLE_PUZZLES } from "@/puzzles";
 
+import { hashIp, ipHmacKey } from "./ip-key";
+import { checkActionLimits, checkStartLimits, MAX_UNFINISHED_GAMES_PER_PACK } from "./limits";
 import { currentOrNewOwner, currentOwner } from "./owner";
 
 /**
@@ -39,9 +43,11 @@ export function deps(db: Db): GameDeps {
   const practice = puzzleSourceFrom(SAMPLE_PUZZLES);
   const practiceIds = new Set(SAMPLE_PUZZLES.map((p) => p.id));
   return {
-    // No game_rounds rows yet: they reference `puzzles`, which only the seed
-    // script fills in.
-    games: new PgGameStore(db, { recordRounds: false }),
+    // game_rounds rows reference `puzzles`. Practice puzzles may not be seeded
+    // (they're read from the repo), so practice games don't record rounds;
+    // every other pack's puzzles are in the database, so those do (the daily
+    // result's per-image stats, #58, and leaderboards, #62, read them).
+    games: new PgGameStore(db, { recordRounds: (state) => state.pack.kind !== "practice" }),
     // Practice puzzles from the repo copy (so /play works on an unseeded
     // database); everything else, e.g. the daily (#58), from the database.
     puzzles: {
@@ -65,12 +71,39 @@ function ensurePracticePack(db: Db): Promise<void> {
   return practicePackRow;
 }
 
-/** Start a practice game for the current owner, creating the owner cookie if needed. */
+/**
+ * The client's IP address as a keyed hash (src/server/ip-key.ts), for rate
+ * limiting only, or `null` when the per-IP limits don't apply. The address is
+ * read the same way as for login (`requestIp()`, `x-vercel-forwarded-for`
+ * first), and the same rule decides whether it counts (`limitsAddress`): on
+ * Vercel always (no address: one shared `"unknown"` bucket); elsewhere not for
+ * loopback or a missing address, so local and e2e runs don't share one count.
+ * The per-owner limits apply either way.
+ */
+async function requestIpHash(): Promise<string | null> {
+  const ip = await requestIp();
+  return limitsAddress(ip) ? hashIp(ip, ipHmacKey()) : null;
+}
+
+/**
+ * Start a practice game for the current owner, creating the owner cookie if
+ * needed. Rate-limited per owner and per IP (#85). Reuses a game instead of
+ * creating a row when the owner has one nobody has played yet (a refresh of
+ * /play, a second "Start practice"), or already has
+ * `MAX_UNFINISHED_GAMES_PER_PACK` unfinished practice games (then the latest
+ * one is resumed). The cap is per pack, so other packs' games never block
+ * practice, and at the cap there is always a game of this pack to resume.
+ */
 export async function startPracticeGame(): Promise<GameResult> {
   return runGameCall(async () => {
     const owner = await currentOrNewOwner();
     const db = getDb();
+    await checkStartLimits(db, owner, await requestIpHash(), new Date());
     await ensurePracticePack(db);
+    const unfinished = await findUnfinishedGames(db, owner, PRACTICE_PACK.id);
+    const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;
+    const reuse = unfinished.untouchedId ?? (atCap ? unfinished.latestId : null);
+    if (reuse !== null) return getGame(deps(db), reuse, owner);
     // TODO(#64): getScoringConfig(PRACTICE_PACK.id) once it lands.
     return startGame(deps(db), PRACTICE_PACK, owner, SCORING_CONFIG);
   });
@@ -88,16 +121,20 @@ export async function actOnGame(gameId: unknown, action: unknown, revision: unkn
   return runGameCall(async () => {
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();
+    const db = getDb();
+    await checkActionLimits(db, owner, await requestIpHash(), new Date());
     // `act` checks the revision (after the owner), so a stale tab can't act on a round it never saw (#107).
-    return act(deps(getDb()), gameId, owner, action as GameAction, revision as number);
+    return act(deps(db), gameId, owner, action as GameAction, revision as number);
   });
 }
 
-/** The current owner's game as it is now (resume after a refresh). */
+/** The current owner's game as it is now (resume after a refresh). Counts toward the action limits (#85). */
 export async function loadGame(gameId: unknown): Promise<GameResult> {
   return runGameCall(async () => {
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();
-    return getGame(deps(getDb()), gameId, owner);
+    const db = getDb();
+    await checkActionLimits(db, owner, await requestIpHash(), new Date());
+    return getGame(deps(db), gameId, owner);
   });
 }
