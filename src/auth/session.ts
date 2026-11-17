@@ -4,7 +4,8 @@
 //
 // The cookie holds a random token; the database holds its SHA-256 (see
 // ./crypto.ts). The cookie is HttpOnly (no JavaScript can read it), Secure
-// (HTTPS only; browsers also allow it on http://localhost for dev), and
+// (HTTPS only: always on Vercel, and elsewhere whenever the request is https;
+// see sessionCookieOptions), and
 // SameSite=Lax (not sent on cross-site form posts, so another site can't log
 // someone in or out).
 import "server-only";
@@ -95,15 +96,16 @@ export async function requireUser(): Promise<PublicUser> {
 }
 
 /**
- * The session cookie's options. `Secure` whenever the request came in over
- * https (always on Vercel). On plain http, e.g. testing from a phone on the
- * LAN, a browser drops a Secure cookie, so it's left off there, the same rule
- * as #77's owner cookie (`isHttpsRequest`).
+ * The session cookie's options. Always `Secure` on Vercel, whatever the
+ * request's headers say (#155); elsewhere whenever the request came in over
+ * https. On plain http, e.g. testing from a phone on the LAN, a browser drops
+ * a Secure cookie, so it's left off there. The same rule as #77's owner
+ * cookie (`isHttpsRequest`).
  */
-export function sessionCookieOptions(expiresAt: Date, forwardedProto: string | null) {
+export function sessionCookieOptions(expiresAt: Date, forwardedProto: string | null, onVercel = Boolean(process.env.VERCEL)) {
   return {
     httpOnly: true,
-    secure: isHttpsRequest(forwardedProto),
+    secure: isHttpsRequest(forwardedProto, onVercel),
     sameSite: "lax" as const,
     path: "/",
     expires: expiresAt,
