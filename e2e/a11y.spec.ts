@@ -1,10 +1,21 @@
 import { randomBytes } from "node:crypto";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import pg from "pg";
+import { usernameIndex } from "@/auth/user-row";
+import { Vault } from "@/crypto/vault";
 import { parsePuzzles } from "@/game/puzzles";
 // The same data as SAMPLE_PUZZLES; see practice.spec.ts for why it's a JSON import.
 import sample from "@/puzzles/sample.json" with { type: "json" };
-import { checkVisibleText, guess, guessBox, siteNav, tabToStartPractice, waitForAccountLinks } from "./helpers";
+import {
+  checkVisibleText,
+  finishPractice,
+  guess,
+  guessBox,
+  siteNav,
+  tabToStartPractice,
+  waitForAccountLinks,
+} from "./helpers";
 
 // Accessibility (#49): WCAG 2.2 AA on every screen, in light and dark mode.
 //
@@ -86,6 +97,7 @@ for (const colorScheme of ["light", "dark"] as const) {
     test("every game screen meets WCAG 2.2 AA: playing, wrong, zoomed out, right, final score", async ({ page }) => {
       await page.goto("/play");
       await expect(guessBox(page)).toBeVisible();
+      await waitForAccountLinks(page); // so the header is audited too
       await checkScreen(page, "game, first image");
       // The image has a text alternative, and it never gives the answer away.
       const alt = (await page.getByRole("img", { name: /mystery image/i }).getAttribute("alt")) ?? "";
@@ -107,31 +119,44 @@ for (const colorScheme of ["light", "dark"] as const) {
       await checkScreen(page, "game, after a right guess");
 
       // Skip the rest to reach the final score.
-      for (let i = 1; i < puzzles.length; i++) {
-        await page.getByRole("button", { name: /Next image/ }).click();
-        await page.getByRole("button", { name: "Skip this image" }).click();
-      }
-      await page.getByRole("button", { name: /See results/ }).click();
-      await expect(page.getByRole("button", { name: "Play again" })).toBeVisible();
+      await page.getByRole("button", { name: "Next image" }).click();
+      await finishPractice(page);
       await checkScreen(page, "final score");
     });
 
     test("the account screens meet WCAG 2.2 AA when logged in", async ({ page }, testInfo) => {
-      // Unique across color schemes, projects (desktop and phone run in parallel
-      // against one database), workers and runs. At most 17 characters (the
-      // limit is 20): letters, digits and _ only.
-      const where = `${colorScheme[0]}${testInfo.project.name[0]}${testInfo.workerIndex}`;
-      const username = `a11y${where}_${randomBytes(4).toString("hex")}`;
-      await page.goto("/register");
-      await page.getByLabel("Username").fill(username);
-      await page.getByLabel("Password").fill("a long test password");
-      await page.getByRole("button", { name: "Create account" }).click();
-      await expect(siteNav(page).getByRole("button", { name: "Log out" })).toBeVisible();
-      await checkScreen(page, "after signing up (logged-in header)");
+      // It signs up a real user, so it deletes it afterwards, which needs the
+      // database and the key in this process's environment (CI sets both). A
+      // plain local run skips it rather than leave accounts in a shared database.
+      const url = process.env.DATABASE_URL;
+      test.skip(!url || !process.env.DATA_ENCRYPTION_KEY, "needs DATABASE_URL and DATA_ENCRYPTION_KEY to clean up its user");
 
-      await page.goto("/account");
-      await expect(page.getByRole("main").getByText(username)).toBeVisible();
-      await checkScreen(page, "account");
+      // Unique across color schemes, projects (desktop and phone run in parallel
+      // against one database), workers and runs: 4 + 2 + at most 3 + 1 + 8 = at
+      // most 18 characters (the limit is 20), letters, digits and _ only.
+      const where = `${colorScheme[0]}${testInfo.project.name[0]}${testInfo.workerIndex % 1000}`;
+      const username = `a11y${where}_${randomBytes(4).toString("hex")}`;
+      try {
+        await page.goto("/register");
+        await page.getByLabel("Username").fill(username);
+        await page.getByLabel("Password").fill("a long test password");
+        await page.getByRole("button", { name: "Create account" }).click();
+        await expect(siteNav(page).getByRole("button", { name: "Log out" })).toBeVisible();
+        await checkScreen(page, "after signing up (logged-in header)");
+
+        await page.goto("/account");
+        await expect(page.getByRole("main").getByText(username)).toBeVisible();
+        await checkScreen(page, "account");
+      } finally {
+        // Found by the same keyed hash login uses; sessions and games cascade.
+        const client = new pg.Client({ connectionString: url });
+        await client.connect();
+        try {
+          await client.query("DELETE FROM users WHERE username_index = $1", [usernameIndex(Vault.fromEnv(), username)]);
+        } finally {
+          await client.end();
+        }
+      }
     });
   });
 }
@@ -140,6 +165,7 @@ test("right and wrong are told apart by their words and a symbol, not only by co
   // This checks the cues that don't depend on color. It doesn't look at the
   // colors themselves (that was checked by hand with a colorblind simulator, #49).
   await page.goto("/play");
+  await waitForAccountLinks(page);
   const status = page.getByRole("status");
 
   await guess(page, "definitely not it");

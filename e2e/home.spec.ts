@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { MODES } from "@/components/modes";
 import { GAME_NAME } from "@/site";
-import { homeLink, tabToStartPractice } from "./helpers";
+import { finishPractice, guessBox, homeLink, tabToStartPractice } from "./helpers";
 
 // The home screen and navigation in a real browser (#50): the mode picker,
 // and a way home from every screen, by mouse, keyboard and the Back button.
@@ -20,21 +20,6 @@ const PLAY_URL = /\/play(\?game=[0-9a-f-]+)?$/;
 async function waitForGame(page: Page) {
   // 10 s, not the default 5: the first request to a cold server loads the game from the database.
   await expect(page.getByText(/^Image 1 of \d+$/)).toBeVisible({ timeout: 10_000 });
-}
-
-async function finishPractice(page: Page) {
-  // Skip every image to reach the final score screen. After each skip, wait
-  // for the button that ends the round: with server-side games (#54) it only
-  // appears once the server has answered, so checking right away would miss it.
-  for (;;) {
-    await page.getByRole("button", { name: "Skip this image" }).click();
-    const after = page.getByRole("button", { name: /^(Next image|See results)$/ });
-    await expect(after).toBeVisible();
-    const last = (await after.textContent()) === "See results";
-    await after.click();
-    if (last) break;
-  }
-  await expect(page.getByRole("button", { name: "Play again" })).toBeVisible();
 }
 
 test("the home screen lists every mode, and only playable ones are links", async ({ page }) => {
@@ -85,7 +70,7 @@ test("the whole trip works from the keyboard alone", async ({ page }) => {
   await expect(page).toHaveURL(PLAY_URL);
 
   // The game puts focus in the guess box. Shift+Tab back to the header link.
-  await expect(page.getByRole("textbox", { name: "What is it?" })).toBeFocused();
+  await expect(guessBox(page)).toBeFocused();
   for (let i = 0; i < 10 && !(await homeLink(page).evaluate((el) => el === document.activeElement)); i++) {
     await page.keyboard.press("Shift+Tab");
   }
