@@ -277,3 +277,49 @@ test("leaving /play while the game is still starting stays on the start screen",
   expect(url.pathname + url.search).toBe("/");
   await expect(page.getByRole("link", { name: "Start practice" })).toBeVisible();
 });
+
+/** A cut level image (#57): `/img/<32 hex>.webp`. */
+const LEVEL_URL = /\/img\/[0-9a-f]{32}\.webp/gu;
+const distinctLevelUrls = (text: string) => new Set(text.match(LEVEL_URL) ?? []);
+
+test("the browser only ever gets the image of the level reached (#57)", async ({ page }) => {
+  // Keep every Server Action response, as watchServerActions does.
+  const responses: string[] = [];
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    if (request.method() !== "POST" || !(await request.headerValue("next-action"))) return route.fallback();
+    const response = await route.fetch();
+    const body = await response.text();
+    responses.push(body);
+    await route.fulfill({ response, body });
+  });
+  const requested: string[] = [];
+  page.on("request", (request) => requested.push(new URL(request.url()).pathname));
+
+  await page.goto("/play");
+  // The kept copy of the last level is aria-hidden, so this is always the current one.
+  const image = page.getByRole("img", { name: /^Mystery image/ });
+  await expect(image).toHaveAttribute("src", /^\/img\/[0-9a-f]{32}\.webp$/u);
+  const seen = [await image.getAttribute("src")];
+
+  const levels = puzzleAt(0).reveal.zoomLevels.length;
+  for (let level = 1; level < levels; level++) {
+    await page.getByRole("button", { name: "Zoom out" }).click();
+    await expect(page.getByText(`Zoom level ${level + 1} of ${levels}`)).toBeVisible();
+    await expect(image).not.toHaveAttribute("src", seen.at(-1)!);
+    await expect(image).toHaveAttribute("src", /^\/img\/[0-9a-f]{32}\.webp$/u);
+    seen.push(await image.getAttribute("src"));
+  }
+  expect(new Set(seen).size, "each level is its own image").toBe(levels);
+
+  // No response ever carried a level beyond the one reached, or any other one.
+  expect(responses.length).toBeGreaterThan(0);
+  for (const body of responses) expect(distinctLevelUrls(body).size, body.slice(0, 200)).toBeLessThanOrEqual(1);
+  // Nor does the page a refresh loads: only the level reached.
+  await page.reload();
+  await expect(image).toHaveAttribute("src", seen.at(-1)!);
+  expect([...distinctLevelUrls(await page.content())]).toEqual([seen.at(-1)]);
+
+  // The original, full-size photo was never fetched.
+  expect(requested.filter((path) => path.startsWith("/puzzles/"))).toEqual([]);
+});

@@ -127,10 +127,11 @@ export type PublicRound = {
   levelCount: number;
   imageSrc: string; // Darian (#57): the image for revealLevel ONLY
   /**
-   * TEMPORARY (#54 → #57, Darian): while each puzzle has one full image,
-   * `imageSrc` is that image and the browser crops it with this (focus point
-   * and zoom per level; no answer in it). Remove once `imageSrc` is the
-   * per-level image.
+   * TEMPORARY (#54 → #57, Darian): only for a practice puzzle that hasn't
+   * been cut into level images yet. Then `imageSrc` is its full image and the
+   * browser crops it with this (focus point and zoom per level; no answer in
+   * it). Cut puzzles never have it: `imageSrc` is already the level reached.
+   * Remove once every database is seeded and cut.
    */
   reveal?: Puzzle["reveal"];
   wrongGuesses: number;
