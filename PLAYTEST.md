@@ -18,7 +18,10 @@ Current values (`src/game/scoring-config.ts`): 100 points per image, −20 per z
 ## Notes
 
 ### Jacky
-- TODO
+Played on 2026-11-16, desktop browser, on a local dev server from `main` (d581af9, the browser-only practice game before server-side games, #54).
+- **Scoring:** felt fair with the current values (100 base, −20 per zoom-out, −10 per wrong guess, floor of 10). No changes wanted.
+- **Zoom:** the zoom-out steps felt right.
+- **Confusing or annoying:** nothing.
 
 ### Darian
 - TODO
