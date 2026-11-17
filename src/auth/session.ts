@@ -23,12 +23,36 @@ export const SESSION_COOKIE = "zo_session";
 
 /** The logged-in user, or `null`. Checks the session in the database on every call, so logout and expiry apply at once. */
 export async function getCurrentUser(): Promise<PublicUser | null> {
+  const token = await requestSessionToken();
+  if (!token) return null;
+  return findSessionUser(getDb(), sha256Hex(token), new Date());
+}
+
+/**
+ * Like `getCurrentUser`, but a database error counts as logged out (and is
+ * logged). For the header, which is on every page, including ones that don't
+ * need the database. Only the database lookup is caught: Next's own
+ * request-time signals from `cookies()` and `connection()` must reach Next.
+ */
+export async function getCurrentUserOrLoggedOut(): Promise<PublicUser | null> {
+  const token = await requestSessionToken();
+  if (!token) return null;
+  try {
+    return await findSessionUser(getDb(), sha256Hex(token), new Date());
+  } catch (error) {
+    console.error("Couldn't check the session; showing the user as logged out", error);
+    return null;
+  }
+}
+
+/** The session cookie's token, if any. After this, it's request time. */
+async function requestSessionToken(): Promise<string | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   // Cache Components: reading the clock needs an explicit "this is request
   // time" first, or Next reports `new Date()` as a prerender error.
   await connection();
-  return findSessionUser(getDb(), sha256Hex(token), new Date());
+  return token;
 }
 
 /** The logged-in user; otherwise redirects to the login page. */
