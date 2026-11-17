@@ -3,16 +3,31 @@
 // `src/game/server-game.ts` runs the games; this file only stores them.
 // The same contract tests run against this store (on PGlite with the real
 // migrations, see games.test.ts) and against `MemoryGameStore`.
+//
+// Encryption (#84): the game state (the player's guesses and moves) is stored
+// only encrypted, in `state_encrypted`, with a key for this game
+// (`stateKeyId`, from the game id alone). Games written before that still have a plain `state`;
+// they're read as they are, and encrypted the next time they're saved (or by
+// `npm run db:encrypt-games`). `total`, `finished_at` and `game_rounds` stay
+// plain: leaderboards (#62) sort and filter on them in SQL.
 import "server-only";
 
-import { eq, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+
+import { and, eq, sql } from "drizzle-orm";
+
+import { DecryptionError, type Vault } from "@/crypto/vault";
 
 import type { GameOwner, GameState, GameStore, NewStoredGame, StoredGame } from "@/game/server-game";
-import { GameConflictError, GameNotFoundError } from "@/game/server-game";
+import { DuplicateDailyGameError, GameConflictError, GameNotFoundError, GameUnreadableError } from "@/game/server-game";
 import { scoreGame } from "@/game/scoring";
 import type { Pack } from "@/game/types";
 import type { Db } from "./index";
+import { STATE_FIELD, stateKeyId } from "./game-state-key";
+import { rowsOf } from "./rows";
 import { games, packs } from "./schema";
+
+export { STATE_FIELD, stateKeyId };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHA256_HEX = /^[0-9a-f]{64}$/;
@@ -24,7 +39,7 @@ export type PgGameStoreOptions = {
    * (foreign key), so it's off for the practice pack, whose puzzles are still
    * in code (`SAMPLE_PUZZLES`) until packs land (#52). Default: true.
    */
-  recordRounds?: boolean;
+  recordRounds?: boolean | ((state: GameState) => boolean);
 };
 
 /** The columns that say who owns a game. Exactly one is set. */
@@ -47,26 +62,115 @@ type GameRow = {
   packId: string;
   userId: string | null;
   anonOwnerHash: string | null;
+  /** Only on games written before #84; NULL once encrypted. */
   state: unknown;
+  stateEncrypted: string | null;
   revision: number;
+  dailyDate: string | null;
 };
 
-function fromRow(row: GameRow): StoredGame {
-  let owner: GameOwner;
-  if (row.userId !== null) owner = { userId: row.userId };
-  else if (row.anonOwnerHash !== null) owner = { anonId: row.anonOwnerHash };
-  else throw new Error(`PgGameStore: game ${row.id} has no owner`);
-  // Raw `execute` results may hand jsonb back as text, depending on the driver.
-  const state = (typeof row.state === "string" ? JSON.parse(row.state) : row.state) as GameState;
-  return { id: row.id, owner, packId: row.packId, revision: Number(row.revision), state };
+type OwnerRow = Pick<GameRow, "id" | "userId" | "anonOwnerHash">;
+
+function ownerOf(row: OwnerRow): GameOwner {
+  if (row.userId !== null) return { userId: row.userId };
+  if (row.anonOwnerHash !== null) return { anonId: row.anonOwnerHash };
+  throw new Error(`PgGameStore: game ${row.id} has no owner`);
 }
 
-/** `db.execute` returns `{ rows }` on every driver we use (Neon HTTP, node-postgres, PGlite). */
-function rowsOf(result: unknown): Record<string, unknown>[] {
-  if (Array.isArray(result)) return result as Record<string, unknown>[];
-  const rows = (result as { rows?: unknown } | null)?.rows;
-  if (Array.isArray(rows)) return rows as Record<string, unknown>[];
-  throw new Error("PgGameStore: unexpected result from db.execute");
+/** Sets `dailyDate` on a stored game when the row has one (#58). */
+function withDailyDate(game: StoredGame, dailyDate: unknown): StoredGame {
+  // Raw `execute` results may return a date as a Date or as text, depending on the driver.
+  if (dailyDate !== null && dailyDate !== undefined) game.dailyDate = dailyDateText(dailyDate);
+  return game;
+}
+
+function fromRow(vault: Vault, row: GameRow): StoredGame {
+  const owner = ownerOf(row);
+  let state: GameState;
+  if (row.stateEncrypted !== null) {
+    try {
+      state = vault.decryptJson<GameState>(stateKeyId(row.id), STATE_FIELD, row.stateEncrypted);
+    } catch (error) {
+      if (error instanceof DecryptionError) throw new GameUnreadableError(row.id, owner, { cause: error });
+      throw error;
+    }
+  } else {
+    // Written before #84. Raw `execute` results may hand jsonb back as text, depending on the driver.
+    state = (typeof row.state === "string" ? JSON.parse(row.state) : row.state) as GameState;
+  }
+  return withDailyDate({ id: row.id, owner, packId: row.packId, revision: Number(row.revision), state }, row.dailyDate);
+}
+
+/**
+ * A `date` column as "YYYY-MM-DD". node-postgres parses `date` to a Date at
+ * *local* midnight, so read it with local getters: `toISOString()` would move
+ * it back a day in any zone east of UTC (review of #119).
+ */
+export function dailyDateText(value: unknown): string {
+  if (value instanceof Date) {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  }
+  return String(value).slice(0, 10);
+}
+
+/** The two unique indexes that keep one daily game per owner per day (#58). */
+const DAILY_INDEXES = new Set(["games_daily_user_key", "games_daily_anon_key"]);
+
+/** A unique-index violation on one of `DAILY_INDEXES`, from any of our drivers (drizzle wraps it in `cause`). */
+export function isDuplicateDaily(error: unknown): boolean {
+  for (let e: unknown = error, depth = 0; e !== null && typeof e === "object" && depth < 4; depth++) {
+    const { code, constraint, message } = e as { code?: unknown; constraint?: unknown; message?: unknown };
+    if (code === "23505" && (DAILY_INDEXES.has(String(constraint)) || [...DAILY_INDEXES].some((i) => String(message).includes(i)))) {
+      return true;
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+const ROW_COLUMNS = {
+  id: games.id,
+  packId: games.packId,
+  userId: games.userId,
+  anonOwnerHash: games.anonOwnerHash,
+  state: games.state,
+  stateEncrypted: games.stateEncrypted,
+  revision: games.revision,
+  dailyDate: games.dailyDate,
+};
+
+/**
+ * What `create` and `save` read back: no state. They already have it in
+ * memory, so they don't fetch the ciphertext back and decrypt it again.
+ */
+const META_COLUMNS = {
+  id: games.id,
+  packId: games.packId,
+  userId: games.userId,
+  anonOwnerHash: games.anonOwnerHash,
+  revision: games.revision,
+  dailyDate: games.dailyDate,
+};
+type MetaRow = Omit<GameRow, "state" | "stateEncrypted">;
+
+/**
+ * A stored game from its row's columns and the state the caller already has.
+ * The state goes through JSON, like what `get` decrypts and like
+ * `MemoryGameStore`, so `save()` returns exactly what the next `get()` will:
+ * an `undefined` field is dropped, a `Date` becomes a string.
+ */
+function withState(row: MetaRow, state: GameState): StoredGame {
+  return withDailyDate(
+    {
+      id: row.id,
+      owner: ownerOf(row),
+      packId: row.packId,
+      revision: Number(row.revision),
+      state: JSON.parse(JSON.stringify(state)) as GameState,
+    },
+    row.dailyDate,
+  );
 }
 
 /**
@@ -81,61 +185,72 @@ function rowsOf(result: unknown): Record<string, unknown>[] {
  * - Owner: `{ userId }` → `user_id`; `{ anonId }` → `anon_owner_hash`.
  */
 export class PgGameStore implements GameStore {
-  private readonly recordRounds: boolean;
+  private readonly recordRounds: (state: GameState) => boolean;
 
   constructor(
     private readonly db: Db,
+    private readonly vault: Vault,
     options: PgGameStoreOptions = {},
   ) {
-    this.recordRounds = options.recordRounds ?? true;
+    const record = options.recordRounds ?? true;
+    this.recordRounds = typeof record === "function" ? record : () => record;
   }
 
   async get(id: string): Promise<StoredGame | null> {
     // Ids come from URLs; anything that isn't a UUID can't exist (and would be
     // a Postgres type error).
     if (!UUID.test(id)) return null;
+    const [row] = await this.db.select(ROW_COLUMNS).from(games).where(eq(games.id, id));
+    return row === undefined ? null : fromRow(this.vault, row);
+  }
+
+  async findDaily(owner: GameOwner, dailyDate: string): Promise<StoredGame | null> {
+    const { userId, anonOwnerHash } = ownerColumns(owner);
+    const ownerMatch = userId !== null ? eq(games.userId, userId) : eq(games.anonOwnerHash, anonOwnerHash!);
     const [row] = await this.db
-      .select({
-        id: games.id,
-        packId: games.packId,
-        userId: games.userId,
-        anonOwnerHash: games.anonOwnerHash,
-        state: games.state,
-        revision: games.revision,
-      })
+      .select(ROW_COLUMNS)
       .from(games)
-      .where(eq(games.id, id));
-    return row === undefined ? null : fromRow(row);
+      .where(and(ownerMatch, eq(games.dailyDate, dailyDate)));
+    return row === undefined ? null : fromRow(this.vault, row);
   }
 
   async create(game: NewStoredGame): Promise<StoredGame> {
-    const [row] = await this.db
-      .insert(games)
-      .values({
-        packId: game.packId,
-        ...ownerColumns(game.owner),
-        state: game.state,
-        revision: 0,
-        total: 0,
-      })
-      .returning({
-        id: games.id,
-        packId: games.packId,
-        userId: games.userId,
-        anonOwnerHash: games.anonOwnerHash,
-        state: games.state,
-        revision: games.revision,
-      });
+    // The id is made here, not by the database, so the encrypted state can be
+    // bound to it before the row exists.
+    const id = randomUUID();
+    let row: MetaRow | undefined;
+    try {
+      [row] = await this.db
+        .insert(games)
+        .values({
+          id,
+          packId: game.packId,
+          ...ownerColumns(game.owner),
+          state: null,
+          stateEncrypted: this.vault.encryptJson(stateKeyId(id), STATE_FIELD, game.state),
+          revision: 0,
+          total: 0,
+          dailyDate: game.dailyDate ?? null,
+        })
+        .returning(META_COLUMNS);
+    } catch (error) {
+      if (game.dailyDate !== undefined && isDuplicateDaily(error)) throw new DuplicateDailyGameError(game.dailyDate);
+      throw error;
+    }
     if (row === undefined) throw new Error("PgGameStore: insert returned no row");
-    return fromRow(row);
+    return withState(row, game.state);
   }
 
   async save(game: StoredGame): Promise<StoredGame> {
     const { state } = game;
+    // Only the state changes: id, owner and pack stay as created, so
+    // `game.owner` is ignored (like MemoryGameStore). Ids come from URLs; one
+    // that isn't a UUID can't exist (and would be a Postgres type error).
+    if (!UUID.test(game.id)) throw new GameNotFoundError();
     const { rounds, total } = scoreGame(state.events, state.scoring);
     // Rounds are scored in play order, so position = index + 1. Every save
     // sends all finished rounds; ON CONFLICT skips the ones already written.
-    const roundRows = this.recordRounds
+    const roundRows = this.recordRounds(state)
       ? rounds.map((r, i) => ({
           position: i + 1,
           puzzle_id: r.puzzleId,
@@ -152,13 +267,14 @@ export class PgGameStore implements GameStore {
     const result = await this.db.execute(sql`
       WITH updated AS (
         UPDATE games
-        SET state = ${JSON.stringify(state)}::jsonb,
+        SET state = NULL,
+            state_encrypted = ${this.vault.encryptJson(stateKeyId(game.id), STATE_FIELD, state)},
             revision = revision + 1,
             total = ${total},
             finished_at = CASE WHEN ${state.finished}::boolean THEN coalesce(finished_at, now()) ELSE NULL END,
             updated_at = now()
         WHERE id = ${game.id}::uuid AND revision = ${game.revision}
-        RETURNING id, pack_id, user_id, anon_owner_hash, state, revision
+        RETURNING id, pack_id, user_id, anon_owner_hash, revision, daily_date
       ),
       new_rounds AS (
         INSERT INTO game_rounds (game_id, position, puzzle_id, outcome, reveal_level_reached,
@@ -172,14 +288,17 @@ export class PgGameStore implements GameStore {
           wrong_guess_penalty integer)
         ON CONFLICT (game_id, position) DO NOTHING
       )
-      SELECT id, pack_id AS "packId", user_id AS "userId", anon_owner_hash AS "anonOwnerHash", state, revision
+      SELECT id, pack_id AS "packId", user_id AS "userId", anon_owner_hash AS "anonOwnerHash", revision,
+             daily_date::text AS "dailyDate"
       FROM updated
     `);
 
-    const [row] = rowsOf(result) as GameRow[];
-    if (row !== undefined) return fromRow(row);
-    // Nothing updated: either the game is gone or another request saved first.
-    if (!UUID.test(game.id) || (await this.get(game.id)) === null) throw new GameNotFoundError();
+    const [row] = rowsOf(result) as MetaRow[];
+    if (row !== undefined) return withState(row, state);
+    // Nothing updated: the game is gone, or another request saved first.
+    // Only check that the row exists: no need to fetch and decrypt its state.
+    const [exists] = await this.db.select({ id: games.id }).from(games).where(eq(games.id, game.id));
+    if (exists === undefined) throw new GameNotFoundError();
     throw new GameConflictError(game.id);
   }
 }
@@ -194,4 +313,42 @@ export async function ensurePackRow(db: Db, pack: Pick<Pack, "id" | "kind" | "ti
     .insert(packs)
     .values({ id: pack.id, kind: pack.kind, title: pack.title, theme: pack.theme })
     .onConflictDoNothing({ target: packs.id });
+}
+
+/** What `startPracticeGame` needs to apply the unfinished-games cap (#85). */
+export type UnfinishedGames = {
+  /** How many of the owner's games of this pack aren't finished. */
+  count: number;
+  /** The owner's newest unfinished game of this pack that hasn't been played yet (revision 0), if any. */
+  untouchedId: string | null;
+  /** The owner's most recently played unfinished game of this pack, if any. */
+  latestId: string | null;
+};
+
+/**
+ * The owner's unfinished games of one pack, for the per-pack cap and for
+ * reuse (#85). One query.
+ *
+ * TODO(#85): this read and the insert that may follow aren't atomic, so two
+ * starts at the same moment can each insert a game and overshoot the cap by
+ * one or two. Fine at our scale (the start limits bound it); an
+ * `INSERT ... SELECT ... WHERE (count) < cap` would close it if it matters.
+ */
+export async function findUnfinishedGames(db: Db, owner: GameOwner, packId: string): Promise<UnfinishedGames> {
+  const { userId, anonOwnerHash } = ownerColumns(owner);
+  const mine = userId !== null ? sql`user_id = ${userId}::uuid` : sql`anon_owner_hash = ${anonOwnerHash}`;
+  const result = await db.execute(sql`
+    SELECT
+      (SELECT count(*) FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL) AS "count",
+      (SELECT id FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL AND revision = 0
+        ORDER BY created_at DESC LIMIT 1) AS "untouchedId",
+      (SELECT id FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL
+        ORDER BY updated_at DESC LIMIT 1) AS "latestId"
+  `);
+  const [row] = rowsOf(result);
+  return {
+    count: Number(row?.count ?? 0),
+    untouchedId: (row?.untouchedId as string | null | undefined) ?? null,
+    latestId: (row?.latestId as string | null | undefined) ?? null,
+  };
 }

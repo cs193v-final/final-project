@@ -1,5 +1,6 @@
 // What sign-up and login do after a submit (#132, #134), with the auth logic,
 // cookies and request headers stubbed.
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loginAction, registerAction } from "./actions";
@@ -15,8 +16,8 @@ const { redirect, setSessionCookie, login, register } = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/db", () => ({ getDb: () => ({}) }));
-// The real describeError, which keeps query text out of the log; only the
-// parts that need a request are stubbed.
+// Only the parts that need a request are stubbed; the log line comes from the
+// real errorSummary (#162), which keeps query parameters out of the log.
 vi.mock("@/auth/session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/auth/session")>()),
   setSessionCookie,
@@ -116,21 +117,23 @@ describe("after a failed sign-up or login", () => {
 });
 
 describe("if the database fails", () => {
-  // The query error's message includes its parameters (username, password
-  // hash), so only the error's type may reach the log.
+  // A failed query, as drizzle throws it: its message includes the
+  // parameters (username, password hash), so only names and codes may reach
+  // the log (errorSummary, #162).
   const queryError = () =>
-    new Error("connection refused: insert into users values ('ethan', '$argon2id$secret-hash')", {
-      cause: { code: "ECONNREFUSED" },
-    });
+    new DrizzleQueryError(
+      'insert into "users" ("username", "password_hash") values ($1, $2)',
+      ["ethan", "$argon2id$secret-hash"],
+      Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:5432"), { code: "ECONNREFUSED" }),
+    );
 
-  it.each(ACTIONS)("%s shows a short message, not an error page, and logs only the error's type", async (_name, action, run) => {
+  it.each(ACTIONS)("%s shows a short message, not an error page, and logs no values", async (_name, action, run) => {
     run.mockRejectedValueOnce(queryError());
     const state = await action(undefined, form("ethan", "x"));
     expect(state).toEqual({ username: "ethan", errors: {}, message: expect.stringMatching(/something went wrong/i) });
     expect(redirect).not.toHaveBeenCalled();
     const logged = consoleError.mock.calls.flat().map(String).join("\n");
-    expect(logged).toContain("Error (ECONNREFUSED)");
-    expect(logged).not.toContain("connection refused");
+    expect(logged).toContain("Failed query; caused by Error (ECONNREFUSED)");
     expect(logged).not.toContain("secret-hash");
     expect(logged).not.toContain("ethan");
   });
@@ -141,6 +144,8 @@ describe("if the database fails", () => {
     const state = await loginAction(undefined, form("ethan", "correct horse"));
     expect(state?.message).toMatch(/something went wrong/i);
     expect(redirect).not.toHaveBeenCalled();
-    expect(consoleError.mock.calls.flat().map(String).join("\n")).not.toContain("connection refused");
+    const logged = consoleError.mock.calls.flat().map(String).join("\n");
+    expect(logged).toContain("Failed query");
+    expect(logged).not.toContain("secret-hash");
   });
 });

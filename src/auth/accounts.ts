@@ -15,12 +15,15 @@ import {
   insertSession,
   insertUser,
   type PgDb,
+  trimSessions,
   type StoredUser,
 } from "@/db/accounts";
 import { DecryptionError, getVault, resolveVault, type Vault, type VaultSource } from "@/crypto/vault";
 import type { PublicUser } from "@/game/types";
 
 import { getDummyPasswordHash, hashPassword, newToken, sha256Hex, verifyPassword } from "./crypto";
+import { limitsAddress } from "./limits-address";
+import { rateLimitAddress } from "./rate-limit-address";
 import { checkNewPassword, checkUsername, usernameKey } from "./rules";
 import { newUserRow, USERNAME_FIELD, usernameIndex } from "./user-row";
 
@@ -56,6 +59,13 @@ export async function sessionUser(db: PgDb, vault: Vault, tokenHash: string, now
 }
 
 export const SESSION_DAYS = 30;
+
+/**
+ * Live sessions one user can have (audit L4, #156). Starting another ends the
+ * oldest ones, so a stolen session can't outlive many logins elsewhere and an
+ * account can't pile up rows. Expired sessions are deleted at the same time.
+ */
+export const MAX_SESSIONS_PER_USER = 10;
 
 // Compute the dummy hash when the server starts, not on the first login with
 // an unknown username, so that first login isn't slower than the rest.
@@ -94,28 +104,18 @@ export type AuthResult =
   | { ok: false; reason: "wrong-credentials"; message: string }
   | { ok: false; reason: "rate-limited"; message: string };
 
-/**
- * Whether the per-address limits apply. On Vercel always: its edge sets the
- * client's real address. Anywhere else (`next dev`, CI's `next start`), Next
- * fills the address in from the socket, so every request from this machine
- * shares one loopback address, or none; one shared count there would lock all
- * local and e2e runs out of sign-up after 5 accounts an hour. The
- * per-username login limit still applies.
- */
-export function limitsAddress(ip: string | null, onVercel = Boolean(process.env.VERCEL)): boolean {
-  if (onVercel) return true;
-  if (ip === null) return false;
-  const address = ip.toLowerCase().replace(/^::ffff:/, "");
-  return !(address === "::1" || address === "localhost" || /^127\./.test(address));
-}
+// `limitsAddress` lives in ./limits-address.ts so the game server (#85) can use
+// it without loading this module (and its argon2 warm-up).
+export { limitsAddress };
 
 /**
  * Keyed hashes (#84), never the typed name or a raw IP: people type emails,
  * or their password, into the username box, and this row is written before
- * we know the user exists.
+ * we know the user exists. An IPv6 address counts by its /64 (#150), so
+ * rotating within one doesn't get a fresh limit; see `rateLimitAddress`.
  */
 export const ipKey = (vault: Vault, prefix: string, ip: string | null) =>
-  `${prefix}:ip:${ip ? vault.blindIndex(PURPOSE.ip, ip) : "unknown"}`;
+  `${prefix}:ip:${ip ? vault.blindIndex(PURPOSE.ip, rateLimitAddress(ip)) : "unknown"}`;
 export const loginUserKey = (vault: Vault, username: string) =>
   `login:user:${vault.blindIndex(PURPOSE.loginUser, usernameKey(username))}`;
 
@@ -125,7 +125,12 @@ const WRONG_CREDENTIALS = "That username and password don't match.";
 async function startSession(db: PgDb, user: PublicUser, now: Date): Promise<AuthResult> {
   const token = newToken();
   const expiresAt = new Date(now.getTime() + SESSION_DAYS * DAY_MS);
-  await insertSession(db, sha256Hex(token), user.id, expiresAt);
+  const tokenHash = sha256Hex(token);
+  await insertSession(db, tokenHash, user.id, expiresAt);
+  // After the insert, so each login's trim sees every session inserted before
+  // it (its own included) and never deletes its own; logins at the same
+  // moment can't leave more than the cap once both have finished.
+  await trimSessions(db, user.id, tokenHash, MAX_SESSIONS_PER_USER, now);
   return { ok: true, user, session: { token, expiresAt } };
 }
 

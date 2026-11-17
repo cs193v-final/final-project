@@ -4,7 +4,8 @@
 //
 // The cookie holds a random token; the database holds its SHA-256 (see
 // ./crypto.ts). The cookie is HttpOnly (no JavaScript can read it), Secure
-// (HTTPS only; browsers also allow it on http://localhost for dev), and
+// (HTTPS only: always on Vercel, and elsewhere whenever the request is https;
+// see sessionCookieOptions), and
 // SameSite=Lax (not sent on cross-site form posts, so another site can't log
 // someone in or out).
 import "server-only";
@@ -18,6 +19,7 @@ import { getDb } from "@/db";
 import { deleteSession } from "@/db/accounts";
 import { getVault } from "@/crypto/vault";
 import type { PublicUser } from "@/game/types";
+import { errorSummary } from "@/server/error-summary";
 import { isHttpsRequest } from "@/server/https";
 
 import { sessionUser } from "./accounts";
@@ -27,13 +29,14 @@ import { loginPath } from "./next-path";
 export const SESSION_COOKIE = "zo_session";
 
 /**
- * A failed session lookup. Its message is only the error's type and code: the
- * query error itself carries the SQL and the token hash, and callers such as
- * `runGameCall` and Next log whatever they're given.
+ * A failed session lookup. Its message describes the error by `errorForLog`'s
+ * rule (`errorSummary`), and the error itself isn't kept as its cause: a
+ * failed query carries the token hash, and callers such as `runGameCall` and
+ * Next log whatever they're given.
  */
 export class SessionLookupError extends Error {
   constructor(cause: unknown) {
-    super(`Couldn't check the session: ${describeError(cause)}`);
+    super(`Couldn't check the session: ${errorSummary(cause)}`);
     this.name = "SessionLookupError";
   }
 }
@@ -69,7 +72,7 @@ export async function getCurrentUserOrLoggedOut(): Promise<PublicUser | null> {
   try {
     return await lookupSession(token);
   } catch (error) {
-    console.error(`${error instanceof Error ? error.message : describeError(error)}; showing the user as logged out`);
+    console.error(`${error instanceof SessionLookupError ? error.message : errorSummary(error)}; showing the user as logged out`);
     return null;
   }
 }
@@ -99,15 +102,16 @@ export async function requireUser(next?: string): Promise<PublicUser> {
 }
 
 /**
- * The session cookie's options. `Secure` whenever the request came in over
- * https (always on Vercel). On plain http, e.g. testing from a phone on the
- * LAN, a browser drops a Secure cookie, so it's left off there, the same rule
- * as #77's owner cookie (`isHttpsRequest`).
+ * The session cookie's options. Always `Secure` on Vercel, whatever the
+ * request's headers say (#155); elsewhere whenever the request came in over
+ * https. On plain http, e.g. testing from a phone on the LAN, a browser drops
+ * a Secure cookie, so it's left off there. The same rule as #77's owner
+ * cookie (`isHttpsRequest`).
  */
-export function sessionCookieOptions(expiresAt: Date, forwardedProto: string | null) {
+export function sessionCookieOptions(expiresAt: Date, forwardedProto: string | null, onVercel = Boolean(process.env.VERCEL)) {
   return {
     httpOnly: true,
-    secure: isHttpsRequest(forwardedProto),
+    secure: isHttpsRequest(forwardedProto, onVercel),
     sameSite: "lax" as const,
     path: "/",
     expires: expiresAt,
@@ -126,7 +130,7 @@ export async function setSessionCookie(token: string, expiresAt: Date): Promise<
     // Best effort: if this fails the login still goes ahead, and the old
     // session simply expires. Never log the query error itself.
     await deleteSession(getDb(), sha256Hex(previous)).catch((error: unknown) => {
-      console.error(`Couldn't end the previous session: ${describeError(error)}`);
+      console.error(`Couldn't end the previous session: ${errorSummary(error)}`);
     });
   }
   jar.set(SESSION_COOKIE, token, sessionCookieOptions(expiresAt, (await headers()).get("x-forwarded-proto")));
@@ -154,15 +158,4 @@ export async function requestIp(): Promise<string | null> {
   const h = await headers();
   const first = (name: string) => h.get(name)?.split(",")[0]?.trim() || null;
   return first("x-vercel-forwarded-for") ?? first("x-forwarded-for") ?? first("x-real-ip");
-}
-
-/**
- * A short description of an error for the server log. Never the error itself:
- * a failed query's message includes its parameters (a username, a password
- * hash).
- */
-export function describeError(error: unknown): string {
-  if (!(error instanceof Error)) return typeof error;
-  const code = (error.cause as { code?: unknown } | undefined)?.code ?? (error as { code?: unknown }).code;
-  return typeof code === "string" ? `${error.name} (${code})` : error.name;
 }

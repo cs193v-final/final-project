@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { siteNav } from "./helpers";
 
 // The log-in and sign-up forms (#53) in a real browser. These checks are
 // answered before the server touches the database, so they run without one.
@@ -51,7 +52,7 @@ test("the header offers Log in on every screen when nobody is logged in, coming 
     ["/register", /^\/login$/],
   ] as const) {
     await page.goto(path);
-    const site = page.getByRole("navigation", { name: "Site" });
+    const site = siteNav(page);
     await expect(site.getByRole("link", { name: "Log in" })).toHaveAttribute("href", href);
     await expect(site.getByRole("button", { name: "Log out" })).toHaveCount(0);
   }
@@ -71,7 +72,7 @@ test("a stale session cookie still shows the pages, with Log in in the header", 
   await context.addCookies([{ name: "zo_session", value: "not-a-real-session", url: baseURL! }]);
   for (const path of ["/", "/play"]) {
     await page.goto(path);
-    const site = page.getByRole("navigation", { name: "Site" });
+    const site = siteNav(page);
     await expect(site.getByRole("link", { name: "Log in" })).toBeVisible();
   }
   await expect(page.getByRole("button", { name: "Zoom out" })).toBeVisible();

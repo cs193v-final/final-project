@@ -6,9 +6,9 @@ import { redirect } from "next/navigation";
 
 import { login, register, type AuthResult, type FieldErrors } from "@/auth/accounts";
 import { safeNextPath, withWelcome } from "@/auth/next-path";
-import { describeError, endSession, requestIp, setSessionCookie } from "@/auth/session";
-import { EncryptionKeyError } from "@/crypto/vault";
+import { endSession, requestIp, setSessionCookie } from "@/auth/session";
 import { getDb } from "@/db";
+import { errorSummary } from "@/server/error-summary";
 
 /** What the forms show after a failed submit. Never echoes the password. */
 export type AccountFormState = { username: string; errors: FieldErrors; message?: string } | undefined;
@@ -31,10 +31,10 @@ const UNAVAILABLE = "Something went wrong on our side. Please try again in a mom
 /**
  * Runs register or login. If the database fails, including while setting the
  * session cookie (which ends any earlier session), the form shows a short
- * message instead of an error page, and the log gets only the error's type
- * (or, for a missing encryption key, its message, which says how to fix it):
- * Next would otherwise log the failed query with its parameters (the username
- * and the password hash).
+ * message instead of an error page, and the log gets the error by
+ * `errorForLog`'s rule (`errorSummary`): names, Postgres codes and messages
+ * that can't quote a value. Next would otherwise log the failed query with its
+ * parameters (the username and the password hash).
  */
 async function attempt(
   kind: "register" | "login",
@@ -47,10 +47,10 @@ async function attempt(
     result = await run(getDb, input, { ip: await requestIp(), now: new Date() });
     if (result.ok) await setSessionCookie(result.session.token, result.session.expiresAt);
   } catch (error) {
-    // A missing or malformed DATA_ENCRYPTION_KEY: its message never includes
-    // the key and says how to fix it. Anything else gets only its type.
-    const detail = error instanceof EncryptionKeyError ? `${error.name}: ${error.message}` : describeError(error);
-    console.error(`${kind} failed: ${detail}`);
+    // A missing or malformed DATA_ENCRYPTION_KEY keeps its message, which
+    // never includes the key and says how to fix it; a failed query keeps
+    // only its names and Postgres code.
+    console.error(`${kind} failed: ${errorSummary(error)}`);
     const username = typeof input.username === "string" ? input.username : "";
     return { username, errors: {}, message: UNAVAILABLE };
   }
