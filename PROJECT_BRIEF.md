@@ -2,23 +2,36 @@
 
 > **Zoom Out** is a working title. Picking the name and look is #51.
 > This brief is for every teammate and every teammate's coding agent. Read it before you start work.
-> Last updated: Nov 16, 2026 (Week 9 plan, #46).
+> Last updated: Nov 16, 2026 (Checkpoint 2 issues #84–#97).
 
 ## Status at a glance
 
+As of 10 pm PST Mon Nov 16, 2026.
+
 | Area | Status |
 |---|---|
-| Three-image practice game | **Done and live** (Week 8). Start screen, `/play` with the viewer, Zoom out, guessing, live score and final score screen. Everything runs in the browser, and the answers are sent to it. In review: a back link on `/play` (#43, closes #42) and Playwright e2e tests (#45, closes #44). |
-| Week 9 plan | **This update** (#46). Issues #47–#68, milestones "Checkpoint 2" and "Final presentation", new `PROPOSAL` types in `src/game/types.ts`. |
-| Foundation: schema, packs, server-side games, per-level images | **In review:** schema (#47, PR #74) and server-side games (#54, draft PR; `/play` now runs on the server with an anonymous owner cookie). **Not started:** #52, #57 (Checkpoint 2) |
-| Accounts | **Not started.** #53 (Checkpoint 2) |
-| Daily themes | **Not started.** #58, content #55 and #59 (Checkpoint 2) |
-| Data protection, game feel, accessibility, navigation, e2e tests | **Not started.** #60, #48, #49, #50, #61 (Checkpoint 2) |
-| Leaderboard, streaks, configurable scoring, Stanford mode, Beat the AI, name | **Not started.** #62, #63, #64, #65, #56 + #66, #51 (Final presentation) |
+| Three-image practice game | **Live.** Start screen, `/play` with the viewer, Zoom out, guessing, live score and final score screen. Since #77 the game runs on the server, so the answers never reach the browser. Merged since Week 8: a back link on `/play` (#43, closes #42), Playwright e2e tests in CI (#45, closes #44), and punctuation-tolerant guesses (#72, closes #29). In review: practice puzzles that start on a less obvious detail, with smaller zoom steps (#117, for #112 and #113). |
+| Home screen and navigation | **Merged** (#71, closes #50): a mode picker, and a site header with a way home from every screen. |
+| Week 9 plan | **Done** (#69, closes #46): issues #47–#68, milestones, and the shared-type proposals. |
+| Checkpoint 2 requirements | **Due 9 am PST Tue Nov 17.** Issues #84–#97, tracked in the checklist #97. The requirements are in `INSTRUCTIONS.md` §4 (#96). |
+| Database schema | **Merged** (#74, closes #47), with database checks for zoom levels (#82). |
+| Packs and seed script | **Merged** (#79, closes #52 and #36). |
+| Server-side games | **Merged** (#77, closes #54): `/play` runs on the server with an anonymous owner cookie. |
+| Per-level images | **Partly merged** (#83, part of #57): cutting each image into zoom levels, image storage and the `/img` route. The game doesn't use them yet. |
+| Answer feedback (game feel) | **Approved, not merged yet** (#70, #48). |
+| Data protection | **Partly merged** (#75, part of #60): TLS on every database connection, a check that no database variable is `NEXT_PUBLIC_`, and the stored-data inventory. Per-user access checks wait for accounts (#53). |
+| Configurable scoring | **In review** (#76, #64). |
+| Accounts | **In review, changes requested** (#103, #53): username and password, sessions and rate-limited login. |
+| Daily streaks | **Logic merged** (#73, #81; part of #63). The query and the display wait for #53 and #58. |
+| Daily themes | **In PR** (part of #58): today's pack and the intro screen (#100, approved), and playing today's daily, one game per player per day (#119, in review). Content not started: #55 and #59. |
+| Accessibility, full-flow e2e tests | **Not started:** #49, #61. |
+| Checkpoint 2 backend | **Started.** Game-server rate limits are in a draft PR (#104, for #85; it waits on #103). Security audit (#95): run, with its findings filed as #105–#111, and its findings on #83 fixed before #83 merged; `SECURITY-AUDIT.md` isn't written yet. Not started: encryption (#84), `COST-CONTROLS.md` (#86), secrets and `SECRETS.md` (#87), gitleaks on every checkout (#88). |
+| Checkpoint 2 frontend | **Started.** Merged: shared controls for consistent buttons, links and headings (#102, part of #89), and the user-test notes folder (#99, closes #98). In review: notes from the playing-a-game user test (#116, part of #91), whose findings are #112–#115. Not started: the other user tests (#90, #92, #93), deciding which features ship (#94). |
+| Leaderboard, Stanford mode, Beat the AI, name | **Not started** (Final presentation): #62, #65, #56 + #66, #51. Whether any move into Checkpoint 2 is #94. |
 | Custom lobbies (stretch) | **Not started.** #67, #68 |
 | Framework / language | **Chosen (#9):** Next.js 16 + React 19 + TypeScript, Tailwind CSS, Vitest. See `AGENTS.md` → Stack. |
-| Hosting + database | **Set up, not connected.** Vercel + Neon Postgres (dev / preview / prod), from #3. See `README.md`. |
-| Secret-scanning hooks + CI | **Set up.** gitleaks hooks (#5) and GitHub Actions CI (#7). Run `scripts/install-gitleaks.sh` after cloning. |
+| Hosting + database | **Set up.** Vercel + Neon Postgres (dev / preview / prod), from #3. The schema and migrations are merged (#74); the app has queried it since server-side games (#77). TLS is required on every connection (#75). See `README.md`. |
+| Secret-scanning hooks + CI | **Set up.** gitleaks hooks (#5) and GitHub Actions CI (#7), including the Playwright e2e tests (#45). Run `scripts/install-gitleaks.sh` after cloning. |
 
 Everything under "Project overview" below is **planned** unless the status table says it's done.
 
@@ -72,10 +85,10 @@ Balanced by effort, not issue count. Ownership areas aren't fences: **everyone**
 
 | Owner | Before Checkpoint 2 | After Checkpoint 2 | Stretch | Owns interface |
 |---|---|---|---|---|
-| **Darian** (`darian07-o`) | Week 9 plan (#46), per-level images (#57), game feel (#48), home and navigation (#50), daily content days 5–7 (#59) | Beat the AI script (#56) and badge (#66) | Create-a-round screen (#68) | `RevealLevel`, image fields of `PublicRound`, image endpoint |
-| **Jacky** (`Hombobow`) | Schema with Joseph (#47), server-side games (#54), data protection (#60) | Streaks (#63), configurable scoring (#64), punctuation in guesses (#29) | Lobbies backend (#67) | `GuessOutcome`, `RoundState`, `ScoringEvent` (emits), `GameAction`, `PublicRound`, `GameView`, game server functions, `getScoringConfig` |
-| **Ethan** (`ethanyng`) | Accounts (#53), accessibility (#49), full-flow e2e tests (#61); back link (#43) and Playwright (#45) in review | Leaderboard (#62) | none | `ScoringConfig`, `RoundResult`, `PublicUser`, `LeaderboardEntry`, account functions |
-| **Joseph** (`Joseph-G-McD`) | Schema with Jacky (#47), packs and seed script (#52), daily challenge (#58), daily content days 1–4 (#55) | Stanford mode (#65), name and identity (#51), start more zoomed in (#34) | none | `Puzzle`, `Pack`, `PackKind`, `DailyEntry`, database schema (with Jacky) |
+| **Darian** (`darian07-o`) | Week 9 plan (#46), per-level images (#57), game feel (#48), home and navigation (#50), daily content days 5–7 (#59). Checkpoint 2: deciding which features ship (#94), the checklist (#97), recording the requirements (#96), consistent controls (#89), user test of home and navigation (#90), security audit (#95), user-test notes folder (#98), the "Home" link (#80), gitleaks check (#88) | Beat the AI script (#56) and badge (#66) | Create-a-round screen (#68) | `RevealLevel`, image fields of `PublicRound`, image endpoint |
+| **Jacky** (`Hombobow`) | Schema with Joseph (#47), server-side games (#54), data protection (#60). Checkpoint 2: game-server rate limits (#85), `COST-CONTROLS.md` (#86), secrets and `SECRETS.md` (#87), user test of playing a game (#91), gitleaks check (#88) | Streaks (#63), configurable scoring (#64), punctuation in guesses (#29) | Lobbies backend (#67) | `GuessOutcome`, `RoundState`, `ScoringEvent` (emits), `GameAction`, `PublicRound`, `GameView`, game server functions, `getScoringConfig` |
+| **Ethan** (`ethanyng`) | Accounts (#53), accessibility (#49), full-flow e2e tests (#61); back link (#43) and Playwright (#45), both merged. Checkpoint 2: encryption and `ENCRYPTION.md` (#84), user test of signing up and logging in (#93), gitleaks check (#88) | Leaderboard (#62) | none | `ScoringConfig`, `RoundResult`, `PublicUser`, `LeaderboardEntry`, account functions |
+| **Joseph** (`Joseph-G-McD`) | Schema with Jacky (#47), packs and seed script (#52), daily challenge (#58), daily content days 1–4 (#55). Checkpoint 2: user test of the daily challenge (#92), gitleaks check (#88) | Stanford mode (#65), name and identity (#51), start more zoomed in (#34) | none | `Puzzle`, `Pack`, `PackKind`, `DailyEntry`, database schema (with Jacky) |
 
 Everyone: playtest, then settle the open gameplay decisions (#21).
 
@@ -107,7 +120,7 @@ The owner of each type makes the final call. Change a type only through a PR its
 
 These are functions, not types in `src/game/`. They run only on the server.
 
-- **Jacky (#54):** `startGame(packId, user | null) → GameView`, `act(gameId, action: GameAction) → GameView`, `getGame(gameId) → GameView` (resume after a refresh).
+- **Jacky (#54):** `startGame(packId, user | null) → GameView`, `act(gameId, action: GameAction, revision) → GameView`, where `revision` is the `GameView.revision` the player saw; a stale one is a conflict and changes nothing (#107), `getGame(gameId) → GameView` (resume after a refresh).
   - Route Handlers vs Server Actions is Jacky's call; the types are the contract.
   - The server reuses the framework-free logic in `src/game/` (guess checking, the round state machine, scoring).
   - Games belong to the logged-in user, or to an anonymous cookie if we allow anonymous play.

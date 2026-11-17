@@ -13,12 +13,17 @@ const BUTTON_BASE = `inline-flex min-h-10 items-center justify-center gap-2 roun
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   primary:
     "bg-zinc-900 px-4 text-white hover:bg-zinc-700 aria-disabled:hover:bg-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300 dark:aria-disabled:hover:bg-zinc-100",
+  // zinc-500 borders: the border is what shows where a white button is, so it
+  // needs 3:1 against the page (WCAG 1.4.11); zinc-300 was about 1.5:1.
   secondary:
-    "border border-zinc-300 bg-white px-4 text-zinc-900 hover:bg-zinc-100 aria-disabled:hover:bg-white dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:aria-disabled:hover:bg-zinc-900",
+    "border border-zinc-500 bg-white px-4 text-zinc-900 hover:bg-zinc-100 aria-disabled:hover:bg-white dark:border-zinc-500 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:aria-disabled:hover:bg-zinc-900",
   quiet: "px-3 text-zinc-700 underline-offset-4 hover:underline aria-disabled:hover:no-underline dark:text-zinc-300",
 };
 
 export const joinClasses = (...classes: (string | false | undefined)[]) => classes.filter(Boolean).join(" ");
+
+/** A text box: the same height, border and focus ring as the buttons next to it (WCAG 1.4.11, 2.4.7). */
+export const TEXT_INPUT = `min-h-10 rounded-lg border border-zinc-500 bg-white px-3 py-2 text-base text-zinc-900 dark:border-zinc-500 dark:bg-zinc-900 dark:text-zinc-100 ${FOCUS_RING}`;
 
 /** The classes for a button-styled control, for the rare element that can't use `Button` or `ButtonLink`. */
 export function buttonClass(variant: ButtonVariant = "primary", className?: string): string {

@@ -1,16 +1,10 @@
 // Who is logged in. Server-only.
+//
+// #77 left this as a stub that always returned null; accounts (#53) fill it
+// in. src/server/owner.ts calls it, so a logged-in player's games are owned by
+// `{ userId }`, and anonymous players keep the owner cookie. A game started
+// anonymously stays anonymous: logging in doesn't claim it, so a daily played
+// in a private window can't be moved onto an account's leaderboard (#58, #62).
 import "server-only";
 
-import type { PublicUser } from "@/game/types";
-
-/**
- * The logged-in user for this request, or null.
- *
- * TODO(#53, Ethan): read the session cookie and look it up in `sessions`.
- * Until accounts exist nobody is logged in, so every game belongs to an
- * anonymous owner cookie (src/server/owner.ts). Once this returns a user,
- * their games are owned by `{ userId }` with no other change.
- */
-export async function getCurrentUser(): Promise<PublicUser | null> {
-  return null;
-}
+export { getCurrentUser } from "@/auth/session";
