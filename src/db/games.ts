@@ -5,8 +5,8 @@
 // migrations, see games.test.ts) and against `MemoryGameStore`.
 //
 // Encryption (#84): the game state (the player's guesses and moves) is stored
-// only encrypted, in `state_encrypted`, with a key for this owner and this
-// game (`stateKeyId`). Games written before that still have a plain `state`;
+// only encrypted, in `state_encrypted`, with a key for this game
+// (`stateKeyId`, from the game id alone). Games written before that still have a plain `state`;
 // they're read as they are, and encrypted the next time they're saved (or by
 // `npm run db:encrypt-games`). `total`, `finished_at` and `game_rounds` stay
 // plain: leaderboards (#62) sort and filter on them in SQL.
@@ -67,14 +67,19 @@ type GameRow = {
   revision: number;
 };
 
+type OwnerRow = Pick<GameRow, "id" | "userId" | "anonOwnerHash">;
+
+function ownerOf(row: OwnerRow): GameOwner {
+  if (row.userId !== null) return { userId: row.userId };
+  if (row.anonOwnerHash !== null) return { anonId: row.anonOwnerHash };
+  throw new Error(`PgGameStore: game ${row.id} has no owner`);
+}
+
 function fromRow(vault: Vault, row: GameRow): StoredGame {
-  let owner: GameOwner;
-  if (row.userId !== null) owner = { userId: row.userId };
-  else if (row.anonOwnerHash !== null) owner = { anonId: row.anonOwnerHash };
-  else throw new Error(`PgGameStore: game ${row.id} has no owner`);
+  const owner = ownerOf(row);
   let state: GameState;
   if (row.stateEncrypted !== null) {
-    state = vault.decryptJson<GameState>(stateKeyId(owner, row.id), STATE_FIELD, row.stateEncrypted);
+    state = vault.decryptJson<GameState>(stateKeyId(row.id), STATE_FIELD, row.stateEncrypted);
   } else {
     // Written before #84. Raw `execute` results may hand jsonb back as text, depending on the driver.
     state = (typeof row.state === "string" ? JSON.parse(row.state) : row.state) as GameState;
@@ -91,6 +96,24 @@ const ROW_COLUMNS = {
   stateEncrypted: games.stateEncrypted,
   revision: games.revision,
 };
+
+/**
+ * What `create` and `save` read back: no state. They already have it in
+ * memory, so they don't fetch the ciphertext back and decrypt it again.
+ */
+const META_COLUMNS = {
+  id: games.id,
+  packId: games.packId,
+  userId: games.userId,
+  anonOwnerHash: games.anonOwnerHash,
+  revision: games.revision,
+};
+type MetaRow = Omit<GameRow, "state" | "stateEncrypted">;
+
+/** A stored game from its row's columns and the state the caller already has (copied, like `get`'s result). */
+function withState(row: MetaRow, state: GameState): StoredGame {
+  return { id: row.id, owner: ownerOf(row), packId: row.packId, revision: Number(row.revision), state: structuredClone(state) };
+}
 
 /** `db.execute` returns `{ rows }` on every driver we use (Neon HTTP, node-postgres, PGlite). */
 function rowsOf(result: unknown): Record<string, unknown>[] {
@@ -134,28 +157,28 @@ export class PgGameStore implements GameStore {
     // The id is made here, not by the database, so the encrypted state can be
     // bound to it before the row exists.
     const id = randomUUID();
-    const owner = ownerColumns(game.owner);
     const [row] = await this.db
       .insert(games)
       .values({
         id,
         packId: game.packId,
-        ...owner,
+        ...ownerColumns(game.owner),
         state: null,
-        stateEncrypted: this.vault.encryptJson(stateKeyId(game.owner, id), STATE_FIELD, game.state),
+        stateEncrypted: this.vault.encryptJson(stateKeyId(id), STATE_FIELD, game.state),
         revision: 0,
         total: 0,
       })
-      .returning(ROW_COLUMNS);
+      .returning(META_COLUMNS);
     if (row === undefined) throw new Error("PgGameStore: insert returned no row");
-    return fromRow(this.vault, row);
+    return withState(row, game.state);
   }
 
   async save(game: StoredGame): Promise<StoredGame> {
     const { state } = game;
-    // The state is encrypted for its owner, so the update only applies if
-    // `game.owner` is the stored owner (see the end for when it isn't).
-    const owner = ownerColumns(game.owner);
+    // Only the state changes: id, owner and pack stay as created, so
+    // `game.owner` is ignored (like MemoryGameStore). Ids come from URLs; one
+    // that isn't a UUID can't exist (and would be a Postgres type error).
+    if (!UUID.test(game.id)) throw new GameNotFoundError();
     const { rounds, total } = scoreGame(state.events, state.scoring);
     // Rounds are scored in play order, so position = index + 1. Every save
     // sends all finished rounds; ON CONFLICT skips the ones already written.
@@ -177,15 +200,13 @@ export class PgGameStore implements GameStore {
       WITH updated AS (
         UPDATE games
         SET state = NULL,
-            state_encrypted = ${this.vault.encryptJson(stateKeyId(game.owner, game.id), STATE_FIELD, state)},
+            state_encrypted = ${this.vault.encryptJson(stateKeyId(game.id), STATE_FIELD, state)},
             revision = revision + 1,
             total = ${total},
             finished_at = CASE WHEN ${state.finished}::boolean THEN coalesce(finished_at, now()) ELSE NULL END,
             updated_at = now()
         WHERE id = ${game.id}::uuid AND revision = ${game.revision}
-          AND user_id IS NOT DISTINCT FROM ${owner.userId}::uuid
-          AND anon_owner_hash IS NOT DISTINCT FROM ${owner.anonOwnerHash}
-        RETURNING id, pack_id, user_id, anon_owner_hash, state, state_encrypted, revision
+        RETURNING id, pack_id, user_id, anon_owner_hash, revision
       ),
       new_rounds AS (
         INSERT INTO game_rounds (game_id, position, puzzle_id, outcome, reveal_level_reached,
@@ -199,21 +220,16 @@ export class PgGameStore implements GameStore {
           wrong_guess_penalty integer)
         ON CONFLICT (game_id, position) DO NOTHING
       )
-      SELECT id, pack_id AS "packId", user_id AS "userId", anon_owner_hash AS "anonOwnerHash", state,
-             state_encrypted AS "stateEncrypted", revision
+      SELECT id, pack_id AS "packId", user_id AS "userId", anon_owner_hash AS "anonOwnerHash", revision
       FROM updated
     `);
 
-    const [row] = rowsOf(result) as GameRow[];
-    if (row !== undefined) return fromRow(this.vault, row);
-    // Nothing updated: the game is gone, another request saved first, or the
-    // caller passed a different owner. A save never changes the owner, so in
-    // that last case save again as the stored owner (whose key the state uses).
-    const current = UUID.test(game.id) ? await this.get(game.id) : null;
-    if (current === null) throw new GameNotFoundError();
-    if (current.revision === game.revision && stateKeyId(current.owner, game.id) !== stateKeyId(game.owner, game.id)) {
-      return this.save({ ...game, owner: current.owner });
-    }
+    const [row] = rowsOf(result) as MetaRow[];
+    if (row !== undefined) return withState(row, state);
+    // Nothing updated: the game is gone, or another request saved first.
+    // Only check that the row exists: no need to fetch and decrypt its state.
+    const [exists] = await this.db.select({ id: games.id }).from(games).where(eq(games.id, game.id));
+    if (exists === undefined) throw new GameNotFoundError();
     throw new GameConflictError(game.id);
   }
 }

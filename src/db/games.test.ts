@@ -10,7 +10,7 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { CONTRACT_PUZZLES, describeGameStoreContract } from "@/game/game-store-contract";
-import { act, puzzleSourceFrom, startGame, type GameDeps, type GameOwner } from "@/game/server-game";
+import { act, GameConflictError, GameNotFoundError, puzzleSourceFrom, startGame, type GameDeps, type GameOwner } from "@/game/server-game";
 import type { Pack, ScoringConfig } from "@/game/types";
 
 import { Vault } from "@/crypto/vault";
@@ -203,7 +203,7 @@ describe("PgGameStore encryption (#84)", () => {
     // What the player did (a wrong guess on the first puzzle) is only in the encrypted copy.
     const { rows } = await pg.query<{ row: string }>("SELECT row_to_json(g)::text AS row FROM games g WHERE id = $1", [gameId]);
     for (const leak of ["wrongGuess", "events", CONTRACT_PUZZLES[0]!.id]) expect(rows[0]!.row).not.toContain(leak);
-    const state = vault.decryptJson<{ events: unknown[] }>(stateKeyId(alice, gameId), STATE_FIELD, cols.state_encrypted!);
+    const state = vault.decryptJson<{ events: unknown[] }>(stateKeyId(gameId), STATE_FIELD, cols.state_encrypted!);
     expect(JSON.stringify(state.events)).toContain("wrongGuess");
   });
 
@@ -213,7 +213,7 @@ describe("PgGameStore encryption (#84)", () => {
     await expect(other.get(gameId)).rejects.toThrow();
   });
 
-  it("can't be moved to another game or another owner", async () => {
+  it("can't be moved to another game", async () => {
     const store = new PgGameStore(db, vault);
     const a = await startGame(deps(store), PACK, bob, CONFIG);
     const b = await startGame(deps(store), PACK, bob, CONFIG);
@@ -222,6 +222,37 @@ describe("PgGameStore encryption (#84)", () => {
       b.gameId,
     ]);
     await expect(store.get(b.gameId)).rejects.toThrow();
+  });
+
+  /** A new game's state, as the service makes it. */
+  const newState = async (store: PgGameStore) => (await store.get((await startGame(deps(store), PACK, bob, CONFIG)).gameId))!.state;
+
+  it("uses the same key whatever the case of the game id or the user id", async () => {
+    const store = new PgGameStore(db, vault);
+    const upperAlice: GameOwner = { userId: ("userId" in alice ? alice.userId : "").toUpperCase() };
+    const created = await store.create({ owner: upperAlice, packId: PACK.id, state: await newState(store) });
+    expect((await store.get(created.id))!.state).toEqual(created.state);
+    const saved = await store.save({ ...created, id: created.id.toUpperCase() });
+    expect(saved.revision).toBe(1);
+    expect(await store.get(created.id.toUpperCase())).toEqual({ ...saved, id: created.id });
+  });
+
+  it("save ignores the owner it's given, like MemoryGameStore: only the state changes", async () => {
+    const store = new PgGameStore(db, vault);
+    const created = await store.create({ owner: bob, packId: PACK.id, state: await newState(store) });
+    const saved = await store.save({ ...created, owner: { anonId: "raw-cookie-token" } });
+    expect(saved).toEqual({ ...created, revision: 1 });
+    expect(await columns(created.id)).toMatchObject({ user_id: null, anon_owner_hash: "anonId" in bob && bob.anonId });
+  });
+
+  it("reports a conflict or a missing game without decrypting, even with the wrong key", async () => {
+    const store = new PgGameStore(db, vault);
+    const created = await store.create({ owner: bob, packId: PACK.id, state: await newState(store) });
+    await store.save(created);
+    const wrongKey = new PgGameStore(db, new Vault(Buffer.alloc(32, 8)));
+    await expect(wrongKey.save(created)).rejects.toBeInstanceOf(GameConflictError);
+    await expect(wrongKey.save({ ...created, id: "00000000-0000-4000-8000-000000000000" })).rejects.toBeInstanceOf(GameNotFoundError);
+    await expect(wrongKey.save({ ...created, id: "not-a-game" })).rejects.toBeInstanceOf(GameNotFoundError);
   });
 
   it("still reads a game stored before encryption, and encrypts it on the next save", async () => {

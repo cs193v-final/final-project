@@ -41,7 +41,7 @@ async function insertPlain(): Promise<string> {
 }
 
 describe("encryptGameStates", () => {
-  it("encrypts every plain state for its owner and game, leaving no plain copy", async () => {
+  it("encrypts every plain state with its game's key, leaving no plain copy", async () => {
     const ids = [await insertPlain(), await insertPlain(), await insertPlain()];
     expect(await encryptGameStates(db, vault, 2)).toEqual({ encrypted: 3, skipped: 0 });
     for (const id of ids) {
@@ -50,7 +50,7 @@ describe("encryptGameStates", () => {
         [id],
       );
       expect(rows[0]!.state).toBeNull();
-      expect(vault.decryptJson(stateKeyId({ anonId }, id), STATE_FIELD, rows[0]!.state_encrypted)).toEqual(STATE);
+      expect(vault.decryptJson(stateKeyId(id), STATE_FIELD, rows[0]!.state_encrypted)).toEqual(STATE);
     }
   });
 
@@ -58,5 +58,40 @@ describe("encryptGameStates", () => {
     await insertPlain();
     await encryptGameStates(db, vault);
     expect(await encryptGameStates(db, vault)).toEqual({ encrypted: 0, skipped: 0 });
+  });
+
+  it("reads one batch at a time, paging by id, and stops", async () => {
+    const ids = [];
+    for (let i = 0; i < 10; i++) ids.push(await insertPlain());
+    // Rows each SELECT returned (the UPDATEs return only an id).
+    const batches: number[] = [];
+    const counting = {
+      execute: async (query: Parameters<AnyDb["execute"]>[0]) => {
+        const result = await db.execute(query);
+        const rows = (result as unknown as { rows: Record<string, unknown>[] }).rows;
+        if (rows.length === 0 || "revision" in rows[0]!) batches.push(rows.length);
+        return result;
+      },
+    } as unknown as AnyDb;
+    expect(await encryptGameStates(counting, vault, 2)).toEqual({ encrypted: 10, skipped: 0 });
+    expect(batches).toEqual([2, 2, 2, 2, 2, 0]);
+    const { rows } = await pg.query<{ n: number }>("SELECT count(*)::int AS n FROM games WHERE state_encrypted IS NULL");
+    expect(rows[0]!.n).toBe(0);
+    for (const id of ids) expect((await pg.query("SELECT 1 FROM games WHERE id = $1 AND state IS NULL", [id])).rows).toHaveLength(1);
+  });
+
+  it("skips a game that changed meanwhile, without stopping", async () => {
+    const id = await insertPlain();
+    const racing = {
+      execute: async (query: Parameters<AnyDb["execute"]>[0]) => {
+        const result = await db.execute(query);
+        const rows = (result as unknown as { rows: Record<string, unknown>[] }).rows;
+        // Another request saves the game right after the backfill read it.
+        if (rows.length > 0 && "revision" in rows[0]!) await pg.query("UPDATE games SET revision = revision + 1 WHERE id = $1", [id]);
+        return result;
+      },
+    } as unknown as AnyDb;
+    expect(await encryptGameStates(racing, vault)).toEqual({ encrypted: 0, skipped: 1 });
+    await pg.query("DELETE FROM games WHERE id = $1", [id]);
   });
 });

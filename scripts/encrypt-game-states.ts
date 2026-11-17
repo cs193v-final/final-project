@@ -21,10 +21,9 @@ import { EncryptionKeyError, Vault } from "../src/crypto/vault.ts";
 import type { AnyDb } from "../src/db/content.ts";
 import { STATE_FIELD, stateKeyId } from "../src/db/game-state-key.ts";
 import { assertDatabaseUrlRequiresTls, InsecureDatabaseUrlError } from "../src/db/tls.ts";
-import type { GameOwner } from "../src/game/server-game.ts";
 import { connect } from "./seed-db.ts";
 
-type PlainRow = { id: string; user_id: string | null; anon_owner_hash: string | null; state: unknown; revision: number };
+type PlainRow = { id: string; state: unknown; revision: number };
 
 function rowsOf(result: unknown): Record<string, unknown>[] {
   if (Array.isArray(result)) return result as Record<string, unknown>[];
@@ -33,32 +32,29 @@ function rowsOf(result: unknown): Record<string, unknown>[] {
   throw new Error("unexpected result from db.execute");
 }
 
-/** Encrypts every plain game state, a batch at a time. Returns how many were encrypted and skipped. */
+/**
+ * Encrypts every plain game state, `batchSize` rows at a time, paging by id so
+ * each query reads at most one batch. Each state gets the same key the app
+ * uses (`stateKeyId`, from the game id). Returns how many were encrypted, and
+ * how many were skipped because the game changed meanwhile.
+ */
 export async function encryptGameStates(db: AnyDb, vault: Vault, batchSize = 200): Promise<{ encrypted: number; skipped: number }> {
   let encrypted = 0;
   let skipped = 0;
-  const seen = new Set<string>();
+  let lastId = "00000000-0000-0000-0000-000000000000";
   for (;;) {
     const rows = rowsOf(
       await db.execute(sql`
-        SELECT id, user_id, anon_owner_hash, state, revision FROM games
-        WHERE state_encrypted IS NULL ORDER BY id LIMIT ${batchSize + seen.size}
+        SELECT id, state, revision FROM games
+        WHERE state_encrypted IS NULL AND id > ${lastId}::uuid ORDER BY id LIMIT ${batchSize}
       `),
     ) as PlainRow[];
-    const todo = rows.filter((r) => !seen.has(r.id));
-    if (todo.length === 0) return { encrypted, skipped };
-    for (const row of todo) {
-      seen.add(row.id);
-      const owner: GameOwner | null =
-        row.user_id !== null ? { userId: row.user_id } : row.anon_owner_hash !== null ? { anonId: row.anon_owner_hash } : null;
-      if (owner === null) {
-        skipped++;
-        continue;
-      }
+    if (rows.length === 0) return { encrypted, skipped };
+    for (const row of rows) {
       const state = typeof row.state === "string" ? JSON.parse(row.state) : row.state;
       const updated = rowsOf(
         await db.execute(sql`
-          UPDATE games SET state = NULL, state_encrypted = ${vault.encryptJson(stateKeyId(owner, row.id), STATE_FIELD, state)}
+          UPDATE games SET state = NULL, state_encrypted = ${vault.encryptJson(stateKeyId(row.id), STATE_FIELD, state)}
           WHERE id = ${row.id}::uuid AND revision = ${row.revision} AND state_encrypted IS NULL
           RETURNING id
         `),
@@ -66,6 +62,7 @@ export async function encryptGameStates(db: AnyDb, vault: Vault, batchSize = 200
       if (updated.length === 1) encrypted++;
       else skipped++;
     }
+    lastId = rows.at(-1)!.id;
   }
 }
 
@@ -84,7 +81,7 @@ async function main(): Promise<void> {
     const { db, close } = await connect(url);
     try {
       const { encrypted, skipped } = await encryptGameStates(db, vault);
-      console.log(`Encrypted ${encrypted} game state(s); skipped ${skipped} (changed meanwhile, or no owner).`);
+      console.log(`Encrypted ${encrypted} game state(s); skipped ${skipped} (changed meanwhile; the app encrypts those on save).`);
     } finally {
       await close();
     }

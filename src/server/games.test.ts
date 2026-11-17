@@ -15,8 +15,9 @@ const state = vi.hoisted(() => ({
   jar: new Map<string, string>(),
 }));
 
-// Game states are stored encrypted (#84); the app reads the key from the environment.
-process.env.DATA_ENCRYPTION_KEY = Buffer.alloc(32, 5).toString("base64");
+// Game states are stored encrypted (#84); the app reads the key from the
+// environment. Stubbed for this file only (restored in afterAll).
+vi.stubEnv("DATA_ENCRYPTION_KEY", Buffer.alloc(32, 5).toString("base64"));
 
 vi.mock("@/db", () => ({ getDb: () => state.db }));
 vi.mock("next/headers", () => ({
@@ -39,6 +40,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  vi.unstubAllEnvs();
   await pg.close();
 });
 
