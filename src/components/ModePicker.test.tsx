@@ -21,14 +21,18 @@ function setup(modes?: readonly GameMode[]) {
 }
 
 describe("ModePicker", () => {
-  it("lists Daily, Stanford, Practice and Leaderboard, in that order", () => {
+  it("lists the ways to play: Daily, Stanford and Practice, in that order", () => {
     const { cards } = setup();
     expect(cards.map((c) => within(c).getByRole("heading").textContent)).toEqual([
       "Daily challenge",
       "Stanford",
       "Practice",
-      "Leaderboard",
     ]);
+  });
+
+  it("doesn't list the leaderboard as a mode, since you don't play it", () => {
+    const { picker } = setup();
+    expect(within(picker).queryByText(/leaderboard/i)).not.toBeInTheDocument();
   });
 
   it("links Practice to the practice game", () => {
@@ -38,7 +42,7 @@ describe("ModePicker", () => {
 
   it("marks modes that aren't built as Coming soon, with no link to a dead end", () => {
     const { card } = setup();
-    for (const title of ["Daily challenge", "Stanford", "Leaderboard"]) {
+    for (const title of ["Daily challenge", "Stanford"]) {
       expect(within(card(title)).getByText("Coming soon")).toBeInTheDocument();
       expect(within(card(title)).queryByRole("link")).not.toBeInTheDocument();
     }

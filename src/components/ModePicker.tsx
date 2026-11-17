@@ -12,7 +12,7 @@ export function ModePicker({ modes = MODES }: { modes?: readonly GameMode[] }) {
       <h2 id="choose-mode" className="mb-3 text-center text-sm font-semibold tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
         Choose a mode
       </h2>
-      <ul className="grid gap-3 sm:grid-cols-2">
+      <ul className="grid gap-3 sm:grid-cols-3">
         {modes.map((mode) => (
           <li
             key={mode.id}

@@ -18,9 +18,13 @@ export type GameMode =
     };
 
 /**
- * The modes, in the order the home screen lists them. When a mode is built,
- * switch it to `status: "available"` with its `href` and `cta`. Custom lobbies
- * (#67) are a stretch goal, so they aren't listed until they exist.
+ * The ways to play, in the order the home screen lists them. When a mode is
+ * built, switch it to `status: "available"` with its `href` and `cta`. Custom
+ * lobbies (#67) are a stretch goal, so they aren't listed until they exist.
+ *
+ * The leaderboard isn't here: you don't play it, so it isn't a mode (Joseph's
+ * review of #71). The home screen mentions it separately until #62 adds it,
+ * e.g. as a header link.
  */
 export const MODES: readonly GameMode[] = [
   {
@@ -42,11 +46,5 @@ export const MODES: readonly GameMode[] = [
     status: "available",
     href: "/play",
     cta: "Start practice",
-  },
-  {
-    id: "leaderboard",
-    title: "Leaderboard",
-    description: "Today's top scores.",
-    status: "coming-soon", // #62
   },
 ];

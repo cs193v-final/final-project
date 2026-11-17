@@ -32,6 +32,13 @@ describe("StartScreen", () => {
     expect(picker).toBeLessThan(html.indexOf("How to play"));
   });
 
+  it("mentions the leaderboard as coming soon, after the mode picker and not as a link", () => {
+    const note = html.indexOf("Coming soon: a daily leaderboard.");
+    expect(note).toBeGreaterThan(html.indexOf("Choose a mode"));
+    expect(note).toBeLessThan(html.indexOf("How to play"));
+    expect(html).not.toMatch(/<a[^>]*>[^<]*leaderboard/iu);
+  });
+
   it("labels the prototype as a placeholder for the daily game", () => {
     expect(html).toContain("Daily puzzles aren&#x27;t built yet");
   });

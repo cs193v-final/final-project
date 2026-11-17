@@ -24,6 +24,8 @@ export function StartScreen() {
       </div>
 
       <ModePicker />
+      {/* Not a mode, so not a card. TODO(#62): a real link, e.g. in the header. */}
+      <p className="-mt-4 text-sm text-zinc-600 dark:text-zinc-400">Coming soon: a daily leaderboard.</p>
 
       <section aria-labelledby="how-to-play" className="w-full max-w-md text-left">
         <h2 id="how-to-play" className="mb-3 text-center text-sm font-semibold tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
