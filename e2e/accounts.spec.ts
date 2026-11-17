@@ -42,3 +42,12 @@ test("log-in asks for both fields, and links to sign-up and back to start", asyn
   await page.getByRole("link", { name: "← Back to start" }).click();
   await expect(page).toHaveURL(/\/$/);
 });
+
+test("the header offers Log in on every screen when nobody is logged in", async ({ page }) => {
+  for (const path of ["/", "/play", "/register"]) {
+    await page.goto(path);
+    const site = page.getByRole("navigation", { name: "Site" });
+    await expect(site.getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/login");
+    await expect(site.getByRole("button", { name: "Log out" })).toHaveCount(0);
+  }
+});
