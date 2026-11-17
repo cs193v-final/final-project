@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { GameError, GameResult } from "@/game/game-result";
 import type { GameAction, GameView, Puzzle, PublicRound } from "@/game/types";
+import { Confetti } from "./Confetti";
 import { FinalScore } from "./FinalScore";
 import { GuessPanel } from "./GuessPanel";
 import { ImageViewer } from "./ImageViewer";
+import { POP, POP_TIMING, useAnimateOn } from "./motion";
 import { feedbackFor, finalScoreLabels, learnAnswer, NO_FEEDBACK, type Feedback, type KnownAnswers } from "./practice";
 import { RoundValue, ScoreHeader } from "./LiveScore";
 import { ZoomOutButton } from "./ZoomOutButton";
@@ -28,10 +30,10 @@ const PROBLEMS: Record<GameError, string> = {
 
 /**
  * The practice game: the image viewer and Zoom out (#10, #11), guessing (#14),
- * and the live and final score (#16). The game runs on the server (#54):
- * every move is a Server Action that returns a `GameView`, and this component
- * only renders that view. It never sees answers before a round ends, and it
- * doesn't score anything.
+ * the live and final score (#16), and answer feedback (#48). The game runs on
+ * the server (#54): every move is a Server Action that returns a `GameView`,
+ * and this component only renders that view. It never sees answers before a
+ * round ends, and it doesn't score anything.
  */
 export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
   const [view, setView] = useState<GameView | null>(initial?.ok ? initial.view : null);
@@ -49,6 +51,11 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
   // starting). Results that arrive after that are ignored, so they can't
   // rewrite the URL of the page the player is on now.
   const mounted = useRef(false);
+  // True right after a guess made here solved the round, so the confetti and
+  // the pop (#48) are for the player's own solve. A solved round that was
+  // loaded (a refresh, or the reload after another tab changed the game)
+  // isn't celebrated again.
+  const [justSolved, setJustSolved] = useState(false);
 
   /**
    * Run one server round trip, unless one is already running. A Server Action
@@ -75,6 +82,7 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       return;
     }
     setProblem(null);
+    setJustSolved(action?.type === "guess" && result.view.round?.state === "correct");
     setView(result.view);
     setFeedback((previous) => feedbackFor(action, result.view, previous));
     setAnswers((known) => learnAnswer(known, result.view));
@@ -135,6 +143,12 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
     // Only on mount: later renders get new props when the server re-renders the page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The image a guess made here just solved, if any: it pops once (#48).
+  // Called before the early returns below so the hooks run in the same order
+  // every render.
+  const solvedRound = justSolved && view?.round && !view.finished ? view.round.position : null;
+  const imageBox = useAnimateOn<HTMLDivElement>(solvedRound, POP, POP_TIMING);
 
   const alert = problem && view ? (
     <div className="flex flex-col items-center gap-2">
@@ -201,13 +215,17 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       <ScoreHeader index={round.position - 1} count={round.puzzleCount} total={view.total} />
 
       <div className="flex w-full max-w-md flex-col items-center gap-3">
-        {/* key: each image starts at its own tight crop, with no zoom animation from the last one. */}
-        <ImageViewer
-          key={round.position}
-          puzzle={{ imageUrl: round.imageSrc, reveal: cropFor(round) }}
-          revealLevel={round.revealLevel}
-          showFull={round.state !== "playing"}
-        />
+        <div ref={imageBox} data-image-box className="relative flex w-full justify-center">
+          {/* key: each image starts at its own tight crop, with no zoom animation from the last one. */}
+          <ImageViewer
+            key={round.position}
+            puzzle={{ imageUrl: round.imageSrc, reveal: cropFor(round) }}
+            revealLevel={round.revealLevel}
+            showFull={round.state !== "playing"}
+          />
+          {/* Mounts fresh each time a guess here solves an image ("Next image" unmounts it), so it plays once per solve. */}
+          {solvedRound !== null && <Confetti />}
+        </div>
         {round.state === "playing" ? (
           <ZoomOutButton round={roundView} pending={pending} onZoomOut={() => void send({ type: "reveal" })} />
         ) : round.credit ? (
