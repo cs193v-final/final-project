@@ -224,8 +224,8 @@ export function toGameView(game: StoredGame, puzzles: readonly Puzzle[]): GameVi
       },
       wrongGuesses: r.wrongGuesses,
       pointsAvailable: pointsIfCorrect(r.revealLevel, r.wrongGuesses, state.scoring),
-      // TODO(#56): read `puzzle.aiSolvedLevel` once #52 adds it to `Puzzle`.
-      aiSolvedLevel: null,
+      // Beat the AI (#56): the level the AI needed, not the answer. null = never, or not run yet.
+      aiSolvedLevel: puzzle.aiSolvedLevel,
     };
     if (r.state !== "playing") {
       round.answer = puzzle.answer;

@@ -10,6 +10,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { Pool } from "pg";
 
 import * as schema from "./schema";
+import { assertDatabaseUrlRequiresTls, isLoopbackDatabaseUrl } from "./tls";
 
 export { schema };
 
@@ -33,35 +34,19 @@ const devCache = globalThis as typeof globalThis & { __zoomOutDb?: Cached };
 let prodCache: Cached | undefined;
 
 /**
- * True when a connection string points at this machine (localhost, 127.x.x.x
- * or ::1). Throws on a string that isn't a URL, without echoing it (it may
- * hold a password).
- */
-export function isLoopbackDatabaseUrl(url: string): boolean {
-  let host: string;
-  try {
-    host = new URL(url).hostname;
-  } catch {
-    throw new Error("DATABASE_URL is not a valid connection URL.");
-  }
-  return isLoopbackHost(host);
-}
-
-/** `localhost`, `127.0.0.0/8` or `::1` (with or without brackets). */
-export function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  return host === "localhost" || host === "::1" || /^127(\.\d{1,3}){3}$/.test(host);
-}
-
-/**
  * The shared Drizzle client, created on first use. Nothing connects at import
  * time, so `next build` works without `DATABASE_URL`.
  *
- * The driver depends on where the database is:
+ * Refuses a connection string that doesn't require TLS (`sslmode=require`,
+ * `verify-ca` or `verify-full`; see ./tls.ts), except for a database on this
+ * machine. The error never contains the connection string.
+ *
+ * The driver depends on where the database is, by the same loopback rule as
+ * the TLS exemption (`isLoopbackDatabaseUrl` in ./tls.ts):
  * - **Neon** (any non-loopback host: dev, preview, production): Neon's HTTP
  *   driver with the pooled `DATABASE_URL`. One HTTP request per query, no
  *   connection to keep open between serverless invocations.
- * - **A Postgres on this machine** (localhost / 127.0.0.1 / ::1: the CI e2e
+ * - **A Postgres on this machine** (localhost / 127.0.0.0/8 / ::1: the CI e2e
  *   job's service container, or a local Postgres for e2e runs): node-postgres
  *   (`pg`) over TCP. The Neon HTTP driver only talks to Neon's HTTP endpoint,
  *   not to a plain Postgres. See TECHNICAL.md → Database.
@@ -73,6 +58,7 @@ export function getDb(): Db {
       "DATABASE_URL is not set. Locally, copy .env.example to .env.local (see README.md → Database).",
     );
   }
+  assertDatabaseUrlRequiresTls(url, "DATABASE_URL");
   const production = process.env.NODE_ENV === "production";
   const cached = production ? prodCache : devCache.__zoomOutDb;
   if (cached?.url === url) return cached.db;

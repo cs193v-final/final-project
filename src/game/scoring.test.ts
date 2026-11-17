@@ -143,6 +143,7 @@ describe("with the real round logic", () => {
     acceptedAnswers: [],
     reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [8, 4, 2, 1] },
     credit: { source: "test", license: "CC0" },
+    aiSolvedLevel: null,
   });
 
   it("scores the events step() emits for a full three-image game", () => {

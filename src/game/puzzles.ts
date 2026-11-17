@@ -1,28 +1,30 @@
-import type { Puzzle } from "./types.ts";
+import type { Puzzle, RevealLevel } from "./types.ts";
 
-/** Thrown when puzzle data doesn't match the `Puzzle` format. `path` says where. */
+/** Thrown when puzzle or pack data doesn't match its format. `path` says where. */
 export class PuzzleDataError extends Error {
-  constructor(
-    readonly path: string,
-    problem: string,
-  ) {
+  // A plain field, not a `readonly path` constructor parameter, so Node can run
+  // this file directly (type stripping) for the seed script (#52).
+  readonly path: string;
+
+  constructor(path: string, problem: string) {
     super(`${path}: ${problem}`);
     this.name = "PuzzleDataError";
+    this.path = path;
   }
 }
 
-type Json = Record<string, unknown>;
+export type Json = Record<string, unknown>;
 
 function isObject(value: unknown): value is Json {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function object(value: unknown, path: string): Json {
+export function object(value: unknown, path: string): Json {
   if (!isObject(value)) throw new PuzzleDataError(path, "must be an object");
   return value;
 }
 
-function text(value: unknown, path: string): string {
+export function text(value: unknown, path: string): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new PuzzleDataError(path, "must be a non-empty string");
   }
@@ -36,8 +38,20 @@ function fraction(value: unknown, path: string): number {
   return value;
 }
 
-/** Lowercase letters, digits and single hyphens, so ids are safe in URLs and file names. */
-const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/u;
+/**
+ * Lowercase letters and digits, separated by single hyphens or underscores, so
+ * ids are safe in URLs and file names ("pz-7c1e9a40", "pk_3f9c2a7e51d84b06").
+ */
+const ID_PATTERN = /^[a-z0-9]+([-_][a-z0-9]+)*$/u;
+
+/** Checks an id for a puzzle or a pack. */
+export function id(value: unknown, path: string): string {
+  const checked = text(value, path);
+  if (!ID_PATTERN.test(checked)) {
+    throw new PuzzleDataError(path, "must be lowercase letters and digits, separated by - or _");
+  }
+  return checked;
+}
 
 function parseZoomLevels(value: unknown, path: string): number[] {
   if (!Array.isArray(value) || value.length < 2) {
@@ -61,14 +75,18 @@ function parseZoomLevels(value: unknown, path: string): number[] {
   return levels;
 }
 
+/** Optional in the data; missing means the AI solver (#56) hasn't solved it. */
+function aiSolvedLevel(value: unknown, levelCount: number, path: string): RevealLevel | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value >= levelCount) {
+    throw new PuzzleDataError(path, `must be null or a reveal level from 0 to ${levelCount - 1}`);
+  }
+  return value;
+}
+
 /** Checks one puzzle and returns it typed. Unknown extra fields are dropped. */
 export function parsePuzzle(value: unknown, path = "puzzle"): Puzzle {
   const data = object(value, path);
-
-  const id = text(data.id, `${path}.id`);
-  if (!ID_PATTERN.test(id)) {
-    throw new PuzzleDataError(`${path}.id`, "must be lowercase letters, digits and hyphens");
-  }
 
   if (!Array.isArray(data.acceptedAnswers)) {
     throw new PuzzleDataError(`${path}.acceptedAnswers`, "must be an array (use [] for none)");
@@ -80,9 +98,10 @@ export function parsePuzzle(value: unknown, path = "puzzle"): Puzzle {
   const reveal = object(data.reveal, `${path}.reveal`);
   const focus = object(reveal.focus, `${path}.reveal.focus`);
   const credit = object(data.credit, `${path}.credit`);
+  const zoomLevels = parseZoomLevels(reveal.zoomLevels, `${path}.reveal.zoomLevels`);
 
   return {
-    id,
+    id: id(data.id, `${path}.id`),
     imageUrl: text(data.imageUrl, `${path}.imageUrl`),
     answer: text(data.answer, `${path}.answer`),
     acceptedAnswers,
@@ -91,13 +110,14 @@ export function parsePuzzle(value: unknown, path = "puzzle"): Puzzle {
         x: fraction(focus.x, `${path}.reveal.focus.x`),
         y: fraction(focus.y, `${path}.reveal.focus.y`),
       },
-      zoomLevels: parseZoomLevels(reveal.zoomLevels, `${path}.reveal.zoomLevels`),
+      zoomLevels,
     },
     credit: {
       source: text(credit.source, `${path}.credit.source`),
       license: text(credit.license, `${path}.credit.license`),
       ...(credit.url === undefined ? {} : { url: text(credit.url, `${path}.credit.url`) }),
     },
+    aiSolvedLevel: aiSolvedLevel(data.aiSolvedLevel, zoomLevels.length, `${path}.aiSolvedLevel`),
   };
 }
 
@@ -106,15 +126,15 @@ export function parsePuzzle(value: unknown, path = "puzzle"): Puzzle {
  * Throws a `PuzzleDataError` naming the first bad field, so a typo in the data
  * fails loudly instead of showing a broken round.
  */
-export function parsePuzzles(value: unknown): Puzzle[] {
+export function parsePuzzles(value: unknown, path = "puzzles"): Puzzle[] {
   if (!Array.isArray(value) || value.length === 0) {
-    throw new PuzzleDataError("puzzles", "must be a non-empty array");
+    throw new PuzzleDataError(path, "must be a non-empty array");
   }
-  const puzzles = value.map((puzzle, i) => parsePuzzle(puzzle, `puzzles[${i}]`));
+  const puzzles = value.map((puzzle, i) => parsePuzzle(puzzle, `${path}[${i}]`));
   const seen = new Set<string>();
   puzzles.forEach((puzzle, i) => {
     if (seen.has(puzzle.id)) {
-      throw new PuzzleDataError(`puzzles[${i}].id`, `duplicate id "${puzzle.id}"`);
+      throw new PuzzleDataError(`${path}[${i}].id`, `duplicate id "${puzzle.id}"`);
     }
     seen.add(puzzle.id);
   });

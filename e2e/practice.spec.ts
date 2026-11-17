@@ -36,14 +36,12 @@ async function guess(page: Page, text: string) {
 
 /**
  * Where `puzzle`'s answer (or an accepted answer) appears in `body`, if
- * anywhere. Case-insensitive.
- *
- * KNOWN LEAK, masked here: the sample image file names spell out some answers
- * (`/puzzles/giraffe.jpg`) and the server still sends that path as `imageSrc`
- * until per-level images (#57) and opaque ids (#52). Remove the masking then.
+ * anywhere. Case-insensitive. Nothing is masked: since #52 puzzle ids and
+ * image names are opaque, so even the full-image path (sent until #57) gives
+ * nothing away.
  */
 function findAnswer(body: string, puzzle: Puzzle): string | undefined {
-  const text = body.split(puzzle.imageUrl).join("").toLowerCase();
+  const text = body.toLowerCase();
   return [puzzle.answer, ...puzzle.acceptedAnswers].find((a) => text.includes(a.toLowerCase()));
 }
 
@@ -156,7 +154,7 @@ test("plays the practice game from the start screen to the final score and again
 
   // Play again starts a new server game from image 1 with no points.
   const finishedUrl = page.url();
-  actions.skip(); // the finished game's results name its puzzles (sample ids, #52)
+  actions.skip(); // the finished game's last response; checked below from the new game on
   await page.getByRole("button", { name: "Play again" }).click();
   await expect(page.getByText(`Image 1 of ${count}`)).toBeVisible();
   await expect(score(page)).toHaveText("Score 0");

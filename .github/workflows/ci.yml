@@ -118,6 +118,9 @@ jobs:
       - run: npm run build
       # Creates the tables in the service container (drizzle-kit uses `pg`).
       - run: npm run db:migrate
+      # Loads the practice pack and its puzzles (#52), as on every real
+      # database. /play would also work without it (it inserts the pack row).
+      - run: npm run db:seed
       - run: npm run test:e2e
       - name: Upload the report and traces
         if: failure()
