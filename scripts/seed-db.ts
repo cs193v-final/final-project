@@ -8,7 +8,7 @@
 //   talks to Neon.
 
 import type { AnyDb } from "../src/db/content.ts";
-import { isLoopbackDatabaseUrl } from "../src/db/tls.ts";
+import { assertDatabaseUrlRequiresTls, isLoopbackDatabaseUrl } from "../src/db/tls.ts";
 
 export function driverFor(url: string): "pg" | "neon" {
   try {
@@ -21,6 +21,8 @@ export function driverFor(url: string): "pg" | "neon" {
 
 /** Connects with the right driver. Call `close()` when done. */
 export async function connect(url: string): Promise<{ db: AnyDb; close: () => Promise<void> }> {
+  // Also checked by the caller; repeated here so no caller can connect without TLS (#60).
+  assertDatabaseUrlRequiresTls(url, "DATABASE_URL_UNPOOLED");
   if (driverFor(url) === "neon") {
     const { neon } = await import("@neondatabase/serverless");
     const { drizzle } = await import("drizzle-orm/neon-http");

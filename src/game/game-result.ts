@@ -6,6 +6,7 @@
 
 import type { GameView } from "./types.ts";
 import { GameConflictError, GameNotFoundError, InvalidGameActionError } from "./server-game.ts";
+import { errorForLog } from "./log-safe.ts";
 
 export type GameError =
   /** No such game, or not this player's (the two look the same). Like a 404. */
@@ -33,7 +34,7 @@ export type GameResult = { ok: true; view: GameView } | { ok: false; error: Game
  */
 export async function runGameCall(
   call: () => Promise<GameView>,
-  log: (error: unknown) => void = (error) => console.error("game call failed:", error),
+  log: (error: unknown) => void = (error) => console.error("game call failed:", errorForLog(error)),
 ): Promise<GameResult> {
   try {
     return { ok: true, view: await call() };
