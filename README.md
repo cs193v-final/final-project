@@ -35,6 +35,8 @@ Puzzle content (#52): `npm run db:seed -- --dry-run` checks content files, and `
 
 **Your test user (#53).** Accounts are username and password; there's no email and no password reset. To create your own test user in the dev database, put `TEST_USER_PASSWORD=<a password you don't use anywhere else>` in `.env.local`, then run `npm run db:test-user -- <username>` and log in at `/login`. An existing username is left unchanged. Usernames are stored encrypted (#84), so `.env.local` also needs `DATA_ENCRYPTION_KEY`: make your own dev key with `openssl rand -base64 32` and keep a copy somewhere safe. (Run `npm run db:migrate` first. The encryption migration refuses to run while `users` has rows: delete your old test users, then recreate them with this command.)
 
+**Encrypted game states (#84).** Games are stored encrypted with the same `DATA_ENCRYPTION_KEY`, so `/play` needs it too. After `npm run db:migrate` brings in migration `0006`, run `npm run db:encrypt-games` once to encrypt games stored before then (it prints only counts, and is safe to run again).
+
 ### 3. Run the app
 The app is [Next.js](https://nextjs.org) (see `AGENTS.md` → Stack). With Node 24+:
 ```bash

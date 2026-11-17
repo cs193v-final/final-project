@@ -152,6 +152,12 @@ export type GameView = {
   results: RoundResult[]; // finished rounds so far, scored on the server
   total: number;
   finished: boolean;
+  /**
+   * Once the whole game is finished (never while a round is played, #54): each
+   * image's answer, index = position - 1, so a result loaded later (a reload,
+   * the daily the next visit) can name the images (#58).
+   */
+  answers?: string[];
 };
 
 /** Owner: Ethan. PROPOSAL (#53). What other code and the browser may know about a user. */

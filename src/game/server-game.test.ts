@@ -705,3 +705,20 @@ describeGameStoreContract("MemoryGameStore", async () => ({
   packId: "practice",
   missingId: "no-such-game",
 }));
+
+describe("answers once the game is finished (#58)", () => {
+  it("names every image in the finished view, and in no view before that", async () => {
+    const { deps, pack, puzzles } = setup();
+    let view = await startGame(deps, pack, ALICE, CONFIG);
+    for (let i = 0; i < puzzles.length; i++) {
+      expect(view).not.toHaveProperty("answers");
+      view = await act(deps, view.gameId, ALICE, { type: "skip" }, view.revision);
+      expect(view).not.toHaveProperty("answers"); // this round is over, but the game isn't
+      view = await act(deps, view.gameId, ALICE, { type: "next" }, view.revision);
+    }
+    expect(view.finished).toBe(true);
+    expect(view.answers).toEqual(puzzles.map((p) => p.answer));
+    // Loaded later (a reload), the same.
+    expect((await getGame(deps, view.gameId, ALICE)).answers).toEqual(puzzles.map((p) => p.answer));
+  });
+});
