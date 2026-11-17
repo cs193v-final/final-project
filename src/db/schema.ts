@@ -178,6 +178,12 @@ export const puzzleImages = pgTable(
     src: text("src").notNull(),
     width: integer("width"),
     height: integer("height"),
+    // What this level was cut from: `cutFingerprint` of the puzzle's
+    // imageUrl, focus and zoom levels at cutting time (#57 follow-up). If any
+    // of those change (the seed script allows it as a fix), the fingerprint
+    // no longer matches and the game stops using these cuts until they're
+    // cut again. NULL: cut before fingerprints existed, so never trusted.
+    cutFrom: text("cut_from"),
   },
   (t) => [
     primaryKey({ columns: [t.puzzleId, t.level] }),

@@ -232,15 +232,21 @@ export function toGameView(game: StoredGame, puzzles: readonly Puzzle[]): GameVi
       state: r.state,
       revealLevel: r.revealLevel,
       levelCount: r.maxRevealLevel + 1,
-      // TODO(#57): the image for `revealLevel` only. Today's puzzles have a
-      // single full image that the browser crops, so this is still the full
-      // image (and its file name can name the answer).
-      imageSrc: puzzle.imageUrl,
-      // TODO(#57): drop with the field. Copied field by field, like everything here.
-      reveal: {
-        focus: { x: puzzle.reveal.focus.x, y: puzzle.reveal.focus.y },
-        zoomLevels: [...puzzle.reveal.zoomLevels],
-      },
+      // With pre-cut levels (#57): only the image for the level reached, or
+      // the full image once the round is over. The browser shows it as is, so
+      // no crop settings are sent, and no URL of a level it hasn't reached.
+      // Without them (the practice pack, whose files are public): the full
+      // image and the crop settings, and the browser crops it.
+      ...(puzzle.levelImages !== undefined
+        ? { imageSrc: puzzle.levelImages[r.state === "playing" ? r.revealLevel : puzzle.levelImages.length - 1]! }
+        : {
+            imageSrc: puzzle.imageUrl,
+            // Copied field by field, like everything here.
+            reveal: {
+              focus: { x: puzzle.reveal.focus.x, y: puzzle.reveal.focus.y },
+              zoomLevels: [...puzzle.reveal.zoomLevels],
+            },
+          }),
       wrongGuesses: r.wrongGuesses,
       pointsAvailable: pointsIfCorrect(r.revealLevel, r.wrongGuesses, state.scoring),
       // Beat the AI (#56): the level the AI needed, not the answer. null = never, or not run yet.

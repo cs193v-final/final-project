@@ -522,3 +522,58 @@ describeGameStoreContract("MemoryGameStore", async () => ({
   packId: "practice",
   missingId: "no-such-game",
 }));
+
+describe("pre-cut level images (#57)", () => {
+  // Each puzzle with one URL per level, as the database puzzle source gives them.
+  const CUT: Puzzle[] = OPAQUE_SAMPLES.map((p) => ({
+    ...p,
+    levelImages: p.reveal.zoomLevels.map((_z, level) => `/img/${p.id}-level-${level}.webp`),
+  }));
+  const levelUrls = (p: Puzzle) => p.levelImages!;
+
+  /** Every pre-cut URL in the view (as sent), so we can check none beyond the level reached leaks. */
+  const urlsIn = (view: GameView) => JSON.stringify(view).match(/\/img\/p\d-level-\d\.webp/gu) ?? [];
+
+  it("sends only the image for the level reached, and no crop settings", async () => {
+    const { deps, pack } = setup(CUT);
+    let view = await startGame(deps, pack, ALICE, CONFIG);
+    expect(view.round!.imageSrc).toBe(levelUrls(CUT[0]!)[0]);
+    expect(view.round).not.toHaveProperty("reveal");
+    expect(urlsIn(view)).toEqual([levelUrls(CUT[0]!)[0]]);
+
+    view = await act(deps, view.gameId, ALICE, { type: "reveal" });
+    expect(view.round!.imageSrc).toBe(levelUrls(CUT[0]!)[1]);
+    expect(urlsIn(view)).toEqual([levelUrls(CUT[0]!)[1]]);
+    expectNoAnswers(view, CUT);
+  });
+
+  it("shows the full image (the last level) once the round is over", async () => {
+    const { deps, pack } = setup(CUT);
+    const view = await act(deps, (await startGame(deps, pack, ALICE, CONFIG)).gameId, ALICE, { type: "skip" });
+    const levels = levelUrls(CUT[0]!);
+    expect(view.round!.imageSrc).toBe(levels[levels.length - 1]);
+  });
+
+  it("never sends a later level's URL at any point of a whole game", async () => {
+    const { deps, pack } = setup(CUT);
+    let view = await startGame(deps, pack, ALICE, CONFIG);
+    for (const p of CUT) {
+      for (let level = 0; level < p.reveal.zoomLevels.length - 1; level++) {
+        const sent = urlsIn(view);
+        const allowed = levelUrls(p).slice(0, level + 1);
+        for (const url of sent) expect(allowed, `${url} at level ${level}`).toContain(url);
+        view = await act(deps, view.gameId, ALICE, { type: "reveal" });
+      }
+      view = await act(deps, view.gameId, ALICE, { type: "skip" });
+      view = await act(deps, view.gameId, ALICE, { type: "next" });
+    }
+    expect(view.finished).toBe(true);
+  });
+
+  it("keeps the old behaviour for puzzles without cuts (practice): the full image plus crop settings", async () => {
+    const { deps, pack } = setup();
+    const view = await startGame(deps, pack, ALICE, CONFIG);
+    expect(view.round!.imageSrc).toBe(OPAQUE_SAMPLES[0]!.imageUrl);
+    expect(view.round!.reveal).toEqual(OPAQUE_SAMPLES[0]!.reveal);
+  });
+});

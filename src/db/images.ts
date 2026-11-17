@@ -10,11 +10,12 @@
 // src/db/content.ts. It's still only for server code and scripts: it reads
 // image bytes and the level URLs of every puzzle.
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 import { and, asc, eq, gte, inArray, notInArray, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
+import type { Puzzle } from "../game/types.ts";
 import { imageFiles, puzzleImages, puzzles } from "./schema.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- any schema, any driver
@@ -25,6 +26,17 @@ export const IMAGE_ID = /^[0-9a-f]{32}$/;
 
 export function newImageId(): string {
   return randomBytes(16).toString("hex");
+}
+
+/**
+ * What a set of level images is cut from: the source image and the crop
+ * settings. Stored with the cuts (`puzzle_images.cut_from`); when the puzzle's
+ * current values give a different fingerprint, its cuts are stale.
+ */
+export function cutFingerprint(puzzle: Pick<Puzzle, "imageUrl" | "reveal">): string {
+  const { imageUrl, reveal } = puzzle;
+  const source = JSON.stringify([imageUrl, reveal.focus.x, reveal.focus.y, reveal.zoomLevels]);
+  return createHash("sha256").update(source).digest("hex").slice(0, 32);
 }
 
 /** The URL a level image is served at. */
@@ -65,6 +77,8 @@ export async function saveLevelImages(
   db: AnyDb,
   puzzleId: string,
   levels: readonly LevelImageInput[],
+  /** `cutFingerprint` of the puzzle these were cut from. Without it the cuts are never used by the game. */
+  cutFrom: string | null = null,
 ): Promise<StoredLevel[]> {
   if (levels.length === 0) throw new Error(`saveLevelImages: no levels for puzzle "${puzzleId}"`);
   levels.forEach((l, i) => {
@@ -106,10 +120,15 @@ export async function saveLevelImages(
 
   await db
     .insert(puzzleImages)
-    .values(stored.map(({ level, src, width, height }) => ({ puzzleId, level, src, width, height })))
+    .values(stored.map(({ level, src, width, height }) => ({ puzzleId, level, src, width, height, cutFrom })))
     .onConflictDoUpdate({
       target: [puzzleImages.puzzleId, puzzleImages.level],
-      set: { src: sql`excluded.src`, width: sql`excluded.width`, height: sql`excluded.height` },
+      set: {
+        src: sql`excluded.src`,
+        width: sql`excluded.width`,
+        height: sql`excluded.height`,
+        cutFrom: sql`excluded.cut_from`,
+      },
     });
   await db.delete(puzzleImages).where(and(eq(puzzleImages.puzzleId, puzzleId), gte(puzzleImages.level, levels.length)));
   await db.delete(imageFiles).where(
@@ -157,4 +176,31 @@ export async function getLevelSrcs(db: AnyDb, puzzleIds: readonly string[]): Pro
     srcs.set(row.puzzleId, list);
   }
   return srcs;
+}
+
+/**
+ * The level URLs of each puzzle that has a complete and current set of cuts:
+ * one per zoom level, all cut from the puzzle as it is now (`cutFingerprint`).
+ * A puzzle with missing, extra-old or stale cuts isn't in the map, so the game
+ * never shows a crop that no longer matches the puzzle.
+ */
+export async function getCurrentLevelSrcs(
+  db: AnyDb,
+  puzzleList: readonly Pick<Puzzle, "id" | "imageUrl" | "reveal">[],
+): Promise<Map<string, string[]>> {
+  const current = new Map<string, string[]>();
+  if (puzzleList.length === 0) return current;
+  const rows = await db
+    .select({ puzzleId: puzzleImages.puzzleId, level: puzzleImages.level, src: puzzleImages.src, cutFrom: puzzleImages.cutFrom })
+    .from(puzzleImages)
+    .where(inArray(puzzleImages.puzzleId, puzzleList.map((p) => p.id)))
+    .orderBy(asc(puzzleImages.puzzleId), asc(puzzleImages.level));
+  for (const puzzle of puzzleList) {
+    const fingerprint = cutFingerprint(puzzle);
+    const mine = rows.filter((r) => r.puzzleId === puzzle.id);
+    const levels = puzzle.reveal.zoomLevels.length;
+    const complete = mine.length === levels && mine.every((r, i) => r.level === i && r.cutFrom === fingerprint);
+    if (complete) current.set(puzzle.id, mine.map((r) => r.src));
+  }
+  return current;
 }

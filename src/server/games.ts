@@ -46,7 +46,18 @@ export function deps(db: Db): GameDeps {
     // Practice puzzles from the repo copy (so /play works on an unseeded
     // database); everything else, e.g. the daily (#58), from the database.
     puzzles: {
-      getPuzzles: (ids) => (ids.every((id) => practiceIds.has(id)) ? practice.getPuzzles(ids) : getPuzzles(db, ids)),
+      getPuzzles: async (ids) => {
+        if (ids.every((id) => practiceIds.has(id))) return practice.getPuzzles(ids);
+        const found = await getPuzzles(db, ids);
+        // Private puzzles (daily, Stanford, lobbies) are only ever shown as
+        // pre-cut levels (#57): their full image must never reach the browser
+        // while a round is played. No current cuts → refuse, don't fall back.
+        const uncut = found.filter((p) => p.levelImages === undefined).map((p) => p.id);
+        if (uncut.length > 0) {
+          throw new Error(`No current level images for ${uncut.join(", ")}: run \`npm run db:cut-images\``);
+        }
+        return found;
+      },
     },
   };
 }

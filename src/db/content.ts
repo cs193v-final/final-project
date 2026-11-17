@@ -14,6 +14,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import type { Content } from "../game/packs.ts";
 import type { DailyEntry, Pack, Puzzle } from "../game/types.ts";
+import { getCurrentLevelSrcs } from "./images.ts";
 import { dailySchedule, gameRounds, games, packPuzzles, packs, puzzles } from "./schema.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- any schema, any driver
@@ -255,7 +256,7 @@ export async function getPuzzles(db: AnyDb, ids: readonly string[]): Promise<Puz
   if (ids.length === 0) return [];
   const rows = await db.select().from(puzzles).where(inArray(puzzles.id, [...ids]));
   const byId = new Map(rows.map((r) => [r.id, r]));
-  return ids.map((id) => {
+  const list = ids.map((id) => {
     const r = byId.get(id);
     if (!r) throw new Error(`getPuzzles: no puzzle "${id}"`);
     return {
@@ -270,7 +271,13 @@ export async function getPuzzles(db: AnyDb, ids: readonly string[]): Promise<Puz
         ...(r.creditUrl === null ? {} : { url: r.creditUrl }),
       },
       aiSolvedLevel: r.aiSolvedLevel,
-    };
+    } satisfies Puzzle;
+  });
+  // Pre-cut level images (#57), when a complete and current set exists.
+  const cuts = await getCurrentLevelSrcs(db, list);
+  return list.map((p) => {
+    const levelImages = cuts.get(p.id);
+    return levelImages === undefined ? p : { ...p, levelImages };
   });
 }
 

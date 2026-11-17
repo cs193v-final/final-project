@@ -1,0 +1,1 @@
+ALTER TABLE "puzzle_images" ADD COLUMN "cut_from" text;

@@ -25,6 +25,13 @@ export type Puzzle = {
   };
   credit: { source: string; license: string; url?: string }; // image source + usage permission
   aiSolvedLevel: RevealLevel | null; // first reveal level the AI solved it at (#56); null = never, or not run yet
+  /**
+   * Server-only, filled by the database puzzle source (#57): the URL of each
+   * pre-cut level image, index = reveal level, when a complete and current
+   * set exists. The game then sends only the current level's URL. Absent for
+   * the practice puzzles (public files the browser crops) and in content files.
+   */
+  levelImages?: string[];
 };
 
 /**

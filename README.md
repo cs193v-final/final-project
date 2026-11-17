@@ -31,7 +31,7 @@ Preview and production credentials are **never** stored in files. Jacky (the dep
 
 Schema and migrations (#47): the schema is `src/db/schema.ts` and the SQL migrations are in `drizzle/`. After changing the schema, run `npm run db:generate` and commit the new migration. `npm run db:migrate` applies migrations to the database in `DATABASE_URL_UNPOOLED` (your dev database from `.env.local` by default). Jacky applies them to preview and production; who runs what, and when, is in [TECHNICAL.md → Database](TECHNICAL.md#database-47).
 
-Puzzle content (#52): `npm run db:seed -- --dry-run` checks content files, and `npm run db:seed` loads the practice pack plus the private content in the git-ignored `content/` folder into your dev database. Never commit daily, Stanford or lobby content. Details: [TECHNICAL.md → Content and the seed script](TECHNICAL.md#content-and-the-seed-script-52).
+Puzzle content (#52): `npm run db:seed -- --dry-run` checks content files, and `npm run db:seed` loads the practice pack plus the private content in the git-ignored `content/` folder into your dev database. Then `npm run db:cut-images` cuts each private puzzle into its per-level images (#57); a daily can't be played until its puzzles are cut. Never commit daily, Stanford or lobby content. Details: [TECHNICAL.md → Content and the seed script](TECHNICAL.md#content-and-the-seed-script-52).
 
 ### 3. Run the app
 The app is [Next.js](https://nextjs.org) (see `AGENTS.md` → Stack). With Node 24+:

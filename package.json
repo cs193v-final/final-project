@@ -18,7 +18,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "node scripts/seed.ts",
-    "images:preview": "node scripts/preview-levels.ts"
+    "images:preview": "node scripts/preview-levels.ts",
+    "db:cut-images": "node scripts/cut-images.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "1.2.0",
