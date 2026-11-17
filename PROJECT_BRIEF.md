@@ -6,31 +6,31 @@
 
 ## Status at a glance
 
-As of Nov 17, 2026 (PST).
+As of 10 pm PST Mon Nov 16, 2026.
 
 | Area | Status |
 |---|---|
-| Three-image practice game | **Live.** Start screen, `/play` with the viewer, Zoom out, guessing, live score and final score screen. It still runs in the browser, with the answers sent to it, until server-side games (#77) merge. Merged since Week 8: a back link on `/play` (#43, closes #42), Playwright e2e tests in CI (#45, closes #44), and punctuation-tolerant guesses (#72, closes #29). |
+| Three-image practice game | **Live.** Start screen, `/play` with the viewer, Zoom out, guessing, live score and final score screen. Since #77 the game runs on the server, so the answers never reach the browser. Merged since Week 8: a back link on `/play` (#43, closes #42), Playwright e2e tests in CI (#45, closes #44), and punctuation-tolerant guesses (#72, closes #29). In review: practice puzzles that start on a less obvious detail, with smaller zoom steps (#117, for #112 and #113). |
 | Home screen and navigation | **Merged** (#71, closes #50): a mode picker, and a site header with a way home from every screen. |
 | Week 9 plan | **Done** (#69, closes #46): issues #47–#68, milestones, and the shared-type proposals. |
 | Checkpoint 2 requirements | **Due 9 am PST Tue Nov 17.** Issues #84–#97, tracked in the checklist #97. The requirements are in `INSTRUCTIONS.md` §4 (#96). |
-| Database schema | **Merged** (#74, closes #47). Zoom-level checks are approved (#82). |
+| Database schema | **Merged** (#74, closes #47), with database checks for zoom levels (#82). |
 | Packs and seed script | **Merged** (#79, closes #52 and #36). |
-| Server-side games | **Approved, not merged yet** (#77, #54). |
-| Per-level images | **In review** (#83, part of #57); a later push dismissed the approval. Using them in the game comes after #77. |
-| Answer feedback (game feel) | **Approved, not merged yet** (#70, #48). It includes #77 until #77 merges. |
-| Data protection | **Partly merged** (#75, part of #60): TLS on every database connection, a check that no database variable is `NEXT_PUBLIC_`, and the stored-data inventory. Per-user access checks wait for #54 and #53. |
+| Server-side games | **Merged** (#77, closes #54): `/play` runs on the server with an anonymous owner cookie. |
+| Per-level images | **Partly merged** (#83, part of #57): cutting each image into zoom levels, image storage and the `/img` route. The game doesn't use them yet. |
+| Answer feedback (game feel) | **Approved, not merged yet** (#70, #48). |
+| Data protection | **Partly merged** (#75, part of #60): TLS on every database connection, a check that no database variable is `NEXT_PUBLIC_`, and the stored-data inventory. Per-user access checks wait for accounts (#53). |
 | Configurable scoring | **In review** (#76, #64). |
-| Accounts | **In review** (#103, #53): username and password, sessions and rate-limited login. |
+| Accounts | **In review, changes requested** (#103, #53): username and password, sessions and rate-limited login. |
 | Daily streaks | **Logic merged** (#73, #81; part of #63). The query and the display wait for #53 and #58. |
-| Daily themes | **In PR:** today's pack and the intro screen (#100, part of #58). Content not started: #55 and #59. |
+| Daily themes | **In PR** (part of #58): today's pack and the intro screen (#100, approved), and playing today's daily, one game per player per day (#119, in review). Content not started: #55 and #59. |
 | Accessibility, full-flow e2e tests | **Not started:** #49, #61. |
-| Checkpoint 2 backend | **Not started:** encryption (#84), game-server rate limits (#85), `COST-CONTROLS.md` (#86), secrets and `SECRETS.md` (#87), gitleaks on every checkout (#88), security audit (#95). |
-| Checkpoint 2 frontend | **Started.** Merged: shared controls for consistent buttons, links and headings (#102, part of #89), and the user-test notes folder (#99, closes #98). Not started: user tests (#90–#93), deciding which features ship (#94). |
+| Checkpoint 2 backend | **Started.** Game-server rate limits are in a draft PR (#104, for #85; it waits on #103). Security audit (#95): run, with its findings filed as #105–#111, and its findings on #83 fixed before #83 merged; `SECURITY-AUDIT.md` isn't written yet. Not started: encryption (#84), `COST-CONTROLS.md` (#86), secrets and `SECRETS.md` (#87), gitleaks on every checkout (#88). |
+| Checkpoint 2 frontend | **Started.** Merged: shared controls for consistent buttons, links and headings (#102, part of #89), and the user-test notes folder (#99, closes #98). In review: notes from the playing-a-game user test (#116, part of #91), whose findings are #112–#115. Not started: the other user tests (#90, #92, #93), deciding which features ship (#94). |
 | Leaderboard, Stanford mode, Beat the AI, name | **Not started** (Final presentation): #62, #65, #56 + #66, #51. Whether any move into Checkpoint 2 is #94. |
 | Custom lobbies (stretch) | **Not started.** #67, #68 |
 | Framework / language | **Chosen (#9):** Next.js 16 + React 19 + TypeScript, Tailwind CSS, Vitest. See `AGENTS.md` → Stack. |
-| Hosting + database | **Set up.** Vercel + Neon Postgres (dev / preview / prod), from #3. The schema and migrations are merged (#74); the app starts querying the database with #77. TLS is required on every connection (#75). See `README.md`. |
+| Hosting + database | **Set up.** Vercel + Neon Postgres (dev / preview / prod), from #3. The schema and migrations are merged (#74); the app has queried it since server-side games (#77). TLS is required on every connection (#75). See `README.md`. |
 | Secret-scanning hooks + CI | **Set up.** gitleaks hooks (#5) and GitHub Actions CI (#7), including the Playwright e2e tests (#45). Run `scripts/install-gitleaks.sh` after cloning. |
 
 Everything under "Project overview" below is **planned** unless the status table says it's done.
@@ -240,6 +240,7 @@ The values in use are in `src/game/scoring-config.ts`, and that's the only place
 | Accounts | Username and password. No password reset for now, so we don't store emails (#53). |
 | Custom lobbies | Share a code and play any time, not live multiplayer (#67) |
 | Where puzzles and progress live | Puzzles, games, results and sessions in Neon; answers only on the server (#47, #54) |
+| Image storage | Postgres. Each zoom level is cut ahead of time into its own WebP in `image_files`, served at `/img/<random id>.webp`; the server only sends the current level's URL. Not Vercel Blob, whose store and token only the Vercel owner could manage (#57; details in `TECHNICAL.md`) |
 
 ### Still open (NOT settled)
 
@@ -251,7 +252,6 @@ Don't treat these as decided. Ask the owner, or keep them configurable.
 | Theme shown or hidden | Shown before play, or hidden for a bonus? | #58 |
 | Anonymous play | Default proposal: anyone can play daily; only logged-in players get leaderboard entries and streaks | #54, #62 |
 | Where non-public puzzle content lives | **Proposal (#52):** each of us keeps it in the git-ignored `content/` folder, and the seed script refuses committable content. Still to decide: how we share the files with each other (e.g. a private repo or a shared drive). | #52 |
-| Image storage | Vercel Blob or Postgres | #57 |
 | Scoring values and wrong-guess rules | Placeholders in `src/game/scoring-config.ts`; flat or increasing penalties; a guess limit? | #21, #64 |
 | Number of reveal steps; typo tolerance | Fixed or per puzzle; edit distance or none | #21 |
 | Stanford mode | A fixed pack, or its own daily rotation | #65 |

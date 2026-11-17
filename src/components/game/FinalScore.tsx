@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type { GameScore } from "@/game/scoring";
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import type { Puzzle, RoundResult, ScoringConfig } from "@/game/types";
+import { Button } from "../ui/controls";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -67,7 +68,7 @@ export function FinalScore({
             <div className="flex flex-col">
               <span className="font-medium">
                 {i + 1}. {answers.get(r.puzzleId) ?? r.puzzleId}{" "}
-                <span className={r.outcome === "correct" ? "text-emerald-700 dark:text-emerald-400" : "text-zinc-500"}>
+                <span className={r.outcome === "correct" ? "text-emerald-700 dark:text-emerald-400" : "text-zinc-600 dark:text-zinc-400"}>
                   {r.outcome === "correct" ? "✓ correct" : "skipped"}
                 </span>
               </span>
@@ -79,13 +80,7 @@ export function FinalScore({
         ))}
       </ol>
 
-      <button
-        type="button"
-        onClick={onPlayAgain}
-        className="rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-      >
-        Play again
-      </button>
+      <Button onClick={onPlayAgain}>Play again</Button>
     </section>
   );
 }

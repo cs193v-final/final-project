@@ -18,7 +18,8 @@ Rules for any coding agent working in this repo. Keep this file short. Project c
 - `src/app/`: routes (App Router). `page.tsx` is currently a **placeholder** home page.
 - `src/game/`: framework-independent game logic (types, guess checking, round state). No React or Next imports here, so it stays unit-testable. Tests sit next to the code as `*.test.ts`.
 - `src/components/`: React components (`src/components/game/` for game UI). Mark files that use state or events with `"use client"`.
-- `public/`: static files (puzzle images go here or in a subfolder).
+- `src/images/`: cutting puzzle images into one image per zoom level (`sharp`, #57). Scripts only: never import it from app code. The app serves already-cut levels from `/img/<id>.webp`.
+- `public/`: static files. Only the practice pack's images go here; daily and Stanford images never do (the repo is public).
 - **Tests:** Vitest. Logic tests run in Node. Component tests use React Testing Library and start with `// @vitest-environment jsdom`; jest-dom matchers (`toHaveFocus`, ...) are set up in `src/test/setup.ts`. Query by role and label, like a user would.
 - **End-to-end tests:** Playwright specs in `e2e/` play the real app in headless Chromium, on a desktop and a phone viewport (`playwright.config.ts`). Take answers and points from the puzzle data and `SCORING_CONFIG`, not hard-coded values. `@playwright/test` is pinned to the course container's `playwright --version`, whose Chromium is preinstalled, so don't run `playwright install` there. On your own computer, run `npx playwright install chromium` once.
 - Import from `src` with the `@/` alias (`@/game/guess`).
@@ -54,8 +55,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Never bypass the hooks with `--no-verify`.
 - **Data stays server-side.** Only server code (Route Handlers, Server Actions, Server Components) talks to the database. Never give a database variable a `NEXT_PUBLIC_` prefix, and never send stored data to a client that isn't allowed to see it.
 - **The repo is public.** Never commit daily, Stanford or lobby puzzle answers or images; only the practice pack lives in the repo.
-- **User data is encrypted at the application level (#84).** New user fields must be encrypted too.
-- **Anything that writes to the database from a request must be rate-limited (#85).**
+- **User data must be encrypted at the application level (#84, not done yet).** Until #84 lands, ask Ethan before adding a user field.
+- **Every request handler that writes to the database or costs us per call is rate-limited** per user (or anonymous owner) and per IP, with counters in Postgres; anything that grows per user is capped (#85).
 
 ## Shared interfaces
 - Every type in `src/game/types.ts` is shared between owners (see the brief): `Puzzle`, `RevealLevel`, `GuessOutcome`, `RoundState`, `ScoringEvent`, `ScoringConfig`, `RoundResult`, and the Week 9 proposals `PackKind`, `Pack`, `DailyEntry`, `GameAction`, `PublicRound`, `GameView`, `PublicUser` and `LeaderboardEntry`.
@@ -65,7 +66,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## Commands
 - Install: `npm ci` (Node 24, pinned in `package.json` `engines` so Vercel matches CI).
 - Dev server: `npm run dev`. In this course's container, bind IPv4 so the browser can reach it: `npm run dev -- -H 127.0.0.1`.
-- Lint: `npm run lint`. Typecheck: `npm run typecheck`. Tests: `npm test` (`npm run test:watch` while working). End-to-end: `npm run test:e2e` (starts the dev server itself). Build: `npm run build`.
+- Lint: `npm run lint`. Typecheck: `npm run typecheck`. Tests: `npm test` (`npm run test:watch` while working). End-to-end: `npm run test:e2e` (starts the dev server itself; `/play` needs `DATABASE_URL` and a migrated database, see README → Run the app). Build: `npm run build`.
 - Test the secret-scanning hooks: `scripts/test-hooks.sh`.
 - CI (`.github/workflows/ci.yml`) runs a secret scan, the hook tests, `shellcheck`, then `lint`, `typecheck`, `test` and `build`, and the Playwright end-to-end tests, on every PR.
 

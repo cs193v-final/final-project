@@ -1,7 +1,7 @@
 // Every database connection requires TLS (#60). Pure string checks, no network.
 import { describe, expect, it } from "vitest";
 
-import { assertDatabaseUrlRequiresTls, InsecureDatabaseUrlError } from "./tls";
+import { assertDatabaseUrlRequiresTls, InsecureDatabaseUrlError, isLoopbackDatabaseUrl, isLoopbackHost } from "./tls";
 
 // Placeholder credentials only (the gitleaks allowlist accepts USER:PASSWORD).
 const neonHost = "ep-example-123456-pooler.us-east-2.aws.neon.tech";
@@ -34,7 +34,7 @@ describe("assertDatabaseUrlRequiresTls", () => {
     expect(check(url(neonHost, "?sslmode=require&sslmode=disable"))).toThrow(/sslmode=disable/);
   });
 
-  it.each(["localhost", "localhost:5432", "127.0.0.1", "127.0.0.1:5432", "[::1]", "[::1]:5432", "LOCALHOST"])(
+  it.each(["localhost", "localhost:5432", "127.0.0.1", "127.0.0.1:5432", "127.0.0.2", "127.1.2.3:5432", "[::1]", "[::1]:5432", "LOCALHOST"])(
     "allows a loopback host (%s) without TLS, e.g. the CI Postgres container",
     (host) => {
       expect(check(`postgres://USER:PASSWORD@${host}/app`)).not.toThrow();
@@ -42,7 +42,7 @@ describe("assertDatabaseUrlRequiresTls", () => {
     },
   );
 
-  it.each(["localhost.evil.com", "127.0.0.1.nip.io", "evil.com", "10.0.0.5", "127.0.0.2"])(
+  it.each(["localhost.evil.com", "127.0.0.1.nip.io", "evil.com", "10.0.0.5", "128.0.0.1", "127.0.0.256"])(
     "does not treat %s as loopback",
     (host) => {
       expect(check(`postgres://USER:PASSWORD@${host}/app`)).toThrow(/sslmode is missing/);
@@ -87,5 +87,51 @@ describe("assertDatabaseUrlRequiresTls", () => {
         expect(message).not.toContain(part);
       }
     }
+  });
+});
+
+// One loopback rule (#54, #60): the hosts exempt from TLS are exactly the ones
+// the app (src/db/index.ts) and the seed script reach with node-postgres.
+describe("isLoopbackHost / isLoopbackDatabaseUrl", () => {
+  it.each(["localhost", "LOCALHOST", "127.0.0.1", "127.0.0.2", "127.1.2.3", "127.255.255.255", "::1", "[::1]"])(
+    "%s is loopback",
+    (host) => {
+      expect(isLoopbackHost(host)).toBe(true);
+      expect(isLoopbackDatabaseUrl(`postgres://USER:PASSWORD@${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}/app`)).toBe(true);
+    },
+  );
+
+  it.each(["example.com", "localhost.example.com", "127.0.0.1.nip.io", "10.0.0.1", "128.0.0.1", "127.0.0.256", "::2", neonHost])(
+    "%s is not loopback",
+    (host) => {
+      expect(isLoopbackHost(host)).toBe(false);
+    },
+  );
+
+  it("agrees with the TLS exemption for every host, ports and host parameters included", () => {
+    const urls = [
+      "postgres://USER:PASSWORD@127.0.0.2:5432/app",
+      "postgres://USER:PASSWORD@[::1]:5432/app",
+      "postgres://USER:PASSWORD@localhost/app",
+      `postgres://USER:PASSWORD@localhost/app?host=${neonHost}`,
+      `postgres://USER:PASSWORD@${neonHost}/app?host=127.0.0.1`,
+      `postgres://USER:PASSWORD@localhost/app?host=localhost,${neonHost}`,
+      url(neonHost),
+      "postgres:///app?host=/var/run/postgresql",
+    ];
+    for (const u of urls) {
+      let exempt = true;
+      try {
+        assertDatabaseUrlRequiresTls(u);
+      } catch {
+        exempt = false;
+      }
+      expect(isLoopbackDatabaseUrl(u), u).toBe(exempt);
+    }
+  });
+
+  it("is false for strings that aren't URLs", () => {
+    expect(isLoopbackDatabaseUrl("not a url")).toBe(false);
+    expect(isLoopbackDatabaseUrl("")).toBe(false);
   });
 });

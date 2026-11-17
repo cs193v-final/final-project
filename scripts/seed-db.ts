@@ -1,27 +1,22 @@
 // The seed script's database connection (#52). The driver depends on the host,
-// the same rule as #54's `src/db/index.ts` (which is server-only, so the seed
-// script can't import it):
+// by the same loopback rule as `src/db/index.ts` and the TLS exemption
+// (`isLoopbackDatabaseUrl` in src/db/tls.ts, which has no imports, so Node
+// can run it here; src/db/index.ts itself is server-only):
 // - Neon (dev, preview, production): Neon's HTTP driver.
 // - A Postgres on this machine (localhost, 127.x, ::1: CI's e2e service
 //   container or a laptop): node-postgres (`pg`), since Neon's HTTP driver only
 //   talks to Neon.
 
 import type { AnyDb } from "../src/db/content.ts";
-
-/** `localhost`, `127.0.0.0/8` or `::1` (with or without brackets). */
-export function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/gu, "");
-  return host === "localhost" || host === "::1" || /^127(\.\d{1,3}){3}$/u.test(host);
-}
+import { isLoopbackDatabaseUrl } from "../src/db/tls.ts";
 
 export function driverFor(url: string): "pg" | "neon" {
-  let host: string;
   try {
-    host = new URL(url).hostname;
+    new URL(url);
   } catch {
     throw new Error("DATABASE_URL_UNPOOLED is not a valid connection URL.");
   }
-  return isLoopbackHost(host) ? "pg" : "neon";
+  return isLoopbackDatabaseUrl(url) ? "pg" : "neon";
 }
 
 /** Connects with the right driver. Call `close()` when done. */
