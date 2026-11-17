@@ -9,6 +9,7 @@ import "server-only";
 
 import { limitsAddress } from "@/auth/limits-address";
 import { requestIp } from "@/auth/session";
+import { getVault } from "@/crypto/vault";
 import { getDb, type Db } from "@/db";
 import { getPuzzles } from "@/db/content";
 import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
@@ -47,7 +48,7 @@ export function deps(db: Db): GameDeps {
     // (they're read from the repo), so practice games don't record rounds;
     // every other pack's puzzles are in the database, so those do (the daily
     // result's per-image stats, #58, and leaderboards, #62, read them).
-    games: new PgGameStore(db, { recordRounds: (state) => state.pack.kind !== "practice" }),
+    games: new PgGameStore(db, getVault(), { recordRounds: (state) => state.pack.kind !== "practice" }),
     // Practice puzzles from the repo copy (so /play works on an unseeded
     // database); everything else, e.g. the daily (#58), from the database.
     puzzles: {
