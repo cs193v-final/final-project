@@ -117,8 +117,31 @@ export interface PuzzleSource {
   getPuzzles(ids: readonly string[]): Promise<Puzzle[]>;
 }
 
-/** What the game functions need. */
-export type GameDeps = { games: GameStore; puzzles: PuzzleSource };
+/**
+ * Where each puzzle's pre-cut level images are (#57): one `/img/<id>.webp`
+ * URL per zoom level, tightest first. Server-only: the browser only ever gets
+ * the URL of the level the player has reached.
+ */
+export interface LevelImageSource {
+  /**
+   * Each of these puzzles that has been cut, mapped to its level URLs in order:
+   * a complete list from level 0, with no gaps. Puzzles not cut yet, or only
+   * partly, are left out.
+   */
+  getLevelSrcs(puzzleIds: readonly string[]): Promise<ReadonlyMap<string, readonly string[]>>;
+}
+
+/**
+ * What the game functions need. Without `levels` (tests of the game rules),
+ * every puzzle is shown the old way: its one image, cropped in the browser.
+ */
+export type GameDeps = { games: GameStore; puzzles: PuzzleSource; levels?: LevelImageSource };
+
+/**
+ * Where the public practice images live (`public/puzzles/`, #52). Only these
+ * may still be sent whole before they're cut (#57); anything else is private.
+ */
+const PUBLIC_IMAGE_PREFIX = "/puzzles/";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -190,14 +213,54 @@ export function parseGameAction(value: unknown): GameAction {
 // ---------------------------------------------------------------------------
 
 /**
+ * The image fields of the current round (#57).
+ * - **Cut** (the puzzle has one level image per zoom level): only the URL of
+ *   the level reached, or the full image's level once the round is over. No
+ *   `reveal`: each level is already its own picture.
+ * - **Not cut yet:** a public practice image is still sent whole, with
+ *   `reveal` for the browser to crop, as before #57. Any other puzzle throws,
+ *   so a private daily or Stanford image is never sent whole.
+ * - **No level source** (`levelSrcs` undefined, e.g. tests of the game
+ *   rules): the old way, for every puzzle.
+ */
+function roundImage(
+  puzzle: Puzzle,
+  round: Round,
+  levelSrcs: ReadonlyMap<string, readonly string[]> | undefined,
+): Pick<PublicRound, "imageSrc" | "reveal"> {
+  const srcs = levelSrcs?.get(puzzle.id);
+  // `getLevelSrcs` only returns lists with no gaps, so the length says whether every level is cut.
+  if (srcs !== undefined && srcs.length === round.maxRevealLevel + 1) {
+    const level = round.state === "playing" ? round.revealLevel : round.maxRevealLevel;
+    return { imageSrc: srcs[level]! };
+  }
+  if (levelSrcs !== undefined && !puzzle.imageUrl.startsWith(PUBLIC_IMAGE_PREFIX)) {
+    throw new Error(`toGameView: puzzle ${puzzle.id} has no cut level images (run npm run db:seed)`);
+  }
+  return {
+    imageSrc: puzzle.imageUrl,
+    // Copied field by field, like everything here.
+    reveal: {
+      focus: { x: puzzle.reveal.focus.x, y: puzzle.reveal.focus.y },
+      zoomLevels: [...puzzle.reveal.zoomLevels],
+    },
+  };
+}
+
+/**
  * Build the browser's view of a game. Pure. `puzzles` are the game's puzzles
- * in play order (`game.state.puzzleIds`).
+ * in play order (`game.state.puzzleIds`). `levelSrcs` has the cut level images
+ * of (at least) the current puzzle, from a `LevelImageSource`.
  *
  * Fields are copied one by one onto a fresh object, never spread from a
  * `Puzzle`, so new puzzle fields can't leak by accident. `answer` and `credit`
  * are added only once the round is over; accepted answers are never sent.
  */
-export function toGameView(game: StoredGame, puzzles: readonly Puzzle[]): GameView {
+export function toGameView(
+  game: StoredGame,
+  puzzles: readonly Puzzle[],
+  levelSrcs?: ReadonlyMap<string, readonly string[]>,
+): GameView {
   const { state } = game;
   checkPuzzlesMatch(state, puzzles);
   const { rounds, total } = scoreGame(state.events, state.scoring);
@@ -213,15 +276,7 @@ export function toGameView(game: StoredGame, puzzles: readonly Puzzle[]): GameVi
       state: r.state,
       revealLevel: r.revealLevel,
       levelCount: r.maxRevealLevel + 1,
-      // TODO(#57): the image for `revealLevel` only. Today's puzzles have a
-      // single full image that the browser crops, so this is still the full
-      // image (and its file name can name the answer).
-      imageSrc: puzzle.imageUrl,
-      // TODO(#57): drop with the field. Copied field by field, like everything here.
-      reveal: {
-        focus: { x: puzzle.reveal.focus.x, y: puzzle.reveal.focus.y },
-        zoomLevels: [...puzzle.reveal.zoomLevels],
-      },
+      ...roundImage(puzzle, r, levelSrcs),
       wrongGuesses: r.wrongGuesses,
       pointsAvailable: pointsIfCorrect(r.revealLevel, r.wrongGuesses, state.scoring),
       // Beat the AI (#56): the level the AI needed, not the answer. null = never, or not run yet.
@@ -305,14 +360,16 @@ export async function startGame(
     lastOutcome: null,
   };
   checkPuzzlesMatch(state, puzzles);
+  // Before creating the row, so a game that can't be shown is never stored.
+  const levelSrcs = await levelsFor(deps, state, puzzles);
   const stored = await deps.games.create({ owner, packId: pack.id, state });
-  return toGameView(stored, puzzles);
+  return toGameView(stored, puzzles, levelSrcs);
 }
 
 /** The owner's game, as it is now. Use it to resume after a page refresh. */
 export async function getGame(deps: GameDeps, gameId: string, owner: GameOwner): Promise<GameView> {
   const { game, puzzles } = await load(deps, gameId, owner);
-  return toGameView(game, puzzles);
+  return viewOf(deps, game, puzzles);
 }
 
 /**
@@ -335,7 +392,7 @@ export async function act(
 
   const current: Game = { puzzles, index: state.index, round: state.round, finished: state.finished };
   const result = step(current, parsed);
-  if (!result.ok) return toGameView(game, puzzles);
+  if (!result.ok) return viewOf(deps, game, puzzles);
 
   const next: StoredGame = {
     ...game,
@@ -348,8 +405,35 @@ export async function act(
       lastOutcome: result.outcome ?? null,
     },
   };
+  // Before saving, so the game never moves on to a puzzle it can't show.
+  const levelSrcs = await levelsFor(deps, next.state, puzzles);
   const saved = await deps.games.save(next);
-  return toGameView(saved, puzzles);
+  return toGameView(saved, puzzles, levelSrcs);
+}
+
+/** `toGameView`, with the current puzzle's level images from `deps.levels` (#57). */
+async function viewOf(deps: GameDeps, game: StoredGame, puzzles: readonly Puzzle[]): Promise<GameView> {
+  return toGameView(game, puzzles, await levelsFor(deps, game.state, puzzles));
+}
+
+/**
+ * The level images `toGameView` needs for `state` (#57): only the current
+ * puzzle's URLs are looked up, and `toGameView` sends only the one for the
+ * level reached. Throws if the current puzzle can't be shown (a private puzzle
+ * that isn't cut), so call it **before** storing `state`: otherwise the game
+ * would be saved at a puzzle that fails on every later load.
+ */
+async function levelsFor(
+  deps: GameDeps,
+  state: GameState,
+  puzzles: readonly Puzzle[],
+): Promise<ReadonlyMap<string, readonly string[]> | undefined> {
+  if (deps.levels === undefined) return undefined;
+  const puzzle = state.finished ? undefined : puzzles[state.index];
+  if (puzzle === undefined) return new Map();
+  const levelSrcs = await deps.levels.getLevelSrcs([puzzle.id]);
+  roundImage(puzzle, state.round, levelSrcs); // throws if it can't be shown
+  return levelSrcs;
 }
 
 async function load(
