@@ -7,6 +7,8 @@
 // server-game.ts (rules, scoring, answer hiding) → PgGameStore → Postgres
 import "server-only";
 
+import { connection } from "next/server";
+
 import { getDb, type Db } from "@/db";
 import { ensurePackRow, PgGameStore } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
@@ -86,6 +88,12 @@ export async function actOnGame(gameId: unknown, action: unknown): Promise<GameR
 
 /** The current owner's game as it is now (resume after a refresh). */
 export async function loadGame(gameId: unknown): Promise<GameResult> {
+  // Finding the owner reads the request (cookies, and the session for a
+  // logged-in player). Mark request time here, outside runGameCall: while Next
+  // prerenders /play, connection() rejects to stop the render, and that
+  // signal has to reach Next. Inside runGameCall it would be caught, logged as
+  // "game call failed" and turned into "unavailable".
+  await connection();
   return runGameCall(async () => {
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();
