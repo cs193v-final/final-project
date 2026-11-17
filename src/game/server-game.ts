@@ -53,8 +53,9 @@ function checkOwner(owner: GameOwner): void {
 /**
  * Everything the server needs to resume a game: the round state machine's
  * state, every scoring event so far, and the scoring config the game started
- * with. Plain JSON (no Dates, Maps, classes or `undefined` fields), so it can
- * go straight into the `games.state` jsonb column (#47).
+ * with. Plain JSON (no Dates, Maps, classes or `undefined` fields), so it
+ * round-trips through JSON unchanged: the store encrypts it as JSON into
+ * `games.state_encrypted` (#47, #84).
  *
  * Puzzles are referenced by id, not copied, so answers aren't duplicated into
  * every game row. Results and the total aren't stored either: they're always
