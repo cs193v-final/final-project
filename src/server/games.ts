@@ -40,9 +40,11 @@ export function deps(db: Db): GameDeps {
   const practice = puzzleSourceFrom(SAMPLE_PUZZLES);
   const practiceIds = new Set(SAMPLE_PUZZLES.map((p) => p.id));
   return {
-    // No game_rounds rows yet: they reference `puzzles`, which only the seed
-    // script fills in.
-    games: new PgGameStore(db, getVault(), { recordRounds: false }),
+    // game_rounds rows reference `puzzles`. Practice puzzles may not be seeded
+    // (they're read from the repo), so practice games don't record rounds;
+    // every other pack's puzzles are in the database, so those do (the daily
+    // result's per-image stats, #58, and leaderboards, #62, read them).
+    games: new PgGameStore(db, getVault(), { recordRounds: (state) => state.pack.kind !== "practice" }),
     // Practice puzzles from the repo copy (so /play works on an unseeded
     // database); everything else, e.g. the daily (#58), from the database.
     puzzles: {

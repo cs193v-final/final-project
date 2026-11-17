@@ -33,7 +33,7 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers({ "x-forwarded-proto": "https" }),
 }));
 
-const { startTodaysDaily, loadTodaysDailyGame, loadDailyIntro } = await import("./daily");
+const { startTodaysDaily, loadTodaysDailyGame, loadDailyIntro, loadDailyStats } = await import("./daily");
 const { actOnGame } = await import("./games");
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -151,5 +151,25 @@ describe("the daily on the server", () => {
 
   it("a player with no cookie has no daily game yet", async () => {
     expect(await loadTodaysDailyGame(BEFORE_MIDNIGHT)).toBeNull();
+  });
+
+  it("gives stats for a daily started before midnight and finished after it, for its own day only", async () => {
+    let view = ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
+    expect(await loadDailyStats(NOV1)).toBeNull(); // still playing
+    // The moves go by game id, so the clock passing midnight doesn't matter.
+    for (let i = 0; i < PUZZLES.length; i++) {
+      view = ok(await actOnGame(view.gameId, { type: "skip" }, view.revision));
+      view = ok(await actOnGame(view.gameId, { type: "next" }, view.revision));
+    }
+    expect(view.finished).toBe(true);
+    const stats = await loadDailyStats(NOV1); // the day it was played, from the intro
+    expect(stats).not.toBeNull();
+    expect(stats!.rounds).toHaveLength(PUZZLES.length);
+    expect(await loadDailyStats(NOV2)).toBeNull(); // not this player's game for that day
+  }, 60_000);
+
+  it("gives no stats for junk dates or a player with no cookie", async () => {
+    for (const date of [null, 42, "", "tomorrow", "2026-11-1"]) expect(await loadDailyStats(date)).toBeNull();
+    expect(await loadDailyStats(NOV1)).toBeNull(); // a new player
   });
 });
