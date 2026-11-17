@@ -7,7 +7,8 @@
 //
 // Connects with DATABASE_URL_UNPOOLED, like drizzle.config.ts: a value already
 // in the environment wins; only when it's unset does it fall back to the dev
-// database in .env.local. TLS is required (localhost exempt, src/db/tls.ts),
+// database in .env.local. TLS is required (localhost exempt, src/db/tls.ts,
+// checked by `connect`),
 // and the driver follows the host like the seed script's (`connect` in
 // ./seed-db.ts): Neon's HTTP driver for Neon, node-postgres for a local one.
 // Prints only the database host, never credentials. The username is stored
@@ -21,7 +22,8 @@ import { EncryptionKeyError, Vault } from "../src/crypto/vault.ts";
 import { checkNewPassword, checkUsername } from "../src/auth/rules.ts";
 import { newUserRow } from "../src/auth/user-row.ts";
 import { insertUser, type PgDb } from "../src/db/accounts.ts";
-import { assertDatabaseUrlRequiresTls, InsecureDatabaseUrlError } from "../src/db/tls.ts";
+import { InsecureDatabaseUrlError } from "../src/db/tls.ts";
+import { errorSummary } from "../src/server/error-summary.ts";
 import { connect } from "./seed-db.ts";
 
 export const USAGE = "Usage: TEST_USER_PASSWORD=... npm run db:test-user -- <username>\n(put TEST_USER_PASSWORD in .env.local)";
@@ -64,22 +66,26 @@ async function main(): Promise<void> {
     const input = parseInput(process.argv.slice(2), process.env.TEST_USER_PASSWORD);
     const url = process.env.DATABASE_URL_UNPOOLED;
     if (!url) throw new UsageError("DATABASE_URL_UNPOOLED is not set (see README.md → Database).");
-    assertDatabaseUrlRequiresTls(url, "DATABASE_URL_UNPOOLED");
-    const vault = Vault.fromEnv();
-    console.log(`Database host: ${new URL(url).host}`);
-    const { db, close } = await connect(url);
+    // connect() checks TLS first, so an insecure URL is rejected before
+    // anything is printed. Neither driver opens a connection until the insert.
+    const { db, close } = await connect(url, "DATABASE_URL_UNPOOLED");
     try {
+      const vault = Vault.fromEnv();
+      console.log(`Database host: ${new URL(url).host}`);
       console.log(await createTestUser(db as unknown as PgDb, vault, input));
     } finally {
       await close();
     }
   } catch (error) {
+    process.exitCode = 1;
     if (error instanceof UsageError || error instanceof InsecureDatabaseUrlError || error instanceof EncryptionKeyError) {
       console.error(error.message);
-      process.exitCode = 1;
       return;
     }
-    throw error;
+    // Never the error itself: Node would print a failed insert's params (the
+    // username and the password hash). errorSummary keeps names, Postgres
+    // codes and value-free messages only (#60).
+    console.error(`Couldn't create the test user: ${errorSummary(error)}`);
   }
 }
 

@@ -1,6 +1,6 @@
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runGameCall } from "./game-result.ts";
+import { RateLimitedError, runGameCall } from "./game-result.ts";
 import { errorForLog, type LoggedError } from "./log-safe.ts";
 import { SAMPLE_PUZZLES } from "../puzzles/index.ts";
 import {
@@ -52,6 +52,15 @@ describe("runGameCall", () => {
     expect(await runGameCall(() => Promise.reject(new InvalidGameActionError("unknown type")), log)).toEqual({
       ok: false,
       error: "invalid",
+    });
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("maps a rate limit to `rate-limited`, without logging it as an error", async () => {
+    const log = vi.fn();
+    expect(await runGameCall(() => Promise.reject(new RateLimitedError("startsPerIp")), log)).toEqual({
+      ok: false,
+      error: "rate-limited",
     });
     expect(log).not.toHaveBeenCalled();
   });
