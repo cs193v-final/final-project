@@ -127,10 +127,11 @@ export type PublicRound = {
   levelCount: number;
   imageSrc: string; // Darian (#57): the image for revealLevel ONLY
   /**
-   * TEMPORARY (#54 → #57, Darian): while each puzzle has one full image,
-   * `imageSrc` is that image and the browser crops it with this (focus point
-   * and zoom per level; no answer in it). Remove once `imageSrc` is the
-   * per-level image.
+   * TEMPORARY (#54 → #57, Darian): only for a practice puzzle that hasn't
+   * been cut into level images yet. Then `imageSrc` is its full image and the
+   * browser crops it with this (focus point and zoom per level; no answer in
+   * it). Cut puzzles never have it: `imageSrc` is already the level reached.
+   * Remove once every database is seeded and cut.
    */
   reveal?: Puzzle["reveal"];
   wrongGuesses: number;
@@ -143,12 +144,20 @@ export type PublicRound = {
 /** Owner: Jacky. PROPOSAL (#54). Returned by every game call (`startGame`, `act`, `getGame`). */
 export type GameView = {
   gameId: string;
+  /** The stored game's revision. The client sends it back with each action, so one from a stale tab is rejected (#107). */
+  revision: number;
   pack: Pick<Pack, "id" | "kind" | "title" | "theme">;
   round: PublicRound | null; // null once the game is over
   lastOutcome?: GuessOutcome;
   results: RoundResult[]; // finished rounds so far, scored on the server
   total: number;
   finished: boolean;
+  /**
+   * Once the whole game is finished (never while a round is played, #54): each
+   * image's answer, index = position - 1, so a result loaded later (a reload,
+   * the daily the next visit) can name the images (#58).
+   */
+  answers?: string[];
 };
 
 /** Owner: Ethan. PROPOSAL (#53). What other code and the browser may know about a user. */

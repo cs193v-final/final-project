@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { DailyIntroScreen, resetLabel } from "@/components/daily/DailyIntroScreen";
 import { PracticeGame } from "@/components/game/PracticeGame";
@@ -9,38 +9,105 @@ import type { DailyIntro } from "@/game/daily";
 import type { GameResult } from "@/game/game-result";
 import type { GameAction } from "@/game/types";
 
+/** What starting the daily can return: a game, or why not (src/server/daily.ts). */
+export type DailyStart = GameResult | { ok: false; error: "day-over" | "no-daily" };
+
 export type DailyPlayProps = {
   /** Today's game if the player already started it (resume or result), else null. */
   initial: GameResult | null;
-  start: () => Promise<GameResult>;
-  act: (gameId: string, action: GameAction) => Promise<GameResult>;
+  /** Starts (or resumes) the daily for the day this intro shows. */
+  start: (date: string) => Promise<DailyStart>;
+  act: (gameId: string, action: GameAction, revision: number) => Promise<GameResult>;
   get: (gameId: string) => Promise<GameResult>;
   /** Today's intro (a day with a pack: the page shows the no-challenge screen otherwise). */
   intro: DailyIntro;
 };
 
+const NOT_STARTED: Record<"day-over" | "no-daily", string> = {
+  "day-over": "A new daily challenge has started since you opened this page.",
+  "no-daily": "There's no daily challenge scheduled right now.",
+};
+
 /**
  * The daily challenge (#58): the intro with a Start button, then the game.
- * A player who already started today goes straight to their game (resumed),
- * or to their result once it's finished. One game per player per day, so
- * there's no Play again.
+ * Start asks the server for the day the intro showed, so a player who opened
+ * the page before midnight doesn't silently play the next day's game. A
+ * player who already started today goes straight to their game (resumed), or
+ * to their result once it's finished. One game per player per day, so there's
+ * no Play again.
  */
 export function DailyPlay({ initial, start, act, get, intro }: DailyPlayProps) {
-  const [playing, setPlaying] = useState(initial !== null);
-  if (!playing) {
+  const [game, setGame] = useState<GameResult | null>(initial);
+  const [notStarted, setNotStarted] = useState<"day-over" | "no-daily" | null>(null);
+  const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
+
+  /**
+   * Ask the server for the intro's day. "day-over" and "no-daily" switch this
+   * screen to a message (below); anything else is a game result for the game
+   * to show. Also the game's own retry, so a retry can't start the next day.
+   */
+  const startToday = async (): Promise<GameResult> => {
+    const result = await start(intro.date);
+    if (!result.ok && (result.error === "day-over" || result.error === "no-daily")) {
+      setNotStarted(result.error);
+      return { ok: false, error: "unavailable" }; // not shown: this screen switches to the message
+    }
+    return result as GameResult;
+  };
+
+  async function onStart() {
+    if (inFlight.current) return; // a second click in the same tick
+    inFlight.current = true;
+    setPending(true);
+    try {
+      const result = await start(intro.date);
+      if (!result.ok && (result.error === "day-over" || result.error === "no-daily")) setNotStarted(result.error);
+      else setGame(result as GameResult);
+    } catch {
+      setGame({ ok: false, error: "unavailable" }); // offline, or the action is gone after a redeploy
+    } finally {
+      inFlight.current = false;
+      setPending(false);
+    }
+  }
+
+  if (notStarted !== null) {
     return (
-      <DailyIntroScreen intro={intro} start={<Button onClick={() => setPlaying(true)}>Start today&apos;s challenge</Button>} />
+      <section className="flex w-full max-w-md flex-col items-center gap-4 text-center">
+        <p role="alert" className="text-zinc-700 dark:text-zinc-300">
+          {NOT_STARTED[notStarted]}
+        </p>
+        <Button onClick={() => window.location.reload()}>See today&apos;s challenge</Button>
+      </section>
+    );
+  }
+
+  if (game === null) {
+    return (
+      <DailyIntroScreen
+        intro={intro}
+        start={
+          <Button onClick={() => void onStart()} disabled={pending}>
+            Start today&apos;s challenge
+          </Button>
+        }
+      />
     );
   }
   return (
     <PracticeGame
-      initial={initial}
-      start={start}
+      initial={game}
+      start={startToday}
       act={act}
       get={get}
       gameHref={() => "/daily"}
       replay={false}
-      afterFinish={<p className="text-center text-zinc-700 dark:text-zinc-300">That&apos;s today&apos;s challenge. A new one starts at {resetLabel(intro.reset)}.</p>}
+      afterFinish={
+        <p className="text-center text-zinc-700 dark:text-zinc-300">
+          That&apos;s today&apos;s challenge. A new one starts at {resetLabel()}.
+        </p>
+      }
     />
   );
 }

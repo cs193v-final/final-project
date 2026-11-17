@@ -1,14 +1,14 @@
 "use server";
 
-// Server Actions for /daily (#58). Public POST endpoints: no arguments are
-// taken from the browser for starting, because the server decides the day and
-// the pack. Moves and reloads go through /play's actions (the same game service,
-// owner checks and puzzle source).
+// Server Actions for /daily (#58). Public POST endpoints, so the argument is
+// untrusted: the browser only says which day its intro showed, and the server
+// checks that it's still today. The server decides the pack. Moves and reloads
+// go through /play's actions (the same game service, owner checks and puzzle
+// source).
 
-import type { GameResult } from "@/game/game-result";
-import { startTodaysDaily } from "@/server/daily";
+import { startTodaysDaily, type DailyStartResult } from "@/server/daily";
 
-/** Start today's daily, or resume the player's game for today. */
-export async function startDailyAction(): Promise<GameResult> {
-  return startTodaysDaily();
+/** Start the daily for `date` (the day the intro showed), or resume the player's game for it. */
+export async function startDailyAction(date: unknown): Promise<DailyStartResult> {
+  return startTodaysDaily(date);
 }

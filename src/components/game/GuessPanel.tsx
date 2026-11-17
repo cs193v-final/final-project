@@ -2,7 +2,24 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { Round } from "@/game/round";
+import { Button, TextInput } from "../ui/controls";
+import { SHAKE, SHAKE_TIMING, useAnimateOn } from "./motion";
 import type { Feedback } from "./practice";
+
+/**
+ * Icon shown before the message, so right and wrong never rely on color alone
+ * (#48). Decorative: the message text already says "Correct!" or "isn't it".
+ */
+function feedbackIcon(feedback: Feedback): string | null {
+  switch (feedback.kind) {
+    case "correct":
+      return "✓";
+    case "incorrect":
+      return "✗";
+    default:
+      return null;
+  }
+}
 
 export type GuessPanelProps = {
   round: Pick<Round, "state" | "wrongGuesses">;
@@ -65,7 +82,19 @@ export function GuessPanel({ round, feedback, isLastRound, pending = false, onGu
     if (guess.trim() !== "") setGuess("");
   }
 
+  // Shake the guess box on each wrong guess. Every wrong guess makes a new
+  // feedback object, so a repeated guess shakes again (#48). Not for the
+  // feedback the panel mounts with: a game resumed after a refresh shows its
+  // last wrong guess, but the player didn't just make it.
+  const [mountFeedback] = useState(feedback);
+  const guessRow = useAnimateOn<HTMLDivElement>(
+    feedback.kind === "incorrect" && feedback !== mountFeedback ? feedback : null,
+    SHAKE,
+    SHAKE_TIMING,
+  );
+
   const message = feedbackText(feedback);
+  const icon = feedbackIcon(feedback);
   const tone =
     feedback.kind === "correct"
       ? "text-emerald-700 dark:text-emerald-400"
@@ -80,11 +109,10 @@ export function GuessPanel({ round, feedback, isLastRound, pending = false, onGu
           <label htmlFor={inputId} className="text-sm font-medium">
             What is it?
           </label>
-          <div className="flex gap-2">
-            <input
+          <div ref={guessRow} data-guess-row className="flex gap-2">
+            <TextInput
               id={inputId}
               name="guess"
-              type="text"
               value={guess}
               onChange={(e) => setGuess(e.target.value)}
               autoComplete="off"
@@ -93,15 +121,12 @@ export function GuessPanel({ round, feedback, isLastRound, pending = false, onGu
               spellCheck={false}
               enterKeyHint="send"
               autoFocus
-              className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-base dark:border-zinc-700 dark:bg-zinc-900"
+              className="min-w-0 flex-1"
             />
-            <button
-              type="submit"
-              aria-disabled={pending}
-              className="rounded-lg aria-disabled:opacity-50 bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-            >
+            {/* The screen's main action while playing (#89). */}
+            <Button type="submit" disabled={pending}>
               Guess
-            </button>
+            </Button>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-zinc-600 dark:text-zinc-400">
@@ -109,34 +134,28 @@ export function GuessPanel({ round, feedback, isLastRound, pending = false, onGu
                 ? `${round.wrongGuesses} wrong ${round.wrongGuesses === 1 ? "guess" : "guesses"}`
                 : ""}
             </span>
-            <button
-              type="button"
-              onClick={() => {
-                if (!pending) onSkip();
-              }}
-              aria-disabled={pending}
-              className="rounded-lg aria-disabled:opacity-50 px-3 py-1.5 font-medium text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-300"
-            >
+            <Button variant="quiet" disabled={pending} onClick={onSkip}>
               Skip this image
-            </button>
+            </Button>
           </div>
         </form>
       ) : (
-        <button
-          ref={nextButton}
-          type="button"
-          onClick={() => {
-            if (!pending) onNext();
-          }}
-          aria-disabled={pending}
-          className="aria-disabled:opacity-50 self-start rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-        >
+        <Button ref={nextButton} disabled={pending} onClick={onNext} className="self-start">
           {isLastRound ? "See results" : "Next image"}
-        </button>
+        </Button>
       )}
       {/* Always rendered so screen readers announce changes to it. */}
-      <p role="status" aria-live="polite" className={`min-h-6 ${tone}`}>
-        {message}
+      <p
+        role="status"
+        aria-live="polite"
+        className={`flex min-h-6 items-start gap-2 ${tone} ${feedback.kind === "correct" ? "font-semibold" : ""}`}
+      >
+        {icon && (
+          <span aria-hidden="true" data-feedback-icon className="font-bold">
+            {icon}
+          </span>
+        )}
+        <span>{message}</span>
       </p>
     </section>
   );

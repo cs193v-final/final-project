@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_DAILY_RESET } from "@/game/daily-date";
 import type { DailyIntro } from "@/game/daily";
@@ -9,7 +9,7 @@ import { DailyIntroScreen, formatDailyDate, resetLabel } from "./DailyIntroScree
 // Spec for #58's first screen: the theme comes before the first image, and a
 // day with nothing scheduled gets a friendly way to keep playing.
 
-const FRUIT: DailyIntro = { date: "2026-11-20", reset: DEFAULT_DAILY_RESET, pack: { theme: "Fruit", puzzleCount: 5 } };
+const FRUIT: DailyIntro = { date: "2026-11-20", pack: { theme: "Fruit", puzzleCount: 5 } };
 
 describe("DailyIntro", () => {
   it("shows today's theme as the heading, with the date and the number of images", () => {
@@ -25,7 +25,7 @@ describe("DailyIntro", () => {
     expect(screen.getByText(/Your first game is the one that counts/u)).toBeInTheDocument();
   });
 
-  it("says when the next challenge starts, from the intro's own reset rule", () => {
+  it("says when the next challenge starts", () => {
     render(<DailyIntroScreen intro={FRUIT} />);
     expect(screen.getByText("A new challenge starts at midnight Pacific Time.")).toBeInTheDocument();
   });
@@ -43,16 +43,16 @@ describe("DailyIntro", () => {
   });
 
   it("on a day with nothing scheduled, says so kindly and offers practice", () => {
-    render(<DailyIntroScreen intro={{ date: "2026-11-25", reset: DEFAULT_DAILY_RESET, pack: null }} />);
+    render(<DailyIntroScreen intro={{ date: "2026-11-25", pack: null }} />);
     expect(screen.getByRole("heading", { name: "No daily challenge today" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Play practice" })).toHaveAttribute("href", "/play");
     expect(screen.getByText(/A new challenge starts at midnight Pacific Time/u)).toBeInTheDocument();
   });
 });
 
-const realTZ = process.env.TZ;
+// vi.stubEnv restores TZ exactly (including "not set"), so no zone leaks into later tests.
 afterEach(() => {
-  process.env.TZ = realTZ;
+  vi.unstubAllEnvs();
 });
 
 describe("formatDailyDate", () => {
@@ -67,7 +67,7 @@ describe("formatDailyDate", () => {
   it.each(["UTC", "America/Los_Angeles", "Pacific/Kiritimati", "Pacific/Pago_Pago"])(
     "gives the same day whatever the computer's time zone (TZ=%s)",
     (tz) => {
-      process.env.TZ = tz;
+      vi.stubEnv("TZ", tz);
       expect(formatDailyDate("2026-11-20")).toBe("Friday, November 20");
     },
   );
@@ -75,12 +75,15 @@ describe("formatDailyDate", () => {
 
 describe("resetLabel", () => {
   it("names the default reset in words", () => {
+    expect(resetLabel()).toBe("midnight Pacific Time");
     expect(resetLabel(DEFAULT_DAILY_RESET)).toBe("midnight Pacific Time");
   });
 
   it.each([
     [{ timeZone: "America/New_York", resetHour: 0 }, "midnight Eastern Time"],
-    [{ timeZone: "UTC", resetHour: 6 }, "6:00 Coordinated Universal Time"],
+    [{ timeZone: "UTC", resetHour: 6 }, "6 AM Coordinated Universal Time"],
+    [{ timeZone: "America/New_York", resetHour: 18 }, "6 PM Eastern Time"],
+    [{ timeZone: "America/Los_Angeles", resetHour: 12 }, "noon Pacific Time"],
   ])("names any other zone by its name, not its id (%j)", (reset, label) => {
     expect(resetLabel(reset)).toBe(label);
   });

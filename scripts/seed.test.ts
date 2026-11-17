@@ -3,7 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -25,11 +25,24 @@ function run(args: string[], env: Record<string, string> = {}) {
 
 const seed = (...args: string[]) => run(["--dry-run", ...args]);
 
-function writeContent(dir: string, name: string, data: unknown): string {
+/**
+ * Write a content file. Unless `photos` is false, also put a stand-in original
+ * photo at each puzzle's relative `imageUrl` next to it: the dry run checks
+ * that every original exists (#57), but doesn't decode it.
+ */
+function writeContent(dir: string, name: string, data: unknown, { photos = true } = {}): string {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, name);
   writeFileSync(file, JSON.stringify(data));
   cleanup.push(file);
+  if (photos) {
+    for (const { imageUrl } of (data as { puzzles?: { imageUrl: string }[] }).puzzles ?? []) {
+      const photo = join(dir, imageUrl);
+      mkdirSync(dirname(photo), { recursive: true });
+      writeFileSync(photo, "not really a jpeg");
+      cleanup.push(photo);
+    }
+  }
   return file;
 }
 
@@ -37,7 +50,7 @@ const FRUIT = {
   puzzles: [
     {
       id: "pz-0a1b2c3d",
-      imageUrl: "https://images.example.com/pz-0a1b2c3d.jpg",
+      imageUrl: "images/pz-0a1b2c3d.jpg",
       answer: "Strawberry",
       acceptedAnswers: [],
       reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [8, 4, 2, 1] },
@@ -124,6 +137,29 @@ describe("npm run db:seed -- --dry-run", { timeout: 30_000 }, () => {
     writeContent(dir, "fruit.json", FRUIT);
     const { code } = run(["--dry-run", "fruit.json"], { INIT_CWD: dir });
     expect(code).toBe(0);
+  });
+
+  it("names a puzzle whose original photo is missing, without a database", () => {
+    const { code, out } = seed(writeContent(outside(), "fruit.json", FRUIT, { photos: false }));
+    expect(out).toMatch(/puzzle pz-0a1b2c3d: no original image at .*images[/\\]pz-0a1b2c3d\.jpg/u);
+    expect(out).not.toContain("Dry run: no database touched.");
+    expect(code).toBe(1);
+  });
+
+  it("skips the photo check with --no-images", () => {
+    const { code, out } = seed("--no-images", writeContent(outside(), "fruit.json", FRUIT, { photos: false }));
+    expect(out).toContain("Dry run: no database touched.");
+    expect(code).toBe(0);
+  });
+
+  it("refuses a private puzzle's photo that git would commit", () => {
+    const dir = outside();
+    // A tracked file in the repo, reached from content kept outside it.
+    const tracked = relative(dir, join(root, "public/puzzles/pz-dbdb4dee.jpg"));
+    const committable = { ...FRUIT, puzzles: [{ ...FRUIT.puzzles[0], imageUrl: tracked }] };
+    const { code, out } = seed(writeContent(dir, "fruit.json", committable, { photos: false }));
+    expect(out).toContain("private content can't live in the repo unless it's git-ignored");
+    expect(code).toBe(1);
   });
 
   it("names the file and field when content is wrong", () => {
