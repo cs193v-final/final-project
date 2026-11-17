@@ -51,3 +51,16 @@ test("the header offers Log in on every screen when nobody is logged in", async 
     await expect(site.getByRole("button", { name: "Log out" })).toHaveCount(0);
   }
 });
+
+// A session cookie that matches no session (expired, logged out elsewhere, or
+// the database can't be reached, as in CI): every page still works, and the
+// header offers Log in.
+test("a stale session cookie still shows the pages, with Log in in the header", async ({ page, context, baseURL }) => {
+  await context.addCookies([{ name: "zo_session", value: "not-a-real-session", url: baseURL! }]);
+  for (const path of ["/", "/play"]) {
+    await page.goto(path);
+    const site = page.getByRole("navigation", { name: "Site" });
+    await expect(site.getByRole("link", { name: "Log in" })).toBeVisible();
+  }
+  await expect(page.getByRole("button", { name: "Zoom out" })).toBeVisible();
+});

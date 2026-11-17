@@ -33,6 +33,16 @@ export function AccountStatusView({ user }: { user: PublicUser | null }) {
   );
 }
 
+/**
+ * The header is on every page, including ones that don't need the database
+ * (practice). If the session can't be checked (database down or not
+ * configured), show "Log in" instead of breaking the page. `/account` still
+ * fails loudly through `requireUser`.
+ */
 export async function AccountStatus() {
-  return <AccountStatusView user={await getCurrentUser()} />;
+  const user = await getCurrentUser().catch((error: unknown) => {
+    console.error("Couldn't check the session for the header", error);
+    return null;
+  });
+  return <AccountStatusView user={user} />;
 }

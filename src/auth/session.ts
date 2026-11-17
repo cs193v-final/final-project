@@ -11,6 +11,7 @@ import "server-only";
 
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 
 import { getDb } from "@/db";
 import { deleteSession, findSessionUser } from "@/db/accounts";
@@ -24,6 +25,9 @@ export const SESSION_COOKIE = "zo_session";
 export async function getCurrentUser(): Promise<PublicUser | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
+  // Cache Components: reading the clock needs an explicit "this is request
+  // time" first, or Next reports `new Date()` as a prerender error.
+  await connection();
   return findSessionUser(getDb(), sha256Hex(token), new Date());
 }
 
