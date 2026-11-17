@@ -20,6 +20,9 @@ import { cutPuzzleImages } from "../../scripts/seed-images.ts";
 
 const state = vi.hoisted(() => ({ db: undefined as unknown, jar: new Map<string, string>() }));
 
+// Daily games are stored encrypted (#84), so the store needs a key, as in games.test.ts.
+vi.stubEnv("DATA_ENCRYPTION_KEY", Buffer.alloc(32, 5).toString("base64"));
+
 vi.mock("@/db", () => ({ getDb: () => state.db }));
 vi.mock("next/cache", () => ({ cacheLife: () => {} }));
 vi.mock("next/headers", () => ({

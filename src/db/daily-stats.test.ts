@@ -10,6 +10,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { Vault } from "@/crypto/vault";
 import { combineContent } from "@/game/packs";
 import { act, puzzleSourceFrom, startGame, startOrResumeDaily, type GameDeps, type GameOwner } from "@/game/server-game";
 import type { GameAction, Pack, Puzzle, ScoringConfig } from "@/game/types";
@@ -67,7 +68,7 @@ beforeAll(async () => {
     combineContent([{ source: "test", content: { puzzles: PUZZLES, packs: [TODAY, OTHER, { ...OTHER, id: "pk-p", kind: "practice", puzzleIds: ["pz-o1"] }], schedule: [] } }]),
   );
   // The app's settings: rounds are recorded for every pack but practice.
-  deps = { games: new PgGameStore(db, { recordRounds: (s) => s.pack.kind !== "practice" }), puzzles: puzzleSourceFrom(PUZZLES) };
+  deps = { games: new PgGameStore(db, new Vault(Buffer.alloc(32, 6)), { recordRounds: (s) => s.pack.kind !== "practice" }), puzzles: puzzleSourceFrom(PUZZLES) };
 
   // Alice: image 1 at the tightest crop (100), skips image 2 (0). Total 100.
   alice = (await play(TODAY, "2026-11-17", "alice", [["guess"], ["skip"]])).gameId;
