@@ -7,13 +7,14 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_DAILY_RESET, type DailyResetConfig } from "../game/daily-date.ts";
 import { combineContent } from "../game/packs.ts";
 import type { Pack, Puzzle } from "../game/types.ts";
 import { seedContent } from "./content.ts";
-import { BrokenDailyError, getDailyIntro, getDailyPack, todaysDate } from "./daily.ts";
+import { dailyDateFor } from "../game/daily-date.ts";
+import { getDailyIntro, getDailyPack } from "./daily.ts";
 import * as schema from "./schema.ts";
 
 const migrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url));
@@ -68,21 +69,21 @@ afterAll(async () => {
   await pg.close();
 });
 
-const realTZ = process.env.TZ;
+// vi.stubEnv restores TZ exactly (including "not set"), so no zone leaks into later tests.
 afterEach(() => {
-  process.env.TZ = realTZ;
+  vi.unstubAllEnvs();
 });
 
 /** Today's theme at an instant, or null on an empty day. */
 async function themeAt(iso: string, reset: Readonly<DailyResetConfig> = DEFAULT_DAILY_RESET) {
-  const intro = await getDailyIntro(db, todaysDate(new Date(iso), reset), reset);
+  const intro = await getDailyIntro(db, dailyDateFor(new Date(iso), reset));
   return intro.pack?.theme ?? null;
 }
 
 describe("today's daily", () => {
   it("shows the theme and the number of images, with no pack or puzzle ids, answers or images", async () => {
-    const intro = await getDailyIntro(db, "2026-11-20", DEFAULT_DAILY_RESET);
-    expect(intro).toEqual({ date: "2026-11-20", reset: DEFAULT_DAILY_RESET, pack: { theme: "Fruit", puzzleCount: 2 } });
+    const intro = await getDailyIntro(db, "2026-11-20");
+    expect(intro).toEqual({ date: "2026-11-20", pack: { theme: "Fruit", puzzleCount: 2 } });
     expect(JSON.stringify(intro)).not.toMatch(/pz-|pk-|Strawberry|Pineapple|images\.example/u);
   });
 
@@ -95,7 +96,7 @@ describe("today's daily", () => {
   it.each(["UTC", "America/Los_Angeles", "Pacific/Kiritimati", "Pacific/Pago_Pago"])(
     "doesn't depend on the server's own time zone (TZ=%s)",
     async (tz) => {
-      process.env.TZ = tz;
+      vi.stubEnv("TZ", tz);
       expect(await themeAt("2026-11-21T07:59:59Z")).toBe("Fruit");
       expect(await themeAt("2026-11-21T08:00:00Z")).toBe("Gardens");
     },
@@ -122,9 +123,8 @@ describe("today's daily", () => {
   });
 
   it("returns no pack on a day with nothing scheduled", async () => {
-    expect(await getDailyIntro(db, "2026-11-25", DEFAULT_DAILY_RESET)).toEqual({
+    expect(await getDailyIntro(db, "2026-11-25")).toEqual({
       date: "2026-11-25",
-      reset: DEFAULT_DAILY_RESET,
       pack: null,
     });
   });
@@ -142,6 +142,14 @@ describe("today's daily", () => {
   it("treats a scheduled pack with no puzzles as broken, not as an empty day", async () => {
     await pg.query("INSERT INTO packs (id, kind, title, theme) VALUES ('pk-x', 'daily', 'Broken', 'Broken')");
     await pg.query("INSERT INTO daily_schedule (date, pack_id) VALUES ('2026-12-02', 'pk-x')");
-    await expect(getDailyIntro(db, "2026-12-02", DEFAULT_DAILY_RESET)).rejects.toBeInstanceOf(BrokenDailyError);
+    expect(await getDailyIntro(db, "2026-12-02")).toEqual({ date: "2026-12-02", pack: null, broken: true });
+  });
+
+  it("keeps the pack's own scoring for the game (#64), like getPack", async () => {
+    const scoring = { basePoints: 50, revealPenalty: 5, wrongGuessPenalty: 5, minPoints: 5, skipPoints: 0 };
+    await pg.query("UPDATE packs SET scoring = $1 WHERE id = 'pk-f'", [JSON.stringify(scoring)]);
+    expect((await getDailyPack(db, "2026-11-20"))!.scoring).toEqual(scoring);
+    await pg.query("UPDATE packs SET scoring = NULL WHERE id = 'pk-f'");
+    expect(await getDailyPack(db, "2026-11-20")).not.toHaveProperty("scoring");
   });
 });

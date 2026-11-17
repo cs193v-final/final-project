@@ -1,24 +1,34 @@
 // The daily result screen's logic (#58): the spoiler-free share text and when
 // the next challenge starts. Owner: Joseph. Framework-free.
 
-import { dailyDateFor, type DailyResetConfig } from "./daily-date.ts";
+import { addDays, dailyDateFor, type DailyResetConfig } from "./daily-date.ts";
 import type { RoundResult } from "./types.ts";
 
 const QUARTER_HOUR = 15 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
 
 /**
- * The first instant after `now` that belongs to the next daily date. Every
- * time zone's offset is a multiple of 15 minutes and the reset is on the hour,
- * so the reset falls on a UTC quarter hour: check those, up to two days ahead
- * (a daylight-saving day is at most 25 hours).
+ * When the daily *after* `date` starts: the first instant whose daily date is
+ * `date + 1` (review of #121: from the day that was played, not from the
+ * clock, so a page left open past midnight never skips a day). Every time
+ * zone's offset is a multiple of 15 minutes and the reset is on the hour, so
+ * it's on a UTC quarter hour within 15 hours of that day's reset hour in UTC;
+ * binary search finds it in about 7 checks.
  */
-export function nextResetAt(now: Date, reset: Readonly<DailyResetConfig>): Date {
-  const today = dailyDateFor(now, reset);
-  let t = Math.floor(now.getTime() / QUARTER_HOUR) * QUARTER_HOUR + QUARTER_HOUR;
-  for (let i = 0; i < 2 * 24 * 4; i++, t += QUARTER_HOUR) {
-    if (dailyDateFor(new Date(t), reset) !== today) return new Date(t);
+export function nextChallengeAt(date: string, reset: Readonly<DailyResetConfig>): Date {
+  const next = addDays(date, 1);
+  const [y, m, d] = next.split("-").map(Number) as [number, number, number];
+  const guess = Date.UTC(y, m - 1, d, reset.resetHour);
+  // Quarter hours from guess - 15h to guess + 15h: the answer is the first one on `next` or later.
+  let lo = 0;
+  let hi = (30 * HOUR) / QUARTER_HOUR;
+  const at = (i: number) => new Date(guess - 15 * HOUR + i * QUARTER_HOUR);
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (dailyDateFor(at(mid), reset) >= next) hi = mid;
+    else lo = mid + 1;
   }
-  throw new Error("nextResetAt: no reset in the next two days");
+  return at(lo);
 }
 
 /** "2h 14m", "14m", "under a minute" until `until`. */

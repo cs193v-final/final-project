@@ -4,6 +4,7 @@ import { Suspense } from "react";
 
 import { DailyIntroScreen } from "@/components/daily/DailyIntroScreen";
 import { DailyPlay } from "@/components/daily/DailyPlay";
+import { ButtonLink, TextLink } from "@/components/ui/controls";
 import { actAction, getGameAction } from "@/app/play/actions";
 import { loadDailyIntro, loadTodaysDailyGame } from "@/server/daily";
 
@@ -22,7 +23,14 @@ export const metadata: Metadata = {
  */
 export default function DailyPage() {
   return (
-    <main className="flex flex-1 flex-col items-center gap-6 px-4 py-12">
+    <main className="flex flex-1 flex-col items-center gap-6 px-4 py-10">
+      <nav aria-label="Back" className="w-full max-w-md">
+        {/* "Home", like /play and the site header (#80). The arrow is decoration. */}
+        <TextLink href="/" className="gap-1">
+          <span aria-hidden="true">←</span>
+          Home
+        </TextLink>
+      </nav>
       <h1 className="sr-only">Daily challenge</h1>
       <Suspense fallback={<p className="text-zinc-600 dark:text-zinc-400">Loading today&apos;s challenge…</p>}>
         <Today />
@@ -33,28 +41,38 @@ export default function DailyPage() {
 
 async function Today() {
   await connection();
-  const intro = await loadDailyIntro().catch((error: unknown) => {
-    console.error("Couldn't load today's daily challenge", error);
-    return null;
-  });
-  if (intro !== null) {
-    if (intro.pack === null) return <DailyIntroScreen intro={intro} />;
-    const initial = await loadTodaysDailyGame().catch((error: unknown) => {
+  // One clock reading per request, so the intro and the player's game are for
+  // the same day even at the reset. Both loads at once (no extra round trip).
+  const now = new Date();
+  const [intro, initial] = await Promise.all([
+    loadDailyIntro(now).catch((error: unknown) => {
+      console.error("Couldn't load today's daily challenge", error);
+      return null;
+    }),
+    loadTodaysDailyGame(now).catch((error: unknown) => {
       console.error("Couldn't load this player's daily game", error);
       return null;
-    });
-    return <DailyPlay
+    }),
+  ]);
+  if (intro !== null && !intro.broken) {
+    if (intro.pack === null) return <DailyIntroScreen intro={intro} />;
+    return (
+      <DailyPlay
         intro={intro}
         initial={initial}
         start={startDailyAction}
         act={actAction}
         get={getGameAction}
         loadStats={dailyStatsAction}
-      />;
+      />
+    );
   }
   return (
-    <p role="alert" className="max-w-md text-center text-zinc-700 dark:text-zinc-300">
-      Couldn&apos;t load today&apos;s challenge. Please try again later.
-    </p>
+    <div className="flex max-w-md flex-col items-center gap-4 text-center">
+      <p role="alert" className="text-zinc-700 dark:text-zinc-300">
+        Couldn&apos;t load today&apos;s challenge. Please try again later, or play the practice images meanwhile.
+      </p>
+      <ButtonLink href="/play">Play practice</ButtonLink>
+    </div>
   );
 }

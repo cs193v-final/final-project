@@ -9,6 +9,12 @@ describe("StartScreen", () => {
     expect(html).toMatch(/<h1[^>]*>Zoom Out<\/h1>/u);
   });
 
+  it("says what the game is in one short line under the name (#144, from user test #90)", () => {
+    expect(html).toMatch(/<\/h1><p[^>]*>Guess the picture\. The less you see, the more you score\.<\/p>/u);
+    // The longer wording a tester found too wordy is gone.
+    expect(html).not.toContain("tiny piece of it");
+  });
+
   it("has a Start button that goes to the practice game", () => {
     expect(html).toMatch(/<a[^>]*href="\/play"[^>]*>Start practice<\/a>/u);
   });

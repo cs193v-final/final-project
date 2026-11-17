@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { DailyIntro } from "@/game/daily";
-import { DEFAULT_DAILY_RESET } from "@/game/daily-date";
 import type { DailyStats } from "@/game/daily-result";
 import type { GameView, RoundResult } from "@/game/types";
 import { DailyResult } from "./DailyResult";
@@ -13,7 +12,7 @@ import { DailyResult } from "./DailyResult";
 // next challenge, a spoiler-free Share button, Home, and per-image stats
 // ("better than X% of players") below.
 
-const INTRO: DailyIntro = { date: "2026-11-17", reset: DEFAULT_DAILY_RESET, pack: { theme: "Fruit", puzzleCount: 2 } };
+const INTRO: DailyIntro = { date: "2026-11-17", pack: { theme: "Fruit", puzzleCount: 2 } };
 const round = (puzzleId: string, outcome: RoundResult["outcome"], level: number, points: number): RoundResult => ({
   puzzleId,
   outcome,
@@ -24,6 +23,7 @@ const round = (puzzleId: string, outcome: RoundResult["outcome"], level: number,
 });
 const VIEW: GameView = {
   gameId: "g1",
+  revision: 4,
   pack: { id: "pk", kind: "daily", title: "Fruit", theme: "Fruit" },
   round: null,
   results: [round("pz-1", "correct", 0, 100), round("pz-2", "skipped", 3, 0)],
@@ -38,8 +38,8 @@ const STATS: DailyStats = {
   others: 4,
   beatenTotal: 2,
 };
-// 8:46 pm PST on Nov 16, so the next reset is in 3h 14m.
-const EVENING = () => new Date("2026-11-17T04:46:00Z");
+// 8:46 pm PST on Nov 17 (the day played), so the next daily is in 3h 14m.
+const EVENING = () => new Date("2026-11-18T04:46:00Z");
 
 function setup(props: Partial<Parameters<typeof DailyResult>[0]> = {}) {
   const share = vi.fn<(text: string) => Promise<"shared" | "copied">>(async () => "copied");
@@ -107,5 +107,52 @@ describe("DailyResult", () => {
     setup({ loadStats: vi.fn(async () => Promise.reject(new Error("offline"))) });
     expect(await screen.findByText("Stats aren't available right now.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Share result" })).toBeInTheDocument();
+  });
+
+  it("asks for the stats of the day that was played", async () => {
+    const { loadStats } = setup();
+    await screen.findByText(/Overall you did better than/u);
+    expect(loadStats).toHaveBeenCalledWith("2026-11-17");
+  });
+
+  it("says a new challenge is ready once the next daily has started, with a link to it (page left open past midnight)", async () => {
+    // Darian's case: the Nov 17 daily, and it's now 00:00:30 PST on Nov 18.
+    setup({ now: () => new Date("2026-11-18T08:00:30Z") });
+    expect(await screen.findByText(/A new challenge is ready\./u)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Play it" })).toHaveAttribute("href", "/daily");
+    expect(screen.queryByText(/The next one starts in/u)).not.toBeInTheDocument();
+  });
+
+  it("scores the share text against the game's own scoring, not the default", async () => {
+    const own = { ...VIEW, results: VIEW.results.map((r) => ({ ...r, breakdown: { ...r.breakdown, base: 50 } })), total: 50 };
+    const { share, user } = setup({ view: own });
+    await user.click(screen.getByRole("button", { name: "Share result" }));
+    expect(share.mock.calls[0]![0]).toContain("🟩⬛ 50/100");
+  });
+
+  it("falls back to the clipboard when the share sheet refuses (default share)", async () => {
+    const user = userEvent.setup(); // first: it installs its own clipboard, which we replace
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "share", { configurable: true, value: vi.fn(async () => Promise.reject(new DOMException("no", "NotAllowedError"))) });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(<DailyResult intro={INTRO} view={VIEW} loadStats={vi.fn(async () => STATS)} now={EVENING} />);
+    await user.click(screen.getByRole("button", { name: "Share result" }));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("🟩⬛ 100/200"));
+    expect(screen.getByRole("status")).toHaveTextContent("Copied to the clipboard");
+    Reflect.deleteProperty(navigator, "share");
+  });
+
+  it("doesn't restart its clock when given a new time function every render", async () => {
+    const setInterval = vi.spyOn(window, "setInterval");
+    const { rerender } = render(
+      <DailyResult intro={INTRO} view={VIEW} loadStats={vi.fn(async () => STATS)} now={() => new Date("2026-11-18T04:46:00Z")} />,
+    );
+    await screen.findByText("3h 14m");
+    const started = setInterval.mock.calls.length;
+    for (let i = 0; i < 3; i++) {
+      rerender(<DailyResult intro={INTRO} view={VIEW} loadStats={vi.fn(async () => STATS)} now={() => new Date("2026-11-18T04:46:00Z")} />);
+    }
+    expect(setInterval.mock.calls.length).toBe(started);
+    setInterval.mockRestore();
   });
 });

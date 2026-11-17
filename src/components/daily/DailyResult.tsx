@@ -3,45 +3,73 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { resetLabel } from "@/components/daily/DailyIntroScreen";
-import { Button, ButtonLink, SectionHeading } from "@/components/ui/controls";
+import { Button, ButtonLink, SectionHeading, TextLink } from "@/components/ui/controls";
 import type { DailyIntro } from "@/game/daily";
-import { betterThanPercent, formatCountdown, nextResetAt, shareText, type DailyStats } from "@/game/daily-result";
-import { SCORING_CONFIG } from "@/game/scoring-config";
+import { DEFAULT_DAILY_RESET } from "@/game/daily-date";
+import { betterThanPercent, formatCountdown, nextChallengeAt, shareText, type DailyStats } from "@/game/daily-result";
 import type { GameView } from "@/game/types";
 import { GAME_NAME } from "@/site";
 
 export type DailyResultProps = {
   intro: DailyIntro;
   view: GameView;
-  /** The Server Action that returns this player's stats (or null until there are any). */
-  loadStats: () => Promise<DailyStats | null>;
+  /** The Server Action that returns this player's stats for a day (or null until there are any). */
+  loadStats: (date: string) => Promise<DailyStats | null>;
   /** For tests: the clock and the share/copy functions. */
   now?: () => Date;
   share?: (text: string) => Promise<"shared" | "copied">;
 };
 
-/** Native share sheet where there is one (phones), else the clipboard. */
+/**
+ * The native share sheet where there is one (phones), else the clipboard. If
+ * the share sheet refuses (desktop Chrome has one but may say NotAllowedError
+ * or InvalidStateError, e.g. on a second tap), fall back to the clipboard too
+ * (review of #121). Closing the sheet (AbortError) is passed on, not a failure.
+ */
 async function defaultShare(text: string): Promise<"shared" | "copied"> {
   if (typeof navigator.share === "function") {
-    await navigator.share({ text });
-    return "shared";
+    try {
+      await navigator.share({ text });
+      return "shared";
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+    }
   }
   await navigator.clipboard.writeText(text);
   return "copied";
 }
 
-/** A clock that `useSyncExternalStore` can read: null until subscribed, then the time every 30 s. */
-function createClock(now: () => Date) {
+/**
+ * A clock that `useSyncExternalStore` can read: null until subscribed, then
+ * the time every 30 s. It holds its own time function, which `setNow` swaps,
+ * so a new function each render never restarts it (review of #121).
+ */
+function createClock() {
+  let now: () => Date = () => new Date();
   let time: Date | null = null;
+  let notify: (() => void) | null = null;
   return {
+    setNow(fn: () => Date) {
+      now = fn;
+      // Re-read right away when already ticking, so the order of the first
+      // tick and this call doesn't matter.
+      if (notify) {
+        time = now();
+        notify();
+      }
+    },
     subscribe(onChange: () => void) {
+      notify = onChange;
       const tick = () => {
         time = now();
         onChange();
       };
       queueMicrotask(tick);
       const id = window.setInterval(tick, 30_000);
-      return () => window.clearInterval(id);
+      return () => {
+        window.clearInterval(id);
+        notify = null;
+      };
     },
     get: () => time,
   };
@@ -49,7 +77,8 @@ function createClock(now: () => Date) {
 
 /** The time, updated every 30 s. `null` on the server and in the first client render, so they agree. */
 function useNow(now: () => Date): Date | null {
-  const clock = useMemo(() => createClock(now), [now]);
+  const [clock] = useState(createClock);
+  useEffect(() => clock.setNow(now), [clock, now]);
   return useSyncExternalStore(clock.subscribe, clock.get, () => null);
 }
 
@@ -67,13 +96,13 @@ export function DailyResult({ intro, view, loadStats, now = systemNow, share = d
 
   useEffect(() => {
     let live = true;
-    loadStats()
+    loadStats(intro.date)
       .then((s) => live && setStats(s))
       .catch(() => live && setStats(null));
     return () => {
       live = false;
     };
-  }, [loadStats]);
+  }, [loadStats, intro.date]);
 
   const text = shareText({
     gameName: GAME_NAME,
@@ -81,7 +110,8 @@ export function DailyResult({ intro, view, loadStats, now = systemNow, share = d
     theme: intro.pack?.theme ?? "",
     rounds: view.results,
     total: view.total,
-    maxTotal: SCORING_CONFIG.basePoints * view.results.length,
+    // The game's own scoring (#64): each round's base is what it was worth at most.
+    maxTotal: view.results.reduce((sum, r) => sum + r.breakdown.base, 0),
     ...(typeof window === "undefined" ? {} : { url: `${window.location.origin}/daily` }),
   });
 
@@ -95,19 +125,24 @@ export function DailyResult({ intro, view, loadStats, now = systemNow, share = d
     }
   }
 
-  const next = time ? nextResetAt(time, intro.reset) : null;
-  const ready = next !== null && time !== null && next.getTime() <= time.getTime();
+  // When the next daily starts, from the day that was played: computed once.
+  const next = useMemo(() => nextChallengeAt(intro.date, DEFAULT_DAILY_RESET), [intro.date]);
+  const ready = time !== null && time.getTime() >= next.getTime();
 
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-5 text-center">
       <p className="text-zinc-700 dark:text-zinc-300">
         That&apos;s today&apos;s challenge.{" "}
-        {next && time && !ready ? (
+        {ready ? (
+          <>
+            A new challenge is ready. <TextLink href="/daily">Play it</TextLink>
+          </>
+        ) : time !== null ? (
           <>
             The next one starts in <strong>{formatCountdown(next.getTime() - time.getTime())}</strong>.
           </>
         ) : (
-          <>A new one starts at {resetLabel(intro.reset)}.</>
+          <>A new one starts at {resetLabel()}.</>
         )}
       </p>
 

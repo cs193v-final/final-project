@@ -50,6 +50,8 @@ test.beforeAll(async () => {
   }
 });
 
+// Cleanup runs once after every project: e2e/global-teardown.ts.
+
 test.beforeEach(() => {
   test.skip(!scheduledHere, "today already has real daily content");
 });

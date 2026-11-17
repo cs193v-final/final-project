@@ -48,9 +48,9 @@ async function play(pack: Pack, date: string, who: string, perImage: GameAction[
   for (const [i, moves] of perImage.entries()) {
     for (const move of moves) {
       const answer = PUZZLES.find((p) => p.id === pack.puzzleIds[i])!.answer;
-      view = await act(deps, view.gameId, me, move === "guess" ? { type: "guess", guess: answer } : ({ type: move } as GameAction));
+      view = await act(deps, view.gameId, me, move === "guess" ? { type: "guess", guess: answer } : ({ type: move } as GameAction), view.revision);
     }
-    if (i < perImage.length - 1 || finish) view = await act(deps, view.gameId, me, { type: "next" });
+    if (i < perImage.length - 1 || finish) view = await act(deps, view.gameId, me, { type: "next" }, view.revision);
   }
   return view;
 }
@@ -79,6 +79,10 @@ beforeAll(async () => {
   await play(TODAY, "2026-11-17", "dan", [["guess"]], false);
   // Someone played a different daily and a practice pack: don't count either.
   await play(OTHER, "2026-11-18", "erin", [["skip"], ["skip"]]);
+  // Gus played the SAME pack on another day (a reused pack). He knew nothing
+  // Alice didn't, but he isn't one of "the players who finished today", so he
+  // must not count (review of #121): he'd add one to every count below.
+  await play(TODAY, "2026-11-18", "gus", [["skip"], ["skip"]]);
   await startGame(deps, { ...OTHER, id: "pk-p", kind: "practice", puzzleIds: ["pz-o1"] }, owner("erin"), CONFIG);
 }, 60_000);
 
@@ -105,10 +109,27 @@ describe("getDailyStats", () => {
     expect(stats.beatenTotal).toBe(2); // beats Alice's 100 and Cara's 60; ties Bob's 180
   });
 
-  it("is empty-handed, not wrong, for the first finisher of a daily", async () => {
+  it("is empty-handed, not wrong, for the first finisher of a day", async () => {
+    // Erin finished the same pack on Nov 18; Fay plays it on Nov 19, so nobody else played her day.
     const first = await play(OTHER, "2026-11-19", "fay", [["guess"], ["guess"]]);
-    // Erin finished OTHER too (a different day's game of the same pack), so Fay has one other player.
-    expect((await getDailyStats(db, first.gameId)).others).toBe(1);
+    expect(await getDailyStats(db, first.gameId)).toEqual({ rounds: [{ position: 1, others: 0, beaten: 0 }, { position: 2, others: 0, beaten: 0 }], others: 0, beatenTotal: 0 });
+  });
+
+  it("only counts the same day's players, even for the same pack (Gus played it on Nov 18)", async () => {
+    const gus = await getDailyStats(db, (await play(TODAY, "2026-11-18", "gus", [])).gameId);
+    expect(gus.others).toBe(0); // Alice, Bob, Cara and Dan played Nov 17
+  });
+
+  it("keeps the overall count and the per-image counts to the same players", async () => {
+    // A finished game with no recorded rounds (e.g. finished before rounds were recorded) counts in neither.
+    const { rows } = await pg.query<{ id: string }>(
+      "INSERT INTO games (pack_id, anon_owner_hash, state, finished_at, total, daily_date) VALUES ('pk-today', $1, '{}', now(), 500, '2026-11-17') RETURNING id",
+      [createHash("sha256").update("hank").digest("hex")],
+    );
+    expect(rows[0]).toBeDefined();
+    const stats = await getDailyStats(db, alice);
+    expect(stats.others).toBe(stats.rounds[0]!.others);
+    await pg.query("DELETE FROM games WHERE id = $1", [rows[0]!.id]);
   });
 
   it("writes no game_rounds for practice games, and does for daily ones", async () => {

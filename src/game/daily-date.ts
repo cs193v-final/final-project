@@ -34,8 +34,8 @@ export type DailyResetConfig = {
 /**
  * When a new daily challenge starts: midnight in Los Angeles (decided in #58,
  * "Daily reset time" in PROJECT_BRIEF.md). This is the one place to change it:
- * it's dailyDateFor's default, and the daily screen (#58), streaks and the
- * leaderboard all use it. Frozen, so no caller can change it for the others.
+ * it's dailyDateFor's default, and the daily (#58) uses it; streaks (#63) and
+ * the leaderboard (#62) should too. Frozen, so no caller can change it for the others.
  */
 export const DEFAULT_DAILY_RESET: Readonly<DailyResetConfig> = Object.freeze({
   timeZone: "America/Los_Angeles",

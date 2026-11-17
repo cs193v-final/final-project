@@ -58,6 +58,11 @@ export type KnownAnswers = Readonly<Record<number, string>>;
 
 /** Remember the current round's answer once the server has revealed it. */
 export function learnAnswer(known: KnownAnswers, view: GameView): KnownAnswers {
+  // A finished game names every image (#58), e.g. a result loaded after a reload.
+  if (view.answers !== undefined) {
+    const all = Object.fromEntries(view.answers.map((answer, i) => [i + 1, answer]));
+    return Object.keys(all).every((k) => known[Number(k)] === all[Number(k)]) ? known : { ...known, ...all };
+  }
   const round = view.round;
   if (round?.answer === undefined || known[round.position] === round.answer) return known;
   return { ...known, [round.position]: round.answer };

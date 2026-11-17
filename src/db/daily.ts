@@ -9,7 +9,6 @@
 
 import { asc, eq } from "drizzle-orm";
 
-import { dailyDateFor, type DailyResetConfig } from "../game/daily-date.ts";
 import type { DailyIntro } from "../game/daily.ts";
 import type { Pack } from "../game/types.ts";
 import type { AnyDb } from "./content.ts";
@@ -31,7 +30,14 @@ export class BrokenDailyError extends Error {
  */
 export async function getDailyPack(db: AnyDb, date: string): Promise<Pack | null> {
   const rows = await db
-    .select({ id: packs.id, kind: packs.kind, title: packs.title, theme: packs.theme, puzzleId: packPuzzles.puzzleId })
+    .select({
+      id: packs.id,
+      kind: packs.kind,
+      title: packs.title,
+      theme: packs.theme,
+      scoring: packs.scoring,
+      puzzleId: packPuzzles.puzzleId,
+    })
     .from(dailySchedule)
     .innerJoin(packs, eq(packs.id, dailySchedule.packId))
     .leftJoin(packPuzzles, eq(packPuzzles.packId, packs.id))
@@ -41,16 +47,29 @@ export async function getDailyPack(db: AnyDb, date: string): Promise<Pack | null
   if (!first || first.kind !== "daily") return null;
   const puzzleIds = rows.flatMap((r) => (r.puzzleId === null ? [] : [r.puzzleId]));
   if (puzzleIds.length === 0) throw new BrokenDailyError(`daily pack ${first.id} on ${date} has no puzzles`);
-  return { id: first.id, kind: "daily", title: first.title, theme: first.theme, puzzleIds };
+  return {
+    id: first.id,
+    kind: "daily",
+    title: first.title,
+    theme: first.theme,
+    puzzleIds,
+    // A daily can have its own scoring (#64), like `getPack` returns it.
+    ...(first.scoring === null ? {} : { scoring: first.scoring }),
+  };
 }
 
-/** The intro for `date` (no ids, answers or images). */
-export async function getDailyIntro(db: AnyDb, date: string, reset: Readonly<DailyResetConfig>): Promise<DailyIntro> {
-  const pack = await getDailyPack(db, date);
-  return { date, reset: { ...reset }, pack: pack && { theme: pack.theme, puzzleCount: pack.puzzleIds.length } };
-}
-
-/** The day `now` falls in, under `reset`. */
-export function todaysDate(now: Date, reset: Readonly<DailyResetConfig>): string {
-  return dailyDateFor(now, reset);
+/**
+ * The intro for `date` (no ids, answers or images). A scheduled pack that
+ * can't be played (`BrokenDailyError`) is `broken`, not an empty day, so the
+ * page says it couldn't load it; the cause goes to the server log.
+ */
+export async function getDailyIntro(db: AnyDb, date: string): Promise<DailyIntro> {
+  try {
+    const pack = await getDailyPack(db, date);
+    return { date, pack: pack && { theme: pack.theme, puzzleCount: pack.puzzleIds.length } };
+  } catch (error) {
+    if (!(error instanceof BrokenDailyError)) throw error;
+    console.error(error.message);
+    return { date, pack: null, broken: true };
+  }
 }

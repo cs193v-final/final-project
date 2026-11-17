@@ -19,9 +19,8 @@ export function StartScreen() {
     <main className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-12 text-center">
       <div className="flex flex-col items-center gap-3">
         <h1 className="text-5xl font-semibold tracking-tight">{GAME_NAME}</h1>
-        <p className="max-w-md text-lg text-zinc-600 dark:text-zinc-400">
-          Guess the picture from a tiny piece of it. The less you need to see, the more you score.
-        </p>
+        {/* Short on purpose: a tester found the longer version too wordy (#144, user test #90). */}
+        <p className="max-w-md text-lg text-zinc-600 dark:text-zinc-400">Guess the picture. The less you see, the more you score.</p>
       </div>
 
       <ModePicker />

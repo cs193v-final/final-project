@@ -12,6 +12,7 @@ import { DuplicateDailyGameError, GameConflictError, GameNotFoundError } from "@
 import { scoreGame } from "@/game/scoring";
 import type { Pack } from "@/game/types";
 import type { Db } from "./index";
+import { rowsOf } from "./rows";
 import { games, packs } from "./schema";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,8 +66,16 @@ function fromRow(row: GameRow): StoredGame {
   return game;
 }
 
-function dailyDateText(value: unknown): string {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+/**
+ * A `date` column as "YYYY-MM-DD". node-postgres parses `date` to a Date at
+ * *local* midnight, so read it with local getters: `toISOString()` would move
+ * it back a day in any zone east of UTC (review of #119).
+ */
+export function dailyDateText(value: unknown): string {
+  if (value instanceof Date) {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  }
   return String(value).slice(0, 10);
 }
 
@@ -74,7 +83,7 @@ function dailyDateText(value: unknown): string {
 const DAILY_INDEXES = new Set(["games_daily_user_key", "games_daily_anon_key"]);
 
 /** A unique-index violation on one of `DAILY_INDEXES`, from any of our drivers (drizzle wraps it in `cause`). */
-function isDuplicateDaily(error: unknown): boolean {
+export function isDuplicateDaily(error: unknown): boolean {
   for (let e: unknown = error, depth = 0; e !== null && typeof e === "object" && depth < 4; depth++) {
     const { code, constraint, message } = e as { code?: unknown; constraint?: unknown; message?: unknown };
     if (code === "23505" && (DAILY_INDEXES.has(String(constraint)) || [...DAILY_INDEXES].some((i) => String(message).includes(i)))) {
@@ -95,13 +104,6 @@ const COLUMNS = {
   dailyDate: games.dailyDate,
 };
 
-/** `db.execute` returns `{ rows }` on every driver we use (Neon HTTP, node-postgres, PGlite). */
-function rowsOf(result: unknown): Record<string, unknown>[] {
-  if (Array.isArray(result)) return result as Record<string, unknown>[];
-  const rows = (result as { rows?: unknown } | null)?.rows;
-  if (Array.isArray(rows)) return rows as Record<string, unknown>[];
-  throw new Error("PgGameStore: unexpected result from db.execute");
-}
 
 /**
  * A `GameStore` on the `games` table.
