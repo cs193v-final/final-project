@@ -18,14 +18,14 @@ export type PracticeGameProps = {
   initial: GameResult | null;
   /** Server Actions (src/app/play/actions.ts). Props, so tests can pass in-memory ones. */
   start: () => Promise<GameResult>;
-  act: (gameId: string, action: GameAction) => Promise<GameResult>;
+  act: (gameId: string, action: GameAction, revision: number) => Promise<GameResult>;
   get: (gameId: string) => Promise<GameResult>;
 };
 
 const PROBLEMS: Record<GameError, string> = {
   "not-found": "We couldn't find that game. It may have been started in another browser.",
   invalid: "That didn't work. Please try again.",
-  conflict: "This game changed in another tab, so it was reloaded here.",
+  conflict: "This game was updated since you last saw it, so it was reloaded.",
   unavailable: "Couldn't reach the server. Check your connection and try again, or reload the page.",
 };
 
@@ -38,6 +38,11 @@ const PROBLEMS: Record<GameError, string> = {
  */
 export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
   const [view, setView] = useState<GameView | null>(initial?.ok ? initial.view : null);
+  // The latest view, updated as soon as a result arrives. `send` reads the
+  // game id and revision from here rather than from `view`, which only
+  // updates on the next render: a click in between would otherwise send the
+  // old revision and get a false conflict (#107).
+  const latest = useRef<GameView | null>(initial?.ok ? initial.view : null);
   const [problem, setProblem] = useState<GameError | null>(initial && !initial.ok ? initial.error : null);
   const [feedback, setFeedback] = useState<Feedback>(() =>
     initial?.ok ? feedbackFor(null, initial.view, NO_FEEDBACK) : NO_FEEDBACK,
@@ -84,6 +89,7 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
     }
     setProblem(null);
     setJustSolved(action?.type === "guess" && result.view.round?.state === "correct");
+    latest.current = result.view;
     setView(result.view);
     setFeedback((previous) => feedbackFor(action, result.view, previous));
     setAnswers((known) => learnAnswer(known, result.view));
@@ -109,12 +115,14 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       setFeedback({ kind: "empty" });
       return Promise.resolve();
     }
-    const { gameId } = view;
     return exclusive(async () => {
-      const result = await act(gameId, action);
+      const current = latest.current;
+      if (current === null) return;
+      const { gameId, revision } = current;
+      const result = await act(gameId, action, revision);
       if (!mounted.current) return;
       if (!result.ok && result.error === "conflict") {
-        // Another tab changed the game first, so this action wasn't applied.
+        // The game changed since this view (another tab, or a lost response), so this action wasn't applied.
         // Show the game as it is now and let the player decide again.
         const fresh = await get(gameId);
         if (!mounted.current) return;

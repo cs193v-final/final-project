@@ -52,7 +52,8 @@ function listDisallowed(value: string): string | null {
 
 /**
  * Checks a username and returns it trimmed. Case is kept for display;
- * uniqueness ignores case (the database has a unique index on `lower(username)`).
+ * uniqueness ignores case: the database's unique `username_index` is a keyed
+ * hash of `usernameKey(username)` (see ./user-row.ts).
  *
  * A rejected name gets one message that lists everything wrong with it, so
  * fixing what it says doesn't lead to a second rejection (#133): "Jane
@@ -99,7 +100,13 @@ export function checkNewPassword(raw: unknown): RuleResult {
   return { ok: true, value: raw };
 }
 
-/** The key that makes usernames unique, matching the database's `lower(username)` index. */
+/**
+ * The key that makes usernames unique, ignoring case. The database stores only
+ * a keyed hash of it (`username_index`, #84), which login looks up and which
+ * keeps usernames unique. Changing this function silently breaks login and
+ * uniqueness for every existing user, since their stored hashes were made from
+ * the old output; it would need a migration that recomputes every index.
+ */
 export function usernameKey(username: string): string {
   return username.toLowerCase();
 }

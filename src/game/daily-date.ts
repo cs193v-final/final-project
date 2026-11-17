@@ -32,10 +32,10 @@ export type DailyResetConfig = {
 };
 
 /**
- * Placeholder: midnight in Los Angeles. The daily reset time is an OPEN
- * decision ("Daily reset time" under "Open decisions" in PROJECT_BRIEF.md), so
- * pass a different config instead of changing this logic once it's settled.
- * Frozen, because it is also dailyDateFor's default for every caller.
+ * When a new daily challenge starts: midnight in Los Angeles (decided in #58,
+ * "Daily reset time" in PROJECT_BRIEF.md). This is the one place to change it:
+ * it's dailyDateFor's default, and the daily (#58) uses it; streaks (#63) and
+ * the leaderboard (#62) should too. Frozen, so no caller can change it for the others.
  */
 export const DEFAULT_DAILY_RESET: Readonly<DailyResetConfig> = Object.freeze({
   timeZone: "America/Los_Angeles",

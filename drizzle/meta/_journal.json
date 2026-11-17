@@ -29,6 +29,13 @@
       "when": 1794895701092,
       "tag": "0003_rate_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794896292949,
+      "tag": "0004_encrypt_usernames",
+      "breakpoints": true
     }
   ]
 }

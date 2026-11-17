@@ -70,17 +70,19 @@ export async function startPracticeGame(): Promise<GameResult> {
 }
 
 /**
- * Apply one action from the browser to the current owner's game. Both
+ * Apply one action from the browser to the current owner's game. All three
  * arguments are untrusted. A game that doesn't exist and one that belongs to
- * someone else both give `not-found`. `act` validates the action
- * (`parseGameAction`, the one validation path): a bad one gives `invalid`.
- * A conflict (another tab saved first) gives `conflict` and is not retried.
+ * someone else both give `not-found`, whatever the action or revision. `act`
+ * validates the action (`parseGameAction`) and the revision: a bad one gives
+ * `invalid`. A revision that's no longer the game's (another tab moved it on,
+ * or a response was lost) gives `conflict`, and the action is not retried.
  */
-export async function actOnGame(gameId: unknown, action: unknown): Promise<GameResult> {
+export async function actOnGame(gameId: unknown, action: unknown, revision: unknown): Promise<GameResult> {
   return runGameCall(async () => {
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();
-    return act(deps(getDb()), gameId, owner, action as GameAction);
+    // `act` checks the revision (after the owner), so a stale tab can't act on a round it never saw (#107).
+    return act(deps(getDb()), gameId, owner, action as GameAction, revision as number);
   });
 }
 
