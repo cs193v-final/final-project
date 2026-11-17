@@ -12,7 +12,7 @@ Given one at a time, word for word, and nothing else:
 
 ## Setup (before the tester arrived)
 
-- [x] Device and browser ready: Darian's computer, at http://localhost:3000 (browser not recorded)
+- [x] Device and browser ready: Darian's computer, an incognito window of Darian's usual browser, at http://localhost:3000
 - [x] Build: `main @ a836b73`, a production build (`next start`) on a local server with a freshly migrated and seeded database, so each zoom level was its own image (#57)
 - [x] Start state: signed out, on the home screen, no game in progress
 - [x] A test account: none prepared beforehand (the local database started empty)
@@ -21,15 +21,15 @@ Given one at a time, word for word, and nothing else:
 ## Test 1
 
 - **Tester:** Tester A (not in our group; no name or personal details)
-- **Date:** 2026-11-16 · **Device and browser:** not recorded · **Run by:** Darian
+- **Date:** 2026-11-16 · **Device and browser:** Darian's computer, incognito window · **Run by:** Darian
 - **Build:** `main @ a836b73`
 
-**Finished the tasks?** yes, all three
+**Finished the tasks?** yes: all three tasks were given, and all three were finished
 
 **Path they took:**
 1. Found **Start practice** on the home screen straight away.
 2. Played the practice game: got Giraffe and Strawberry right away, and Golden Gate Bridge after one zoom out.
-3. Found the way back to the start page easily. (Which control they used, the "← Home" link, the header's name or the browser's Back button, wasn't noted.)
+3. Found the way back to the start page easily, with the **"← Home"** link on the game page.
 4. Logged in without trouble. That wasn't one of the tasks; they tried it on their own.
 
 **Paused, clicked the wrong thing or backed up:**
