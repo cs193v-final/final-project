@@ -19,6 +19,7 @@ import { parseArgs } from "node:util";
 import { seedContent } from "../src/db/content.ts";
 import { combineContent, parseContent, type Content } from "../src/game/packs.ts";
 import { parsePuzzles } from "../src/game/puzzles.ts";
+import { assertDatabaseUrlRequiresTls } from "../src/db/tls.ts";
 import { connect } from "./seed-db.ts";
 
 const root = resolve(import.meta.dirname, "..");
@@ -119,6 +120,8 @@ async function main() {
   }
   const url = process.env.DATABASE_URL_UNPOOLED;
   if (!url) throw new Error("DATABASE_URL_UNPOOLED is not set (see TECHNICAL.md → Content).");
+  // Same TLS rule as the app and drizzle.config.ts (#60): only a database on this machine may skip it.
+  assertDatabaseUrlRequiresTls(url, "DATABASE_URL_UNPOOLED");
 
   const { db, close } = await connect(url);
   try {

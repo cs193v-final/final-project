@@ -1,6 +1,6 @@
 {
-  "id": "65de711b-e74e-45b1-9efa-90b753cbc028",
-  "prevId": "2e8b8358-2e74-4c80-b099-0f9de2516d3f",
+  "id": "a631340c-f857-489b-9df9-bf3c7c98e256",
+  "prevId": "e85f5af3-c130-4014-8966-0295497906dc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -692,9 +692,9 @@
           "name": "puzzles_focus_y_range",
           "value": "\"puzzles\".\"focus_y\" BETWEEN 0 AND 1"
         },
-        "puzzles_zoom_levels_not_empty": {
-          "name": "puzzles_zoom_levels_not_empty",
-          "value": "cardinality(\"puzzles\".\"zoom_levels\") > 0"
+        "puzzles_zoom_levels_valid": {
+          "name": "puzzles_zoom_levels_valid",
+          "value": "array_ndims(\"puzzles\".\"zoom_levels\") = 1 AND array_lower(\"puzzles\".\"zoom_levels\", 1) = 1 AND cardinality(\"puzzles\".\"zoom_levels\") >= 2 AND \"puzzles\".\"zoom_levels\"[cardinality(\"puzzles\".\"zoom_levels\")] = 1 AND array_position(\"puzzles\".\"zoom_levels\", NULL) IS NULL AND 1 <= ALL(\"puzzles\".\"zoom_levels\") AND 'Infinity'::double precision > ALL(\"puzzles\".\"zoom_levels\")"
         },
         "puzzles_ai_solved_level_range": {
           "name": "puzzles_ai_solved_level_range",
@@ -849,14 +849,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "username_encrypted": {
-          "name": "username_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "username_index": {
-          "name": "username_index",
+        "username": {
+          "name": "username",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -876,13 +870,13 @@
         }
       },
       "indexes": {
-        "users_username_index_key": {
-          "name": "users_username_index_key",
+        "users_username_lower_key": {
+          "name": "users_username_lower_key",
           "columns": [
             {
-              "expression": "username_index",
-              "isExpression": false,
+              "expression": "lower(\"username\")",
               "asc": true,
+              "isExpression": true,
               "nulls": "last"
             }
           ],

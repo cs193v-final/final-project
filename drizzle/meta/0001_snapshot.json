@@ -1,5 +1,5 @@
 {
-  "id": "2e8b8358-2e74-4c80-b099-0f9de2516d3f",
+  "id": "e85f5af3-c130-4014-8966-0295497906dc",
   "prevId": "76aed8f5-b9a5-4e8e-bab2-acf4be2c2a4f",
   "version": "7",
   "dialect": "postgresql",
@@ -692,65 +692,13 @@
           "name": "puzzles_focus_y_range",
           "value": "\"puzzles\".\"focus_y\" BETWEEN 0 AND 1"
         },
-        "puzzles_zoom_levels_not_empty": {
-          "name": "puzzles_zoom_levels_not_empty",
-          "value": "cardinality(\"puzzles\".\"zoom_levels\") > 0"
+        "puzzles_zoom_levels_valid": {
+          "name": "puzzles_zoom_levels_valid",
+          "value": "array_ndims(\"puzzles\".\"zoom_levels\") = 1 AND array_lower(\"puzzles\".\"zoom_levels\", 1) = 1 AND cardinality(\"puzzles\".\"zoom_levels\") >= 2 AND \"puzzles\".\"zoom_levels\"[cardinality(\"puzzles\".\"zoom_levels\")] = 1 AND array_position(\"puzzles\".\"zoom_levels\", NULL) IS NULL AND 1 <= ALL(\"puzzles\".\"zoom_levels\") AND 'Infinity'::double precision > ALL(\"puzzles\".\"zoom_levels\")"
         },
         "puzzles_ai_solved_level_range": {
           "name": "puzzles_ai_solved_level_range",
           "value": "\"puzzles\".\"ai_solved_level\" IS NULL OR (\"puzzles\".\"ai_solved_level\" >= 0 AND \"puzzles\".\"ai_solved_level\" < cardinality(\"puzzles\".\"zoom_levels\"))"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.rate_limits": {
-      "name": "rate_limits",
-      "schema": "",
-      "columns": {
-        "key": {
-          "name": "key",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "window_start": {
-          "name": "window_start",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "count": {
-          "name": "count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "rate_limits_window_start_idx": {
-          "name": "rate_limits_window_start_idx",
-          "columns": [
-            {
-              "expression": "window_start",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "rate_limits_count_min": {
-          "name": "rate_limits_count_min",
-          "value": "\"rate_limits\".\"count\" >= 1"
         }
       },
       "isRLSEnabled": false
