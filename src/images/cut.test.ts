@@ -110,4 +110,24 @@ describe("cutLevels", () => {
     const wide = await cutLevels(await cameraJpeg(), { focus: { x: 0.5, y: 0.5 }, zoomLevels: [8, 1] });
     expect([wide[0]!.width, wide[0]!.height]).toEqual([50, 38]); // 400/8 × 300/8, as is
   });
+
+  it("accepts JPEG, PNG and WebP photos", async () => {
+    const photo = sharp({ create: { width: 80, height: 60, channels: 3, background: RED } });
+    for (const bytes of [await photo.clone().jpeg().toBuffer(), await photo.clone().png().toBuffer(), await photo.clone().webp().toBuffer()]) {
+      await expect(cutLevels(new Uint8Array(bytes), twoLevels)).resolves.toHaveLength(2);
+    }
+  });
+
+  it("refuses anything that isn't a photo format, such as SVG or GIF", async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="red"/></svg>');
+    await expect(cutLevels(new Uint8Array(svg), twoLevels)).rejects.toThrow(/svg isn't a photo format/);
+    const gif = await sharp({ create: { width: 40, height: 30, channels: 3, background: RED } }).gif().toBuffer();
+    await expect(cutLevels(new Uint8Array(gif), twoLevels)).rejects.toThrow(/gif isn't a photo format/);
+  });
+
+  it("refuses an original over the pixel limit before decoding it", async () => {
+    // 400 × 300 = 120,000 pixels.
+    await expect(cutLevels(await cameraJpeg(), twoLevels, { maxInputPixels: 100_000 })).rejects.toThrow(/400x300 is over the 100000-pixel limit/);
+    await expect(cutLevels(await cameraJpeg(), twoLevels, { maxInputPixels: 120_000 })).resolves.toHaveLength(2);
+  });
 });

@@ -44,6 +44,13 @@ export type LevelImageInput = {
 export type StoredLevel = { level: number; src: string; width: number; height: number };
 
 /**
+ * Largest image file one level may be: well under Vercel's 4.5 MB function
+ * response limit and Neon's request size, and about 3× a typical 1600 px level
+ * (security audit L7, #95).
+ */
+export const MAX_LEVEL_BYTES = 1024 * 1024;
+
+/**
  * Store a puzzle's cut levels and point `puzzle_images` at them, replacing
  * any earlier cut: its old files are deleted, and so are rows for levels the
  * puzzle no longer has. Every level gets a fresh random id, so a URL that was
@@ -62,6 +69,9 @@ export async function saveLevelImages(
   if (levels.length === 0) throw new Error(`saveLevelImages: no levels for puzzle "${puzzleId}"`);
   levels.forEach((l, i) => {
     if (l.level !== i) throw new Error(`saveLevelImages: levels must be 0..${levels.length - 1} in order`);
+    if (l.bytes.byteLength > MAX_LEVEL_BYTES) {
+      throw new Error(`saveLevelImages: level ${i} of "${puzzleId}" is ${l.bytes.byteLength} bytes, over the ${MAX_LEVEL_BYTES}-byte limit`);
+    }
   });
   // The database can't check a level against the puzzle's own zoom levels
   // (#82), so check here: exactly one image per zoom level.
