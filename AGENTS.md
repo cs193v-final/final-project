@@ -22,6 +22,7 @@ Rules for any coding agent working in this repo. Keep this file short. Project c
 - **Tests:** Vitest. Logic tests run in Node. Component tests use React Testing Library and start with `// @vitest-environment jsdom`; jest-dom matchers (`toHaveFocus`, ...) are set up in `src/test/setup.ts`. Query by role and label, like a user would.
 - **End-to-end tests:** Playwright specs in `e2e/` play the real app in headless Chromium, on a desktop and a phone viewport (`playwright.config.ts`). Take answers and points from the puzzle data and `SCORING_CONFIG`, not hard-coded values. `@playwright/test` is pinned to the course container's `playwright --version`, whose Chromium is preinstalled, so don't run `playwright install` there. On your own computer, run `npx playwright install chromium` once.
 - Import from `src` with the `@/` alias (`@/game/guess`).
+- **User-test notes** go in `user-tests/`, one file per feature, with no tester names (#98).
 
 <!-- BEGIN:nextjs-agent-rules -->
 
@@ -44,12 +45,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **Big PRs need an assignee** besides the author: shared interfaces, new dependencies, CI/config, database schema, or many files. Assign at least one teammate and request their review.
 - **Tests are the spec.** New logic ships with tests that describe what it should do. A PR that changes behavior updates or adds tests.
 
+## Docs people write (Checkpoint 2)
+- **Never create, draft or edit `SECRETS.md`, `ENCRYPTION.md` or `COST-CONTROLS.md`.** The course requires them to be written by a person.
+
 ## Secrets
 - Real values go **only** in `.env.local` (git-ignored). Never put real values in `.env.example`, code, docs or commits.
 - After cloning, run `scripts/install-gitleaks.sh` to turn on the secret-scanning hooks. Do this on every computer you commit from.
 - Never bypass the hooks with `--no-verify`.
 - **Data stays server-side.** Only server code (Route Handlers, Server Actions, Server Components) talks to the database. Never give a database variable a `NEXT_PUBLIC_` prefix, and never send stored data to a client that isn't allowed to see it.
 - **The repo is public.** Never commit daily, Stanford or lobby puzzle answers or images; only the practice pack lives in the repo.
+- **User data is encrypted at the application level (#84).** New user fields must be encrypted too.
+- **Anything that writes to the database from a request must be rate-limited (#85).**
 
 ## Shared interfaces
 - Every type in `src/game/types.ts` is shared between owners (see the brief): `Puzzle`, `RevealLevel`, `GuessOutcome`, `RoundState`, `ScoringEvent`, `ScoringConfig`, `RoundResult`, and the Week 9 proposals `PackKind`, `Pack`, `DailyEntry`, `GameAction`, `PublicRound`, `GameView`, `PublicUser` and `LeaderboardEntry`.
