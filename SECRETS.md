@@ -30,8 +30,7 @@ Which code is allowed to read them?
 Only the server code reads them (things like route handlers, server actions, and server
 components. React components in the browsers never read them.
 
-4. Backups. Which password manager, which entry, and who can open it? Why can't agents and
-servers reach it? Why does the encryption key need a backup most of all
+4. Backups
 
 All backups (database urls, data_encryption_keys, and rate_limit_hmac_keys) are stored in a 
 locked notes app file created by Jacky Law.
