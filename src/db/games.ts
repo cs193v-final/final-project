@@ -12,6 +12,7 @@ import { DuplicateDailyGameError, GameConflictError, GameNotFoundError } from "@
 import { scoreGame } from "@/game/scoring";
 import type { Pack } from "@/game/types";
 import type { Db } from "./index";
+import { rowsOf } from "./rows";
 import { games, packs } from "./schema";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -24,7 +25,7 @@ export type PgGameStoreOptions = {
    * (foreign key), so it's off for the practice pack, whose puzzles are still
    * in code (`SAMPLE_PUZZLES`) until packs land (#52). Default: true.
    */
-  recordRounds?: boolean;
+  recordRounds?: boolean | ((state: GameState) => boolean);
 };
 
 /** The columns that say who owns a game. Exactly one is set. */
@@ -103,13 +104,6 @@ const COLUMNS = {
   dailyDate: games.dailyDate,
 };
 
-/** `db.execute` returns `{ rows }` on every driver we use (Neon HTTP, node-postgres, PGlite). */
-function rowsOf(result: unknown): Record<string, unknown>[] {
-  if (Array.isArray(result)) return result as Record<string, unknown>[];
-  const rows = (result as { rows?: unknown } | null)?.rows;
-  if (Array.isArray(rows)) return rows as Record<string, unknown>[];
-  throw new Error("PgGameStore: unexpected result from db.execute");
-}
 
 /**
  * A `GameStore` on the `games` table.
@@ -123,13 +117,14 @@ function rowsOf(result: unknown): Record<string, unknown>[] {
  * - Owner: `{ userId }` → `user_id`; `{ anonId }` → `anon_owner_hash`.
  */
 export class PgGameStore implements GameStore {
-  private readonly recordRounds: boolean;
+  private readonly recordRounds: (state: GameState) => boolean;
 
   constructor(
     private readonly db: Db,
     options: PgGameStoreOptions = {},
   ) {
-    this.recordRounds = options.recordRounds ?? true;
+    const record = options.recordRounds ?? true;
+    this.recordRounds = typeof record === "function" ? record : () => record;
   }
 
   async get(id: string): Promise<StoredGame | null> {
@@ -177,7 +172,7 @@ export class PgGameStore implements GameStore {
     const { rounds, total } = scoreGame(state.events, state.scoring);
     // Rounds are scored in play order, so position = index + 1. Every save
     // sends all finished rounds; ON CONFLICT skips the ones already written.
-    const roundRows = this.recordRounds
+    const roundRows = this.recordRounds(state)
       ? rounds.map((r, i) => ({
           position: i + 1,
           puzzle_id: r.puzzleId,

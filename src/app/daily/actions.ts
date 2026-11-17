@@ -6,9 +6,24 @@
 // go through /play's actions (the same game service, owner checks and puzzle
 // source).
 
-import { startTodaysDaily, type DailyStartResult } from "@/server/daily";
+import type { DailyStats } from "@/game/daily-result";
+import { loadDailyStats, startTodaysDaily, type DailyStartResult } from "@/server/daily";
 
 /** Start the daily for `date` (the day the intro showed), or resume the player's game for it. */
 export async function startDailyAction(date: unknown): Promise<DailyStartResult> {
   return startTodaysDaily(date);
+}
+
+/**
+ * How the player's finished daily of `date` compares with everyone else's who
+ * played that day, image by image. `null` until it's finished. Only ever the
+ * caller's own game. TODO(#85): rate-limit with the other daily actions.
+ */
+export async function dailyStatsAction(date: unknown): Promise<DailyStats | null> {
+  try {
+    return await loadDailyStats(date);
+  } catch (error) {
+    console.error("Couldn't load the daily stats", error);
+    return null;
+  }
 }

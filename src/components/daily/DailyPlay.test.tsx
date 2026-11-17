@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DailyIntro } from "@/game/daily";
+import type { DailyStats } from "@/game/daily-result";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import { act, getGame, MemoryGameStore, puzzleSourceFrom, startOrResumeDaily, type GameOwner } from "@/game/server-game";
@@ -44,6 +45,7 @@ function backend() {
       runGameCall(() => act(deps, gameId, OWNER, action, revision)),
     ),
     get: vi.fn((gameId: string) => runGameCall(() => getGame(deps, gameId, OWNER))),
+    stats: vi.fn<(date: string) => Promise<DailyStats>>(async () => ({ rounds: [], others: 0, beatenTotal: 0 })),
   };
 }
 
@@ -54,7 +56,7 @@ afterEach(() => {
 describe("DailyPlay", () => {
   it("shows the intro first and starts nothing until the player presses Start", async () => {
     const server = backend();
-    render(<DailyPlay intro={INTRO} initial={null} start={server.start} act={server.act} get={server.get} />);
+    render(<DailyPlay intro={INTRO} initial={null} start={server.start} act={server.act} get={server.get} loadStats={server.stats} />);
     expect(screen.getByRole("heading", { name: "Today: Fruit" })).toBeInTheDocument();
     expect(server.start).not.toHaveBeenCalled();
     expect(screen.queryByText(/Playing the daily arrives/u)).not.toBeInTheDocument();
@@ -64,7 +66,7 @@ describe("DailyPlay", () => {
     const user = userEvent.setup();
     const server = backend();
     window.history.replaceState(null, "", "/daily");
-    render(<DailyPlay intro={INTRO} initial={null} start={server.start} act={server.act} get={server.get} />);
+    render(<DailyPlay intro={INTRO} initial={null} start={server.start} act={server.act} get={server.get} loadStats={server.stats} />);
     await user.click(screen.getByRole("button", { name: "Start today's challenge" }));
     expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
     expect(server.start).toHaveBeenCalledTimes(1);
@@ -78,16 +80,16 @@ describe("DailyPlay", () => {
     const started = await server.start(INTRO.date);
     if (!started.ok) throw new Error("start failed");
     const moved = await server.act(started.view.gameId, { type: "skip" }, started.view.revision);
-    render(<DailyPlay intro={INTRO} initial={moved} start={server.start} act={server.act} get={server.get} />);
+    render(<DailyPlay intro={INTRO} initial={moved} start={server.start} act={server.act} get={server.get} loadStats={server.stats} />);
     expect(screen.queryByRole("heading", { name: "Today: Fruit" })).not.toBeInTheDocument();
     expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
     expect(screen.getByText(/Skipped/u)).toBeInTheDocument();
   });
 
-  it("after the last image shows the result with no Play again, and says when the next one starts", async () => {
+  it("after the last image shows the result with no Play again, Share, Home, and asks for that day's stats", async () => {
     const user = userEvent.setup();
     const server = backend();
-    render(<DailyPlay intro={INTRO} initial={null} start={server.start} act={server.act} get={server.get} />);
+    render(<DailyPlay intro={INTRO} initial={null} start={server.start} act={server.act} get={server.get} loadStats={server.stats} />);
     await user.click(screen.getByRole("button", { name: "Start today's challenge" }));
     await screen.findByText("Image 1 of 2");
     await user.click(screen.getByRole("button", { name: "Skip this image" }));
@@ -95,8 +97,11 @@ describe("DailyPlay", () => {
     await user.click(await screen.findByRole("button", { name: "Skip this image" }));
     await user.click(await screen.findByRole("button", { name: "See results" }));
 
-    expect(await screen.findByText(/That's today's challenge\. A new one starts at midnight Pacific Time\./u)).toBeInTheDocument();
+    expect(await screen.findByText(/That's today's challenge\./u)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Play again" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Share result" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+    expect(server.stats).toHaveBeenCalledWith(INTRO.date);
   });
 
   it("a finished player who comes back sees their result, not a new game", async () => {
@@ -107,7 +112,7 @@ describe("DailyPlay", () => {
       result = await server.act(result.view.gameId, action, result.view.revision);
     }
     expect(result.ok && result.view.finished).toBe(true);
-    render(<DailyPlay intro={INTRO} initial={result} start={server.start} act={server.act} get={server.get} />);
+    render(<DailyPlay intro={INTRO} initial={result} start={server.start} act={server.act} get={server.get} loadStats={server.stats} />);
     expect(await screen.findByText(/That's today's challenge/u)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Play again" })).not.toBeInTheDocument();
     expect(server.start).toHaveBeenCalledTimes(1); // only the setup's start
@@ -120,7 +125,7 @@ describe("DailyPlay", () => {
   it("starts the day the intro showed, once, even on a double click", async () => {
     const user = userEvent.setup();
     const server = backend();
-    render(<DailyPlay intro={INTRO} initial={null} start={server.start} act={server.act} get={server.get} />);
+    render(<DailyPlay intro={INTRO} initial={null} start={server.start} act={server.act} get={server.get} loadStats={server.stats} />);
     const button = screen.getByRole("button", { name: "Start today's challenge" });
     await user.dblClick(button);
     await screen.findByText("Image 1 of 2");
@@ -132,7 +137,7 @@ describe("DailyPlay", () => {
     const user = userEvent.setup();
     const server = backend();
     // The page was loaded on Nov 16; the server now says it's Nov 17.
-    render(<DailyPlay intro={{ ...INTRO, date: "2026-11-16" }} initial={null} start={server.start} act={server.act} get={server.get} />);
+    render(<DailyPlay intro={{ ...INTRO, date: "2026-11-16" }} initial={null} start={server.start} act={server.act} get={server.get} loadStats={server.stats} />);
     await user.click(screen.getByRole("button", { name: "Start today's challenge" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("A new daily challenge has started since you opened this page.");
     expect(screen.getByRole("button", { name: "See today's challenge" })).toBeInTheDocument();
@@ -143,7 +148,7 @@ describe("DailyPlay", () => {
     const user = userEvent.setup();
     const server = backend();
     server.start.mockResolvedValueOnce({ ok: false, error: "no-daily" });
-    render(<DailyPlay intro={INTRO} initial={null} start={server.start} act={server.act} get={server.get} />);
+    render(<DailyPlay intro={INTRO} initial={null} start={server.start} act={server.act} get={server.get} loadStats={server.stats} />);
     await user.click(screen.getByRole("button", { name: "Start today's challenge" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("There's no daily challenge scheduled right now.");
     expect(screen.queryByText(/another browser/u)).not.toBeInTheDocument();

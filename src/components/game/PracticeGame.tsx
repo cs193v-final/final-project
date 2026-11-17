@@ -24,7 +24,7 @@ export type PracticeGameProps = {
   gameHref?: (gameId: string) => string;
   /** Whether the final score offers Play again. The daily (#58) is one game per day: false, with `afterFinish`. */
   replay?: boolean;
-  afterFinish?: ReactNode;
+  afterFinish?: ReactNode | ((view: GameView) => ReactNode);
 };
 
 const playHref = (gameId: string) => `/play?game=${encodeURIComponent(gameId)}`;
@@ -205,7 +205,7 @@ export function PracticeGame({ initial, start, act, get, gameHref = playHref, re
           puzzles={finalScoreLabels(view, answers)}
           score={{ rounds: view.results, total: view.total }}
           {...(replay ? { onPlayAgain: () => void newGame() } : {})}
-          after={afterFinish}
+          after={typeof afterFinish === "function" ? afterFinish(view) : afterFinish}
         />
       </div>
     );
