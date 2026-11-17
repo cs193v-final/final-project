@@ -14,7 +14,9 @@ export type AccountFormState = { username: string; errors: FieldErrors; message?
 async function finish(result: AuthResult, formData: FormData): Promise<AccountFormState> {
   if (result.ok) {
     await setSessionCookie(result.session.token, result.session.expiresAt);
-    redirect("/account");
+    // Back to the home screen, where most sites send you after logging in
+    // (user test, #132). The header shows the username, so you can see it worked.
+    redirect("/");
   }
   const username = typeof formData.get("username") === "string" ? String(formData.get("username")) : "";
   if (result.reason === "invalid" || result.reason === "taken") return { username, errors: result.errors };
