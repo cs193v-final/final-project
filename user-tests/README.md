@@ -2,6 +2,8 @@
 
 External user tests for Checkpoint 2 (#98). Every frontend feature gets a test with people who aren't in our group, and the notes live here, **one file per feature**. Staff refer to them in the checkpoint meeting.
 
+The tests: home and navigation (#90), playing a game (#91), the daily challenge (#92), and sign up, log in and log out (#93).
+
 [`PLAYTEST.md`](../PLAYTEST.md) is different: it holds our own playtests for tuning scoring (#21).
 
 ## Running a test
@@ -18,10 +20,10 @@ The course procedure (the same as Assignment 5):
 
 - **One file per feature**, named after it: copy [`TEMPLATE.md`](TEMPLATE.md) to, for example, `answer-feedback.md`, `home-navigation.md` or `daily-challenge.md`. More testers of the same feature go in the same file, as Test 2, Test 3, and so on.
 - **Handwritten notes are fine.** Add a photo next to the file (e.g. `answer-feedback-test-1.jpg`) and link it from the notes file.
-- **After the tests**, file an issue for each problem, with an assignee and a priority as usual, and list it under "Issues filed". When a fix merges, add it under "Changes made". We need at least two changes to discuss at the meeting.
+- **After the tests**, file each problem as its own issue, labeled `user-test`, with an assignee and a priority, and list it under "Issues filed". When a fix merges, add it under "Changes made". We need at least two changes to discuss at the meeting.
 
 ## The repo is public
 
-- **Testers:** first name or initials only, and only with their OK. No surnames, emails, phone numbers or photos of people.
+- **Testers:** no names or personal details. Call them "Tester A", "Tester B" and so on, and don't add photos of people.
 - **Photos of notes:** phone photos carry the location (GPS). Add a screenshot of the photo instead, or remove the location data first.
 - **No daily, Stanford or lobby answers or images**, the same rule as everywhere in the repo. When a test uses one of those packs, write "image 3", not the answer, and don't add screenshots of those images. Only practice-pack answers may appear here.

@@ -20,7 +20,7 @@ Give the tester exactly this, word for word, and nothing else:
 
 ## Test 1
 
-- **Tester:** first name or initials (not in our group)
+- **Tester:** Tester A (not in our group; no name or personal details)
 - **Date:** YYYY-MM-DD · **Device and browser:** · **Run by:**
 - **Build:** the live site, or `branch @ commit`
 
@@ -44,6 +44,8 @@ Give the tester exactly this, word for word, and nothing else:
 <!-- For the next tester, copy the whole "Test 1" section and number it. -->
 
 ## Issues filed
+
+<!-- One issue per problem, labeled `user-test`, with an assignee and a priority. -->
 
 - #n: what surfaced (from Test n)
 
