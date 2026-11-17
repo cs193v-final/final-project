@@ -131,7 +131,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await checkScreen(page, "after signing up (logged-in header)");
 
       await page.goto("/account");
-      await expect(page.getByText(username)).toBeVisible();
+      await expect(page.getByRole("main").getByText(username)).toBeVisible();
       await checkScreen(page, "account");
     });
   });
@@ -143,11 +143,15 @@ test("right and wrong are told apart by words and symbols, not only color, even 
   await cdp.send("Emulation.setEmulatedVisionDeficiency", { type: "achromatopsia" });
 
   await page.goto("/play");
+  const status = page.getByRole("status");
   await guess(page, "definitely not it");
-  const wrong = (await page.getByRole("status").innerText()).trim();
+  await expect(status).not.toBeEmpty();
+  const wrong = (await status.innerText()).trim();
 
   await guess(page, first.answer);
-  const right = (await page.getByRole("status").innerText()).trim();
+  await expect(status).not.toHaveText(wrong);
+  await expect(status).not.toBeEmpty();
+  const right = (await status.innerText()).trim();
 
   // Each message is words, and the two differ in their words, so nobody needs color to tell them apart.
   expect(wrong).toMatch(/[a-z]{3,}/i);
