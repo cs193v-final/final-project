@@ -140,6 +140,7 @@ describe("the seed script's database driver", async () => {
   it.each([
     "postgresql://postgres@localhost:5432/zoomout",
     "postgresql://postgres@127.0.0.1:54329/zoomout",
+    "postgresql://postgres@127.0.0.2:5432/zoomout",
     "postgresql://postgres@[::1]:5432/zoomout",
   ])("uses node-postgres for a Postgres on this machine (%s)", (url) => {
     expect(driverFor(url)).toBe("pg");
