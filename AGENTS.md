@@ -59,7 +59,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ## Commands
 - Install: `npm ci` (Node 24, pinned in `package.json` `engines` so Vercel matches CI).
 - Dev server: `npm run dev`. In this course's container, bind IPv4 so the browser can reach it: `npm run dev -- -H 127.0.0.1`.
-- Lint: `npm run lint`. Typecheck: `npm run typecheck`. Tests: `npm test` (`npm run test:watch` while working). End-to-end: `npm run test:e2e` (starts the dev server itself). Build: `npm run build`.
+- Lint: `npm run lint`. Typecheck: `npm run typecheck`. Tests: `npm test` (`npm run test:watch` while working). End-to-end: `npm run test:e2e` (starts the dev server itself; `/play` needs `DATABASE_URL` and a migrated database, see README → Run the app). Build: `npm run build`.
 - Test the secret-scanning hooks: `scripts/test-hooks.sh`.
 - CI (`.github/workflows/ci.yml`) runs a secret scan, the hook tests, `shellcheck`, then `lint`, `typecheck`, `test` and `build`, and the Playwright end-to-end tests, on every PR.
 

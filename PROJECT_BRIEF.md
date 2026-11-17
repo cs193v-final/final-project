@@ -10,7 +10,7 @@
 |---|---|
 | Three-image practice game | **Done and live** (Week 8). Start screen, `/play` with the viewer, Zoom out, guessing, live score and final score screen. Everything runs in the browser, and the answers are sent to it. In review: a back link on `/play` (#43, closes #42) and Playwright e2e tests (#45, closes #44). |
 | Week 9 plan | **This update** (#46). Issues #47–#68, milestones "Checkpoint 2" and "Final presentation", new `PROPOSAL` types in `src/game/types.ts`. |
-| Foundation: schema, packs, server-side games, per-level images | **Not started.** #47, #52, #54, #57 (Checkpoint 2) |
+| Foundation: schema, packs, server-side games, per-level images | **In review:** schema (#47, PR #74) and server-side games (#54, draft PR; `/play` now runs on the server with an anonymous owner cookie). **Not started:** #52, #57 (Checkpoint 2) |
 | Accounts | **Not started.** #53 (Checkpoint 2) |
 | Daily themes | **Not started.** #58, content #55 and #59 (Checkpoint 2) |
 | Data protection, game feel, accessibility, navigation, e2e tests | **Not started.** #60, #48, #49, #50, #61 (Checkpoint 2) |
