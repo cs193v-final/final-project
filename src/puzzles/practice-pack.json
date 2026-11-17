@@ -1,0 +1,11 @@
+{
+  "packs": [
+    {
+      "id": "pk_3f9c2a7e51d84b06",
+      "kind": "practice",
+      "title": "Practice",
+      "theme": "Mixed",
+      "puzzleIds": ["pz-dbdb4dee", "pz-683182e7", "pz-af6d3bbb"]
+    }
+  ]
+}

@@ -18,3 +18,6 @@ INSTRUCTIONS.md
 # Build output and dependencies; Vercel installs and builds remotely
 node_modules/
 .next/
+
+# Private puzzle content for the seed script (#52). Git-ignored, but deploys upload from disk.
+content/
