@@ -60,7 +60,7 @@ Every timestamp is `timestamptz`. Lobbies come later (#67).
 
 **Why Drizzle.** The schema is TypeScript, so queries are type-checked against it. Migrations are plain SQL files that drizzle-kit generates from the schema, so a reviewer reads exactly what will run. The runtime is small and has a first-class Neon driver, which suits Vercel functions. Prisma needs a generated client and its own schema language, and its migrations are harder to review. Kysely has no schema-to-migration tool, and raw SQL leaves every query untyped.
 
-**How the app connects.** Only `src/db/index.ts` creates the client, and it imports `server-only`, so a Client Component that imports it fails the build. `getDb()` connects on first use with the pooled `DATABASE_URL` through Neon's HTTP driver; `next build` doesn't need the variable. ESLint and `src/db/boundary.test.ts` stop components, `src/game/` and `"use client"` files from importing `@/db`.
+**How the app connects.** Only `src/db/index.ts` creates the client, and it imports `server-only`, so a Client Component that imports it fails the build. `getDb()` connects on first use with the pooled `DATABASE_URL` through Neon's HTTP driver; `next build` doesn't need the variable. ESLint and `src/db/boundary.test.ts` stop components, `src/game/` and `"use client"` files from importing `@/db`. Both `getDb()` and `drizzle.config.ts` refuse a connection string that doesn't require TLS (`src/db/tls.ts`, see [§4](#4-secrets-and-user-information)).
 
 **Changing the schema.** Edit `src/db/schema.ts`, run `npm run db:generate`, and commit the new file in `drizzle/` with the change. Never edit a migration that has run anywhere; add a new one. `npm test` applies every migration to an empty in-memory Postgres (PGlite) and fails if the schema and the migrations disagree.
 
@@ -76,6 +76,49 @@ A migration that adds or tightens a CHECK fails if a row already in that databas
 
 If a migration fails partway, don't edit it; fix forward with a new migration, or restore the Neon branch to a point in time before the migration.
 
+### Content and the seed script (#52)
+
+**Packs.** Every mode plays a **pack**: a title, a theme, its puzzles in order, and a `kind` (`practice`, `daily`, `stanford` or `lobby`). The daily schedule maps a date (`YYYY-MM-DD`) to a daily pack. Types: `Pack`, `PackKind` and `DailyEntry` in `src/game/types.ts`; checks: `src/game/packs.ts`.
+
+**Only the practice pack is in the repo** (`src/puzzles/sample.json` and `practice-pack.json`, images in `public/puzzles/`). Daily, Stanford and lobby answers and images are never committed: the repo is public.
+
+**Content files** are JSON with any of three lists:
+
+```json
+{
+  "puzzles": [{ "id": "pz-…", "imageUrl": "…", "answer": "…", "acceptedAnswers": [], "reveal": {…}, "credit": {…} }],
+  "packs": [{ "id": "pk-…", "kind": "daily", "title": "Fruit", "theme": "Fruit", "puzzleIds": ["pz-…"] }],
+  "schedule": [{ "date": "2026-11-20", "packId": "pk-…" }]
+}
+```
+
+A puzzle is the same `Puzzle` format as `sample.json`, plus an optional `aiSolvedLevel` (#56). Use random ids (`pz-` + `openssl rand -hex 4`): **no id or image URL may contain an answer or accepted answer**, and the checks reject one that does (#36). They also catch single words of 3+ letters (`ben-01.jpg` for "Big Ben"), singulars (`cherry.jpg` for "Cherries") and URL-encoded names. **Strip photo metadata** before using an image: phone photos carry GPS, which gives a landmark away. Only daily packs can be scheduled, each on one day. Per-pack `scoring` isn't loaded yet (#64).
+
+**Where private content lives:** in `content/` at the repo root, or anywhere outside the repo. `content/` is in `.gitignore` and in `.vercelignore` (a `vercel deploy` uploads from disk). It may be a symlink to a shared folder. The seed script refuses a content file inside the repo that git would commit.
+
+**Running it.**
+
+| Command | What it does |
+|---|---|
+| `npm run db:seed -- --dry-run [paths]` | Checks the content and prints a summary. No database needed. Run this while writing content. (`npm run db:seed --dry-run`, without `--`, is a dry run too.) |
+| `npm run db:seed` | Loads the practice pack and every `.json` file in `content/` into the database in `DATABASE_URL_UNPOOLED` (dev, from `.env.local`, by default). |
+| `npm run db:seed -- a.json more/` | The same, for these files and folders instead of `content/`. |
+
+Credentials work like migrations: dev from `.env.local`; preview and production typed at a hidden prompt for one command (see the migrations table above). A Postgres on this machine (`localhost`, `127.x`, `::1`, e.g. CI's e2e database) is reached with `pg` (from #54); Neon with its HTTP driver. Seed preview and production only after their migrations.
+
+**Safe to run again.** Every write is an upsert, so running it twice gives the same rows, and a run that stopped partway is fixed by running it again (the Neon HTTP driver has no transactions). It never deletes a puzzle or a pack; content you leave out stays in the database. A pack is on one day only: scheduling an unplayed pack on a new day clears its old day. Before writing anything, it refuses (and writes nothing) if it would:
+- change the puzzle list of a pack that has games,
+- move a date to another pack when the current one has games,
+- move a pack that has games to another date,
+- change how many zoom levels a played puzzle has (a game in progress could be past the new last level), or
+- change the kind of a pack that has games or is on the daily schedule.
+
+Fixing a typo in a puzzle (answer, alternates, credit, focus, image URL, zoom values) is always allowed.
+
+The writes are separate statements, not one transaction. If a run stops partway, a pack can briefly have no puzzle list or a day no pack; running it again fixes that.
+
+**Reading content in the app:** `getPuzzles(db, ids)`, `getPack(db, id)` and `getDailyEntry(db, date)` in `src/db/content.ts`. Server-only, like everything in `src/db/`.
+
 ### Images per zoom level (#57)
 
 The browser used to get each puzzle's full image and crop it with CSS, so anyone could open the whole picture at level 0. Now each zoom level is cut ahead of time into its own image, and the browser only gets the level the player has reached.
@@ -85,7 +128,7 @@ The browser used to get each puzzle's full image and crop it with CSS, so anyone
 - **Serving.** `GET /img/<id>.webp` (`src/app/img/[file]/route.ts`, `src/server/images.ts`). The response is cached for a year (`immutable`) by browsers and Vercel's CDN, so most loads never reach the database. A missing image is a 404 that isn't cached. Anything but 32 hex characters plus `.webp` is a 404 without a query.
 - **What protects a level: a secret URL.** Each image id is 128 random bits, never derived from the puzzle, the level or the answer. The server only sends the current level's URL (`PublicRound.imageSrc`), and one URL says nothing about another. Re-cutting a puzzle gives every level a new id and deletes the old files. A player could share a URL they've reached, which is no worse than sharing the answer.
 - **Previewing levels while writing content.** `npm run images:preview -- photo.jpg --focus 0.4,0.66 --zoom 10,5,2.5,1` writes every level to a temporary folder (or `--out`), and says which levels will look soft on a 2× screen, meaning the original is too small for that zoom (#34). It won't write inside the repo unless that folder is git-ignored.
-- **Still to do (after #54 and #52 merge):** a command that cuts every seeded puzzle into the database, the game sending `imageSrc` from `puzzle_images`, the viewer showing pre-cut images, and removing the temporary `PublicRound.reveal`.
+- **Still to do (after #54 merges; #52 has):** a command that cuts every seeded puzzle into the database, the game sending `imageSrc` from `puzzle_images`, the viewer showing pre-cut images, and removing the temporary `PublicRound.reveal`.
 
 ## 4. Secrets and user information
 
@@ -94,11 +137,38 @@ The browser used to get each puzzle's full image and crop it with CSS, so anyone
   - **Preview and production:** only in Vercel as **sensitive** environment variables. Never in files, chat or commits.
   - `.env.example` shows the variable names with placeholder values only.
 - **Leak protection:** gitleaks pre-commit and pre-push hooks, plus a required CI secret scan on every PR. Custom rules catch Postgres URLs, `PGPASSWORD` and `.env` files. If a secret ever leaks, we rotate it first (steps are in `README.md`).
-- **User information:** none collected yet. No accounts, no names, no emails. When accounts land (#53), the database stores a username and a password hash only, and sessions only as token hashes.
-- **Encrypting database contents:**
-  - Connections to Neon require TLS (`sslmode=require&channel_binding=require`).
-  - Neon encrypts stored data at rest.
-  - Before we store anything about users, we'll encrypt sensitive fields in the app before saving them. If we add accounts, passwords will be hashed and salted, never stored as-is. We'll revisit this plan when we design what gets stored.
+- **No `NEXT_PUBLIC_` database variables.** Next.js copies every `NEXT_PUBLIC_` variable into the browser's JavaScript. `src/db/env-names.test.ts` fails if a name with DATABASE, POSTGRES, NEON or a `PG...` part gets that prefix anywhere in `src/`, `.github/`, the root `*.config.*` files or `.env.example` (it never reads `.env.local`).
+- **Only server code reaches the database.** `src/db/index.ts` imports `server-only`; ESLint (`src/components/**`, `src/game/**`) and `src/db/boundary.test.ts` (those folders plus every `"use client"` file, `@/db` and relative imports) block client code from importing `src/db`.
+
+### TLS on every database connection (#60)
+
+- `getDb()` (the app) and `drizzle.config.ts` (migrations) both call `assertDatabaseUrlRequiresTls` in `src/db/tls.ts` before connecting. It accepts `sslmode=require`, `verify-ca` or `verify-full` (Neon's `channel_binding=require` may stay), and rejects a missing `sslmode` and `disable`, `allow` or `prefer`, since libpq's default (`prefer`) quietly falls back to plain text.
+- **Exemption:** a database on this machine (host `localhost`, `127.0.0.1` or `::1`, every host if several are given) may connect without TLS, for the Postgres service container in CI (#54). Its traffic never leaves the machine. Lookalikes such as `localhost.evil.com` are not exempt.
+- Error messages name the variable and the reason, never the connection string, user, host or password (tested in `src/db/tls.test.ts`).
+- Neon's HTTP driver sends queries over HTTPS in any case; the check also covers drizzle-kit, and stops a wrong URL from being used anywhere.
+
+### What we store about users
+
+Nothing is written yet: no feature uses these tables until accounts (#53) and server-side games (#54) land. This is what the schema (`src/db/schema.ts`) will hold, and how each item is protected. No email, real name, IP address or other personal detail is stored.
+
+| Data | Column(s) | How it's protected | Who can read it |
+|---|---|---|---|
+| Username | `users.username` | Stored as typed, not hashed or encrypted (the app needs to display it). Unique ignoring case. Whether other players see it (e.g. on leaderboards, #62) is not decided. | The server and the user; others only if a feature decides to show it |
+| Password | `users.password_hash` | Only a salted hash is stored, never the password (schema comment and the "store only hashes" test). **PLANNED (#53):** the algorithm (argon2id or bcrypt) and its parameters. | The server only, to check a login. Never sent to a browser. |
+| Session | `sessions.token_hash`, `user_id`, `created_at`, `expires_at` | The cookie holds a random token; the database holds only its hash (e.g. SHA-256), so a database leak doesn't hand out live sessions. **PLANNED (#53):** token generation, the hash, cookie flags (`HttpOnly`, `Secure`, `SameSite`), expiry and logout, and rate limiting on login and sign-up. | The server only |
+| Games and rounds | `games.*` (owner, `state`, `total`, timestamps), `game_rounds.*` (outcome, points, wrong guesses, reveal level, `finished_at`) | `state` is server-only and never sent to the browser. **PLANNED (#54):** every read or write checks that the game belongs to the requesting user or anonymous owner. What leaderboards (#62) show is not decided. | The server and, once #54 lands, the game's owner only |
+| Anonymous owner | `games.anon_owner_hash` | Only a hash of an anonymous-player cookie, never the cookie value. Whether anonymous play exists at all is open (#54/#62). | The server only |
+| Timestamps | `created_at` on users, sessions and games; `updated_at` on games; `finished_at` on games and rounds; `expires_at` on sessions | Same as the row they belong to | Same as the row |
+
+Protection that applies to all of it, **in place now**:
+
+- **Server-only access:** see above (`server-only`, ESLint rule, boundary test). Only Route Handlers, Server Actions and Server Components may query it.
+- **TLS in transit:** enforced in code, see above.
+- **Encrypted at rest:** Neon encrypts stored data at rest. Three separate Neon projects (dev, preview, prod), so dev work never touches real data.
+- **Deleted with the account:** deleting a `users` row deletes its sessions, games and their rounds (`ON DELETE CASCADE`, tested in `src/db/schema.test.ts`). **PLANNED (#53):** a way for a user to delete their account.
+- **Who holds the keys:** connection strings are in the dev `.env.local` files and, for preview and production, only in Vercel (sensitive) and the Neon console, set by Jacky as the deploy owner (see above).
+
+**Not done yet** (needs #53 and #54 code): per-user access tests for games and sessions, and checks that no response or page source contains answers while a round is playing, or another user's data. We don't encrypt individual columns in the app: passwords and tokens are hashed instead (they never need to be read back), and the rest (usernames, game results) has to be read back by the app, so it relies on server-only access, TLS and Neon's encryption at rest.
 
 ## 5. Open questions
 

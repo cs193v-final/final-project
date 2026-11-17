@@ -17,6 +17,7 @@
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:seed": "node scripts/seed.ts",
     "images:preview": "node scripts/preview-levels.ts"
   },
   "dependencies": {

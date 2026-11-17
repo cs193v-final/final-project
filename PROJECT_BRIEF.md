@@ -91,12 +91,12 @@ The owner of each type makes the final call. Change a type only through a PR its
 
 | Type | Owner | Status | Issue |
 |---|---|---|---|
-| `Puzzle` | Joseph | Settled (#32). Planned changes in #52: opaque `id`, `aiSolvedLevel: RevealLevel \| null` (filled by #56), and how `imageUrl` works per level (with Darian, #57). It becomes server-only data. | #52 |
+| `Puzzle` | Joseph | Settled (#32). #52 made `id` opaque and added `aiSolvedLevel: RevealLevel \| null` (filled by #56). How `imageUrl` works per level is still open (with Darian, #57). Server-only data. | #52 |
 | `RevealLevel` | Darian | Settled (#22) | |
 | `GuessOutcome`, `RoundState` | Jacky | Settled (#22, #23) | |
 | `ScoringEvent` | Jacky (emits), Ethan (consumes) | Settled (#22, #27) | |
 | `ScoringConfig`, `RoundResult` | Ethan | Settled (#27) | |
-| `PackKind`, `Pack`, `DailyEntry` | Joseph | **Proposal** | #52, #58 |
+| `PackKind`, `Pack`, `DailyEntry` | Joseph | Settled (#52), checked by `parseContent` in `src/game/packs.ts`. The daily reset time zone is still open (#58). | #52, #58 |
 | `GameAction` | Jacky | **Proposal**. Moved from `round.ts` (which re-exports it); same shape as before. | #54 |
 | `PublicRound` | Jacky (image fields: Darian) | **Proposal** | #54, #57 |
 | `GameView` | Jacky | **Proposal** | #54 |
@@ -157,7 +157,7 @@ type Puzzle = {
 };
 ```
 
-The three practice puzzles are in `src/puzzles/sample.json`, with images in `public/puzzles/`. Import them as `SAMPLE_PUZZLES` from `src/puzzles/index.ts`. They're checked by `parsePuzzles` in `src/game/puzzles.ts` when the module loads, so bad data fails the tests and the build with a `PuzzleDataError` that names the field. Daily and Stanford puzzles will go into the database through the seed script (#52), never into the repo.
+The three practice puzzles are in `src/puzzles/sample.json`, with images in `public/puzzles/` named by their opaque ids. Import them as `SAMPLE_PUZZLES`, and the practice pack as `PRACTICE_PACK`, from `src/puzzles/index.ts`. They're checked by `parsePuzzles` in `src/game/puzzles.ts` when the module loads, so bad data fails the tests and the build with a `PuzzleDataError` that names the field. Daily and Stanford puzzles go into the database through the seed script (`npm run db:seed`, #52), never into the repo.
 
 ### `RevealLevel` (owner: Darian): agreed in #22
 
@@ -238,7 +238,7 @@ Don't treat these as decided. Ask the owner, or keep them configurable.
 | Daily reset time | Default proposal: midnight `America/Los_Angeles` | #58 |
 | Theme shown or hidden | Shown before play, or hidden for a bonus? | #58 |
 | Anonymous play | Default proposal: anyone can play daily; only logged-in players get leaderboard entries and streaks | #54, #62 |
-| Where non-public puzzle content lives | E.g. a git-ignored local folder or a private content repo. Blocks the daily content (#55, #59). | #52 |
+| Where non-public puzzle content lives | **Proposal (#52):** each of us keeps it in the git-ignored `content/` folder, and the seed script refuses committable content. Still to decide: how we share the files with each other (e.g. a private repo or a shared drive). | #52 |
 | Scoring values and wrong-guess rules | Placeholders in `src/game/scoring-config.ts`; flat or increasing penalties; a guess limit? | #21, #64 |
 | Number of reveal steps; typo tolerance | Fixed or per puzzle; edit distance or none | #21 |
 | Stanford mode | A fixed pack, or its own daily rotation | #65 |
