@@ -147,9 +147,18 @@ export function combineContent(parts: readonly { source: string; content: Conten
 // contain an answer. Credits may (they're only shown after the round).
 // ---------------------------------------------------------------------------
 
+/** `%67iraffe` → `giraffe`, so URL-encoded names can't hide an answer. */
+function decoded(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value; // a stray "%": check it as written
+  }
+}
+
 /** Lowercase ASCII letters and digits per word, accents removed: "Café-Noir" → ["cafe", "noir"]. */
 function words(value: string): string[] {
-  return value
+  return decoded(value)
     .normalize("NFKD")
     .replace(/\p{M}/gu, "")
     .toLowerCase()
@@ -157,13 +166,21 @@ function words(value: string): string[] {
     .filter(Boolean);
 }
 
-/** What counts as giving `answer` away: the whole answer, and each long word (also without a plural "s"). */
+/** Short words that say nothing about an answer on their own. */
+const FILLER = new Set(["the", "and", "for", "los", "las", "les", "des", "del", "von", "van"]);
+
+/**
+ * What counts as giving `answer` away: the whole answer, and each word of 3 or
+ * more letters ("ben" for "Big Ben"), also as a singular ("cherries" →
+ * "cherry", "giraffes" → "giraffe").
+ */
 function needles(answer: string): string[] {
   const parts = words(answer);
   const found = new Set<string>([parts.join("")]);
   for (const word of parts) {
-    if (word.length >= 4) found.add(word);
-    if (word.length >= 5 && word.endsWith("s")) found.add(word.slice(0, -1));
+    if (word.length >= 3 && !FILLER.has(word)) found.add(word);
+    if (word.length >= 5 && word.endsWith("ies")) found.add(`${word.slice(0, -3)}y`);
+    else if (word.length >= 5 && word.endsWith("s")) found.add(word.slice(0, -1));
   }
   return [...found].filter(Boolean);
 }

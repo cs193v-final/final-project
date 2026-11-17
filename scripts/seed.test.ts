@@ -52,7 +52,9 @@ const outside = () => {
   return dir;
 };
 
-describe("npm run db:seed -- --dry-run", () => {
+// Each test starts a real Node process, which can take several seconds when
+// the whole suite runs in parallel.
+describe("npm run db:seed -- --dry-run", { timeout: 30_000 }, () => {
   it("fails on a path that doesn't exist", () => {
     const { code, out } = seed(join(outside(), "missing.json"));
     expect(out).toContain("no such file or folder");
@@ -93,5 +95,28 @@ describe("npm run db:seed -- --dry-run", () => {
     const { code, out } = seed(writeContent(outside(), "leaky.json", leaky));
     expect(out).toContain('puzzle pz-0a1b2c3d: imageUrl: "/img/strawberry.jpg" gives away the answer "Strawberry"');
     expect(code).toBe(1);
+  });
+});
+
+describe("the seed script's database driver", async () => {
+  const { driverFor } = await import("./seed-db.ts");
+
+  it.each([
+    "postgresql://postgres@localhost:5432/zoomout",
+    "postgresql://postgres@127.0.0.1:54329/zoomout",
+    "postgresql://postgres@[::1]:5432/zoomout",
+  ])("uses node-postgres for a Postgres on this machine (%s)", (url) => {
+    expect(driverFor(url)).toBe("pg");
+  });
+
+  it.each(["postgresql://ep-cool-name-123.us-east-2.aws.neon.tech/neondb", "postgresql://u@localhost.evil.example/db"])(
+    "uses Neon's HTTP driver for any other host (%s)",
+    (url) => {
+      expect(driverFor(url)).toBe("neon");
+    },
+  );
+
+  it("rejects a URL it can't read", () => {
+    expect(() => driverFor("not a url")).toThrow("not a valid connection URL");
   });
 });

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { combineContent, type Content } from "../game/packs.ts";
 import type { Pack, Puzzle } from "../game/types.ts";
@@ -20,13 +20,18 @@ const migrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url)
 let pg: PGlite;
 let db: PgliteDatabase<typeof schema>;
 
-beforeEach(async () => {
+// One database per file (starting Postgres is the slow part), emptied before each test.
+beforeAll(async () => {
   pg = new PGlite();
   db = drizzle({ client: pg, schema });
   await migrate(db, { migrationsFolder });
 }, 60_000);
 
-afterEach(async () => {
+beforeEach(async () => {
+  await pg.exec("TRUNCATE game_rounds, games, daily_schedule, pack_puzzles, puzzle_images, puzzles, packs, sessions, users CASCADE");
+});
+
+afterAll(async () => {
   await pg.close();
 });
 
@@ -133,6 +138,40 @@ describe("seedContent", () => {
     const back = content({ puzzles: FRUIT, packs: [daily("pk-1", ["pz-1", "pz-2"])], schedule: [{ date: "2026-11-20", packId: "pk-1" }] });
     await expect(seedContent(db, back)).rejects.toThrow("schedule 2026-11-20: moves away from pack pk-2");
     expect((await getDailyEntry(db, "2026-11-20"))!.packId).toBe("pk-2");
+  });
+
+  it("moves an unplayed pack to another day, so it's never on two days", async () => {
+    await seedContent(db, FRUIT_DAY);
+    const nextDay = content({ puzzles: FRUIT, packs: [daily("pk-1", ["pz-1", "pz-2"])], schedule: [{ date: "2026-11-21", packId: "pk-1" }] });
+    await seedContent(db, nextDay);
+    expect(await getDailyEntry(db, "2026-11-20")).toBeNull();
+    expect(await getDailyEntry(db, "2026-11-21")).toEqual({ date: "2026-11-21", packId: "pk-1" });
+    const rows = await pg.query("SELECT * FROM daily_schedule WHERE pack_id = 'pk-1'");
+    expect(rows.rows).toHaveLength(1);
+  });
+
+  it("refuses to move a played pack to another day, and writes nothing", async () => {
+    await seedContent(db, FRUIT_DAY);
+    await addGame("pk-1");
+    const nextDay = content({ puzzles: FRUIT, packs: [daily("pk-1", ["pz-1", "pz-2"])], schedule: [{ date: "2026-11-21", packId: "pk-1" }] });
+    await expect(seedContent(db, nextDay)).rejects.toThrow("pack pk-1: can't move from 2026-11-20 to 2026-11-21");
+    expect(await getDailyEntry(db, "2026-11-20")).toEqual({ date: "2026-11-20", packId: "pk-1" });
+    expect(await getDailyEntry(db, "2026-11-21")).toBeNull();
+  });
+
+  it("swaps two unplayed packs' days in one run", async () => {
+    const two = content({
+      puzzles: [...FRUIT, puzzle("pz-3", "Mango")],
+      packs: [daily("pk-1", ["pz-1", "pz-2"]), daily("pk-2", ["pz-3"])],
+      schedule: [
+        { date: "2026-11-20", packId: "pk-1" },
+        { date: "2026-11-21", packId: "pk-2" },
+      ],
+    });
+    await seedContent(db, two);
+    await seedContent(db, { ...two, schedule: [{ date: "2026-11-20", packId: "pk-2" }, { date: "2026-11-21", packId: "pk-1" }] });
+    expect((await getDailyEntry(db, "2026-11-20"))!.packId).toBe("pk-2");
+    expect((await getDailyEntry(db, "2026-11-21"))!.packId).toBe("pk-1");
   });
 
   it("never deletes: content left out of a run stays in the database", async () => {

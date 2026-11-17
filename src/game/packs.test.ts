@@ -183,12 +183,25 @@ describe("findAnswerLeaks", () => {
     ["the singular of a plural answer", puzzle("pz-1", "Giraffes", [], "/img/giraffe.jpg")],
     ["a different case and accents", puzzle("pz-1", "Café", [], "https://cdn.example.com/CAFE_2.jpg")],
     ["a short answer as its own word", puzzle("ox-1", "Ox", [], "/img/1.jpg")],
+    ["a short word of a longer answer", puzzle("pz-1", "Big Ben", [], "/img/ben-01.jpg")],
+    ["another short word", puzzle("pz-1", "Taj Mahal", [], "/img/taj_2.jpg")],
+    ["the -y singular of an -ies plural", puzzle("pz-1", "Cherries", [], "/img/cherry.jpg")],
+    ["a URL-encoded answer", puzzle("pz-1", "Giraffe", [], "/img/%67iraffe.jpg")],
   ])("finds %s", (_name, p) => {
     expect(leaksFor(p)).toHaveLength(1);
   });
 
   it("doesn't flag a short answer inside a longer word", () => {
     expect(leaksFor(puzzle("pz-box", "Ox"))).toEqual([]);
+    expect(leaksFor(puzzle("pz-1", "Big Ben", [], "/img/bench-1.jpg"))).toEqual([]);
+  });
+
+  it("doesn't flag filler words like \"the\"", () => {
+    expect(leaksFor(puzzle("pz-1", "The Shard", [], "/the/pz-1.jpg"))).toEqual([]);
+  });
+
+  it("checks a name with a stray % as written", () => {
+    expect(leaksFor(puzzle("pz-1", "Giraffe", [], "/img/100%giraffe.jpg"))).toHaveLength(1);
   });
 
   it("checks pack ids against the pack's own puzzles", () => {

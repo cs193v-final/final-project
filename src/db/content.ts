@@ -6,7 +6,8 @@
 // PGlite in tests). Uses no transactions, because the Neon HTTP driver has
 // none. Instead, seeding is safe to run again: every write is an upsert or a
 // replace of the same rows, so a run that stops partway is fixed by running it
-// again. It never deletes a puzzle, a pack or a schedule entry.
+// again. It never deletes a puzzle or a pack. The only schedule entry it
+// removes is the old day of an unplayed pack that moves to another day.
 
 import { and, asc, count, eq, getTableColumns, inArray, sql, type Table } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
@@ -87,8 +88,10 @@ const sameList = (a: readonly string[] | undefined, b: readonly string[]) =>
  * that it wouldn't change what players already played, and throws a
  * `SeedRefusedError` before writing anything if it would:
  * - a pack's puzzle list can't change once the pack has games;
- * - a date can't move to another pack once its current pack has games.
- * Fixing a typo in a puzzle (answer, credit, focus) is allowed.
+ * - a date can't move to another pack once its current pack has games;
+ * - a played pack can't move to another date.
+ * Moving an unplayed pack to another date clears its old date, so a pack is
+ * never on two days. Fixing a typo in a puzzle (answer, credit, focus) is allowed.
  */
 export async function seedContent(db: AnyDb, content: Content): Promise<SeedSummary> {
   const packIds = content.packs.map((p) => p.id);
@@ -100,7 +103,23 @@ export async function seedContent(db: AnyDb, content: Content): Promise<SeedSumm
     dates.length === 0 ? [] : await db.select().from(dailySchedule).where(inArray(dailySchedule.date, dates));
   const movedDates = scheduled.filter((row) => content.schedule.some((e) => e.date === row.date && e.packId !== row.packId));
 
-  const played = await playedPackIds(db, [...changedPacks.map((p) => p.id), ...movedDates.map((r) => r.packId)]);
+  // A pack is on one day only. If the database already has a pack from this
+  // content on a date the content doesn't mention, the pack is moving: its old
+  // day is cleared (unless it has been played, below). Dates in the content
+  // are overwritten anyway, so they don't count.
+  const scheduledPackIds = [...new Set(content.schedule.map((e) => e.packId))];
+  const elsewhere =
+    scheduledPackIds.length === 0
+      ? []
+      : (await db.select().from(dailySchedule).where(inArray(dailySchedule.packId, scheduledPackIds))).filter(
+          (row) => !dates.includes(row.date),
+        );
+
+  const played = await playedPackIds(db, [
+    ...changedPacks.map((p) => p.id),
+    ...movedDates.map((r) => r.packId),
+    ...elsewhere.map((r) => r.packId),
+  ]);
   const problems = [
     ...changedPacks
       .filter((p) => played.has(p.id) && orders.has(p.id))
@@ -108,6 +127,12 @@ export async function seedContent(db: AnyDb, content: Content): Promise<SeedSumm
     ...movedDates
       .filter((r) => played.has(r.packId))
       .map((r) => `schedule ${r.date}: moves away from pack ${r.packId}, which has already been played`),
+    ...elsewhere
+      .filter((r) => played.has(r.packId))
+      .map((r) => {
+        const to = content.schedule.find((e) => e.packId === r.packId)!.date;
+        return `pack ${r.packId}: can't move from ${r.date} to ${to}, it has already been played`;
+      }),
   ];
   if (problems.length > 0) throw new SeedRefusedError(problems);
 
@@ -145,6 +170,10 @@ export async function seedContent(db: AnyDb, content: Content): Promise<SeedSumm
     await db
       .insert(packPuzzles)
       .values(pack.puzzleIds.map((puzzleId, i) => ({ packId: pack.id, puzzleId, position: i + 1 })));
+  }
+  if (elsewhere.length > 0) {
+    // Clear a moving pack's old day first. Only unplayed packs get here.
+    await db.delete(dailySchedule).where(inArray(dailySchedule.date, elsewhere.map((r) => r.date)));
   }
   if (content.schedule.length > 0) {
     await db

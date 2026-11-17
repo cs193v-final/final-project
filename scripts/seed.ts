@@ -16,12 +16,10 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
-
 import { seedContent } from "../src/db/content.ts";
 import { combineContent, parseContent, type Content } from "../src/game/packs.ts";
 import { parsePuzzles } from "../src/game/puzzles.ts";
+import { connect } from "./seed-db.ts";
 
 const root = resolve(import.meta.dirname, "..");
 const readJson = (path: string): unknown => JSON.parse(readFileSync(path, "utf8"));
@@ -60,7 +58,7 @@ function assertNotCommittable(file: string) {
   }
 }
 
-function main() {
+async function main() {
   const { values, positionals } = parseArgs({
     options: { "dry-run": { type: "boolean", default: false } },
     allowPositionals: true,
@@ -96,12 +94,16 @@ function main() {
   const url = process.env.DATABASE_URL_UNPOOLED;
   if (!url) throw new Error("DATABASE_URL_UNPOOLED is not set (see TECHNICAL.md → Content).");
 
-  return seedContent(drizzle({ client: neon(url) }), content).then((summary) => {
+  const { db, close } = await connect(url);
+  try {
+    const summary = await seedContent(db, content);
     console.log(
       `Seeded ${summary.puzzles} puzzles, ${summary.packs} packs (${summary.packOrders} with a new or changed ` +
         `puzzle list) and ${summary.schedule} scheduled days.`,
     );
-  });
+  } finally {
+    await close();
+  }
 }
 
 try {
