@@ -5,7 +5,18 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Records which database driver connect() loads (it imports them lazily).
+const driversLoaded = vi.hoisted(() => [] as string[]);
+vi.mock("@neondatabase/serverless", () => {
+  driversLoaded.push("@neondatabase/serverless");
+  return { neon: () => ({}) };
+});
+vi.mock("drizzle-orm/neon-http", () => {
+  driversLoaded.push("drizzle-orm/neon-http");
+  return { drizzle: () => ({}) };
+});
 
 const root = resolve(import.meta.dirname, "..");
 const cleanup: string[] = [];
@@ -155,5 +166,31 @@ describe("the seed script's database driver", async () => {
 
   it("rejects a URL it can't read", () => {
     expect(() => driverFor("not a url")).toThrow("not a valid connection URL");
+  });
+});
+
+describe("the seed script's connect()", async () => {
+  const { connect } = await import("./seed-db.ts");
+
+  it.each([
+    "postgresql://u@ep-cool-name-123.us-east-2.aws.neon.tech/neondb",
+    "postgresql://u@ep-cool-name-123.us-east-2.aws.neon.tech/neondb?sslmode=disable",
+  ])("rejects a URL that doesn't require TLS, before loading a driver (%s)", async (url) => {
+    driversLoaded.length = 0;
+    await expect(connect(url)).rejects.toThrow("DATABASE_URL_UNPOOLED must require TLS");
+    expect(driversLoaded).toEqual([]);
+  });
+
+  it("names the variable it was given", async () => {
+    await expect(connect("postgresql://u@db.example.com/x", "OTHER_DATABASE_URL")).rejects.toThrow(
+      "OTHER_DATABASE_URL must require TLS",
+    );
+  });
+
+  it("loads Neon's driver once the URL requires TLS", async () => {
+    driversLoaded.length = 0;
+    const { close } = await connect("postgresql://u@ep-cool-name-123.us-east-2.aws.neon.tech/neondb?sslmode=require");
+    await close();
+    expect(driversLoaded).toContain("@neondatabase/serverless");
   });
 });

@@ -170,7 +170,7 @@ The browser used to get each puzzle's full image and crop it with CSS, so anyone
 - `getDb()` (the app), `drizzle.config.ts` (migrations) and the seed script all call `assertDatabaseUrlRequiresTls` in `src/db/tls.ts` before connecting. It accepts `sslmode=require`, `verify-ca` or `verify-full` (Neon's `channel_binding=require` may stay), and rejects a missing `sslmode` and `disable`, `allow` or `prefer`, since libpq's default (`prefer`) quietly falls back to plain text.
 - **Exemption:** a database on this machine (host `localhost`, anything in `127.0.0.0/8`, or `::1`, every host if several are given) may connect without TLS, for the Postgres service container in CI (#54). Its traffic never leaves the machine. Lookalikes such as `localhost.evil.com` or `127.0.0.1.nip.io` are not exempt. The app and the seed script use node-postgres for exactly these hosts (same helper).
 - Error messages name the variable and the reason, never the connection string, user, host or password (tested in `src/db/tls.test.ts`).
-- Neon's HTTP driver sends queries over HTTPS in any case. The check runs everywhere a connection string is used: `getDb()`, `drizzle.config.ts` (drizzle-kit), and the seed script, both in `scripts/seed.ts` and in `connect()` in `scripts/seed-db.ts`, so no caller can connect without it.
+- Neon's HTTP driver sends queries over HTTPS in any case. The check runs everywhere a connection string is used: `getDb()`, `drizzle.config.ts` (drizzle-kit), and the seed script's `connect()` in `scripts/seed-db.ts`, which checks before loading a driver, so no caller can connect without it (tested in `scripts/seed.test.ts`).
 
 ### What we store about users
 
@@ -189,7 +189,7 @@ Protection that applies to all of it, **in place now**:
 
 - **Server-only access:** see above (`server-only`, ESLint rule, boundary test). Only Route Handlers, Server Actions and Server Components may query it.
 - **TLS in transit:** enforced in code, see above.
-- **Logs without values (#60):** when a game call fails unexpectedly, the server logs the error's name, message, Postgres code and SQL text (`errorForLog` in `src/game/log-safe.ts`), but not the query's parameters or Postgres's `detail`, which can quote an owner hash, a guess or a password hash. Tested in `src/game/log-safe.test.ts`.
+- **Game-call logs without values (#60):** when a game call fails unexpectedly, `runGameCall` logs the error through `errorForLog` (`src/game/log-safe.ts`), whatever logger it's given. It keeps error names, Postgres codes, the SQL text and stack frames, but not the query's parameters, Postgres's `detail` or message (for any error with a Postgres code), or a `SyntaxError`'s message, since those can quote an owner hash, a guess, stored game state or a password hash. Tested in `src/game/log-safe.test.ts` and `src/game/game-result.test.ts`. **Not covered:** `/img/[file]` doesn't catch its errors, so Next logs a failed image query in full (its only parameter is the image id, already in the request URL), and `scripts/seed.ts` still prints a failed query's message, params included (#110).
 - **Encrypted at rest:** Neon encrypts stored data at rest. Three separate Neon projects (dev, preview, prod), so dev work never touches real data.
 - **Deleted with the account:** deleting a `users` row deletes its sessions, games and their rounds (`ON DELETE CASCADE`, tested in `src/db/schema.test.ts`). **PLANNED (#53):** a way for a user to delete their account.
 - **Who holds the keys:** connection strings are in the dev `.env.local` files and, for preview and production, only in Vercel (sensitive) and the Neon console, set by Jacky as the deploy owner (see above).
@@ -204,6 +204,6 @@ Protection that applies to all of it, **in place now**:
 | Scoring values and wrong-guess rules (#21) | Playtest the three-image prototype (notes in `PLAYTEST.md`), then change the values in `src/game/scoring-config.ts` |
 | Number of reveal steps; typo tolerance | Decide after the playtest. The code already accepts a pluggable answer matcher. |
 | Image sourcing and licenses | The three sample photos are CC BY-SA, with credits in the data (#32) and shown after each round (#35). Open: where to source daily puzzles, and neutral file names so they don't give the answer away (#36) |
-| Daily reset time and time zone | Default: midnight `America/Los_Angeles` (`DEFAULT_DAILY_RESET` in `src/game/daily-date.ts`, #58). It's a config value, so it can change after playtesting. |
+| Daily reset time and time zone | Default: midnight `America/Los_Angeles` (`DEFAULT_DAILY_RESET` in `src/game/daily-date.ts`, from #63, used by #58). It's a config value, so it can change after playtesting. |
 | Keeping the code easy to change with four people working at once | Fewer stacked PRs, smaller PRs merged sooner, and asking staff for advice (see `PROGRESS.md` §3) |
 | How to make the game more interesting and grow its scope | Playtest first, then pick features (daily challenge, streaks, sharing) based on what players enjoy |
