@@ -21,6 +21,7 @@ import { DecryptionError, getVault, resolveVault, type Vault, type VaultSource }
 import type { PublicUser } from "@/game/types";
 
 import { getDummyPasswordHash, hashPassword, newToken, sha256Hex, verifyPassword } from "./crypto";
+import { rateLimitAddress } from "./rate-limit-address";
 import { checkNewPassword, checkUsername, usernameKey } from "./rules";
 import { newUserRow, USERNAME_FIELD, usernameIndex } from "./user-row";
 
@@ -112,10 +113,11 @@ export function limitsAddress(ip: string | null, onVercel = Boolean(process.env.
 /**
  * Keyed hashes (#84), never the typed name or a raw IP: people type emails,
  * or their password, into the username box, and this row is written before
- * we know the user exists.
+ * we know the user exists. An IPv6 address counts by its /64 (#150), so
+ * rotating within one doesn't get a fresh limit; see `rateLimitAddress`.
  */
 export const ipKey = (vault: Vault, prefix: string, ip: string | null) =>
-  `${prefix}:ip:${ip ? vault.blindIndex(PURPOSE.ip, ip) : "unknown"}`;
+  `${prefix}:ip:${ip ? vault.blindIndex(PURPOSE.ip, rateLimitAddress(ip)) : "unknown"}`;
 export const loginUserKey = (vault: Vault, username: string) =>
   `login:user:${vault.blindIndex(PURPOSE.loginUser, usernameKey(username))}`;
 
