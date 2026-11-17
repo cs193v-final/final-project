@@ -12,7 +12,7 @@ import {
 import type { PublicUser } from "@/game/types";
 
 import { getDummyPasswordHash, hashPassword, newToken, sha256Hex, verifyPassword } from "./crypto";
-import { checkNewPassword, checkUsername, usernameKey } from "./rules";
+import { checkNewPassword, checkUsername, hasSpaces, usernameKey } from "./rules";
 
 export const SESSION_DAYS = 30;
 
@@ -77,6 +77,7 @@ export const loginUserKey = (username: string) => `login:user:${sha256Hex(userna
 
 const RATE_LIMITED = "Too many attempts. Wait a few minutes and try again.";
 const WRONG_CREDENTIALS = "That username and password don't match.";
+const USERNAMES_HAVE_NO_SPACES = "Usernames don't have spaces. Check the username you signed up with.";
 
 async function startSession(db: PgDb, user: PublicUser, now: Date): Promise<AuthResult> {
   const token = newToken();
@@ -119,7 +120,8 @@ export async function login(
   input: { username: unknown; password: unknown },
   req: RequestInfo,
 ): Promise<AuthResult> {
-  // Just require something in both fields; "invalid" is only for empty ones.
+  // Just require something in both fields; "invalid" is only for empty ones
+  // (and a username with a space, below).
   const username = typeof input.username === "string" ? input.username.normalize("NFKC").trim() : "";
   const password = typeof input.password === "string" ? input.password : "";
   if (username === "" || password === "") {
@@ -137,6 +139,9 @@ export async function login(
   // the same since accounts started), so that's a wrong login, decided
   // without the database. This also keeps very long input out of the
   // rate-limit table, where a key over Postgres's index limit was an error.
+  // A name with a space gets a hint instead (#133): people type their full
+  // name, and since no username has one, saying so reveals nothing.
+  if (hasSpaces(username)) return { ok: false, reason: "invalid", errors: { username: USERNAMES_HAVE_NO_SPACES } };
   if (!checkUsername(username).ok) return { ok: false, reason: "wrong-credentials", message: WRONG_CREDENTIALS };
 
   const db = resolve(source);

@@ -15,6 +15,10 @@ type Props = {
 const inputClass =
   "w-full rounded-md border border-zinc-400 bg-white px-3 py-2 text-base text-zinc-900 dark:border-zinc-500 dark:bg-zinc-900 dark:text-zinc-100";
 const errorClass = "text-sm font-medium text-rose-700 dark:text-rose-400";
+// Field errors and hints take no space when empty (not the form's role="alert",
+// which must stay rendered for screen readers to announce it).
+const fieldErrorClass = `${errorClass} empty:hidden`;
+const hintClass = "text-sm text-zinc-600 empty:hidden dark:text-zinc-400";
 
 export function AccountForm({ mode, action }: Props) {
   const [state, formAction, pending] = useActionState(action, undefined);
@@ -39,13 +43,14 @@ export function AccountForm({ mode, action }: Props) {
           required
           defaultValue={state?.username ?? ""}
           aria-invalid={usernameError ? true : undefined}
-          aria-describedby={`${id}-username-hint`}
+          aria-describedby={`${id}-username-error ${id}-username-hint`}
         />
-        <p id={`${id}-username-hint`} className={usernameError ? errorClass : "text-sm text-zinc-600 dark:text-zinc-400"}>
-          {usernameError ??
-            (isRegister
-              ? `${USERNAME_MIN}–${USERNAME_MAX} letters, numbers, _ or -, with no spaces. Not an email address.`
-              : "")}
+        {/* The error goes above the hint, not in place of it, so the rules stay in view for the next try (#133). */}
+        <p id={`${id}-username-error`} className={fieldErrorClass}>
+          {usernameError ?? ""}
+        </p>
+        <p id={`${id}-username-hint`} className={hintClass}>
+          {isRegister ? `${USERNAME_MIN}–${USERNAME_MAX} letters, numbers, _ or -, with no spaces. Not an email address.` : ""}
         </p>
       </div>
 
@@ -62,10 +67,13 @@ export function AccountForm({ mode, action }: Props) {
           required
           maxLength={PASSWORD_MAX}
           aria-invalid={passwordError ? true : undefined}
-          aria-describedby={`${id}-password-hint`}
+          aria-describedby={`${id}-password-error ${id}-password-hint`}
         />
-        <p id={`${id}-password-hint`} className={passwordError ? errorClass : "text-sm text-zinc-600 dark:text-zinc-400"}>
-          {passwordError ?? (isRegister ? `At least ${PASSWORD_MIN} characters. There's no password reset yet.` : "")}
+        <p id={`${id}-password-error`} className={fieldErrorClass}>
+          {passwordError ?? ""}
+        </p>
+        <p id={`${id}-password-hint`} className={hintClass}>
+          {isRegister ? `At least ${PASSWORD_MIN} characters. There's no password reset yet.` : ""}
         </p>
       </div>
 

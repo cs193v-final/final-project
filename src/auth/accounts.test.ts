@@ -217,7 +217,7 @@ describe("login", () => {
     const noDb = () => {
       throw new Error("the database should not be touched");
     };
-    for (const username of ["x".repeat(12_000), "alice@example.com", "has space", "ab"]) {
+    for (const username of ["x".repeat(12_000), "alice@example.com", "ab", "o'brien"]) {
       expect(await login(noDb, { username, password: "wrong pass" }, req())).toEqual({
         ok: false,
         reason: "wrong-credentials",
@@ -225,6 +225,20 @@ describe("login", () => {
       });
     }
   });
+
+  it.each(["Jane Doe", "jane\u200Bdoe", "x ".repeat(6_000)])(
+    "says usernames have no spaces for %j, without touching the database (#133)",
+    async (username) => {
+      const noDb = () => {
+        throw new Error("the database should not be touched");
+      };
+      expect(await login(noDb, { username, password: "wrong pass" }, req())).toEqual({
+        ok: false,
+        reason: "invalid",
+        errors: { username: "Usernames don't have spaces. Check the username you signed up with." },
+      });
+    },
+  );
 });
 
 describe("sessions", () => {
