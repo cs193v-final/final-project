@@ -41,7 +41,10 @@ function backend() {
   return {
     received,
     start: vi.fn(() => record(runGameCall(() => startGame(deps, PACK, OWNER, SCORING_CONFIG)))),
-    act: vi.fn((gameId: string, action: GameAction) => record(runGameCall(() => act(deps, gameId, OWNER, action)))),
+    // Passes the client's revision through, so a client sending a stale one would get `conflict` (#107).
+    act: vi.fn((gameId: string, action: GameAction, revision: number) =>
+      record(runGameCall(() => act(deps, gameId, OWNER, action, revision))),
+    ),
     get: vi.fn((gameId: string) => record(runGameCall(() => getGame(deps, gameId, OWNER)))),
   };
 }
@@ -92,7 +95,7 @@ describe("PracticeGame start and resume (#54)", () => {
     const { unmount } = render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
     expect(screen.getByText("Starting a new game…")).toBeInTheDocument();
 
-    // "← Back to start": Next unmounts /play and shows "/".
+    // "← Home": Next unmounts /play and shows "/".
     unmount();
     window.history.replaceState(null, "", "/");
     finish();
@@ -106,8 +109,9 @@ describe("PracticeGame start and resume (#54)", () => {
     const started = await server.start();
     if (!started.ok) throw new Error("start failed");
     const { gameId } = started.view;
-    await server.act(gameId, { type: "reveal" });
-    const initial = await server.act(gameId, { type: "guess", guess: "bay bridge" });
+    const revealed = await server.act(gameId, { type: "reveal" }, started.view.revision);
+    if (!revealed.ok) throw new Error("reveal failed");
+    const initial = await server.act(gameId, { type: "guess", guess: "bay bridge" }, revealed.view.revision);
 
     render(<PracticeGame initial={initial} start={server.start} act={server.act} get={server.get} />);
     expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
@@ -130,8 +134,29 @@ describe("PracticeGame start and resume (#54)", () => {
     const { user, input, server } = await setup();
     server.act.mockResolvedValueOnce({ ok: false, error: "conflict" });
     await user.type(input(), "bay bridge{Enter}");
-    expect(await screen.findByRole("alert")).toHaveTextContent("changed in another tab");
+    expect(await screen.findByRole("alert")).toHaveTextContent("updated since you last saw it");
     expect(server.get).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't apply a move from a tab that's behind: another tab's Skip + Next, then this tab's Skip (#107)", async () => {
+    const { user, server } = await setup();
+    const started = server.received[0]!;
+    if (!started.ok) throw new Error("start failed");
+    const { gameId } = started.view;
+    // Another tab, on the same game, skips image 1 and moves on to image 2.
+    const skipped = await server.act(gameId, { type: "skip" }, started.view.revision);
+    if (!skipped.ok) throw new Error("other tab's skip failed");
+    await server.act(gameId, { type: "next" }, skipped.view.revision);
+
+    // This tab still shows image 1. Its Skip must not skip image 2.
+    expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Skip this image" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("updated since you last saw it");
+    expect(await screen.findByText("Image 2 of 2")).toBeInTheDocument();
+    const now = await server.get(gameId);
+    if (!now.ok) throw new Error("get failed");
+    expect(now.view.results.map((r) => r.outcome)).toEqual(["skipped"]);
+    expect(now.view.round).toMatchObject({ position: 2, state: "playing" });
   });
 
   it("never receives an answer while a round is being played", async () => {
@@ -163,9 +188,9 @@ describe("PracticeGame while a move is on its way to the server", () => {
     const { user, server } = await setup();
     const realAct = server.act.getMockImplementation()!;
     const gate = deferred<void>();
-    server.act.mockImplementationOnce(async (gameId, action) => {
+    server.act.mockImplementationOnce(async (gameId, action, revision) => {
       await gate.promise;
-      return realAct(gameId, action);
+      return realAct(gameId, action, revision);
     });
 
     const zoom = screen.getByRole("button", { name: "Zoom out" });
@@ -184,9 +209,9 @@ describe("PracticeGame while a move is on its way to the server", () => {
     const { user, input, server } = await setup();
     const realAct = server.act.getMockImplementation()!;
     const gate = deferred<void>();
-    server.act.mockImplementationOnce(async (gameId, action) => {
+    server.act.mockImplementationOnce(async (gameId, action, revision) => {
       await gate.promise;
-      return realAct(gameId, action);
+      return realAct(gameId, action, revision);
     });
 
     await user.type(input(), "bay bridge{Enter}");
@@ -236,9 +261,43 @@ describe("PracticeGame when a Server Action fails outright (offline, or a redepl
     await user.click(zoom);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach the server.");
-    expect(screen.getByRole("button", { name: "Reload the page" })).toBeInTheDocument();
+    // Underlined all the time, not just on hover, so it reads as pressable on a touch screen.
+    expect(screen.getByRole("button", { name: "Reload the page" })).toHaveClass("underline");
     expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
     expect(zoom).toHaveAttribute("aria-disabled", "false");
+
+    await user.click(zoom);
+    expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("PracticeGame when a limit is hit (#85)", () => {
+  const LIMITED: GameResult = { ok: false, error: "rate-limited" };
+
+  it("says to wait and try again when starting is rate-limited, and Try again starts the game", async () => {
+    const user = userEvent.setup();
+    const server = backend();
+    const realStart = server.start.getMockImplementation()!;
+    server.start.mockResolvedValueOnce(LIMITED);
+    render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/wait a while \(up to an hour\), then try again/);
+    expect(window.location.search).toBe("");
+    server.start.mockImplementation(realStart);
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
+  });
+
+  it("keeps the game on screen when a move is rate-limited, and the move works once allowed again", async () => {
+    const { user, server } = await setup();
+    server.act.mockResolvedValueOnce(LIMITED);
+    const zoom = screen.getByRole("button", { name: "Zoom out" });
+    await user.click(zoom);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/wait a while \(up to an hour\), then try again/);
+    expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
+    expect(screen.getByText("Zoom level 1 of 3")).toBeInTheDocument();
 
     await user.click(zoom);
     expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();

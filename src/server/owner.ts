@@ -6,66 +6,46 @@
 // that digest is what `games.anon_owner_hash` stores, so a database leak
 // doesn't let anyone act on someone else's games.
 //
-// Whether anonymous players may start *daily* games is an open decision
-// (#54/#62); today only the practice pack can be started (src/server/games.ts).
+// Anonymous players may play the daily too (settled in #58 with Jacky and
+// Ethan): only games started while logged in count for leaderboards and
+// streaks (#62, #63 filter on user_id IS NOT NULL).
 import "server-only";
 
-import { createHash, randomBytes } from "node:crypto";
 import { cookies, headers } from "next/headers";
 
+import { isToken, newToken, sha256Hex } from "@/auth/crypto";
 import type { GameOwner } from "@/game/server-game";
 
 import { getCurrentUser } from "./current-user";
+import { isHttpsRequest } from "./https";
+
+export { isHttpsRequest };
 
 export const OWNER_COOKIE = "zo_owner";
-
-/** 32 random bytes as base64url: 43 characters, no padding. */
-const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 
 /** About a year; browsers cap cookie lifetimes at 400 days anyway. */
 const MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
-export function newOwnerToken(): string {
-  return randomBytes(32).toString("base64url");
-}
+/** A new owner token: 32 random bytes as base64url, the same format as session tokens. */
+export const newOwnerToken = newToken;
 
 /** The owner id for a cookie token: its SHA-256 as lowercase hex. */
-export function hashOwnerToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
+export const hashOwnerToken = sha256Hex;
 
 /** A cookie value we issued, rather than garbage or a tampered value. */
-export function isOwnerToken(value: string | undefined): value is string {
-  return value !== undefined && TOKEN.test(value);
-}
-
-/**
- * Whether the request reached us over https, from `X-Forwarded-Proto`. Next
- * sets that header from the connection when a proxy (e.g. Vercel) hasn't, so
- * plain `next dev` / `next start` report "http". With a proxy chain the
- * first value is the client's. Only an explicit `http` counts as plain http;
- * anything else (missing, empty, unknown) means https, the safe default (#108).
- */
-export function isHttpsRequest(forwardedProto: string | null): boolean {
-  const first = forwardedProto?.split(",")[0]?.trim().toLowerCase();
-  return first !== "http";
-}
-
-/** Whether we're running on Vercel (preview or production), which serves only https. */
-export function isOnVercel(env: Record<string, string | undefined> = process.env): boolean {
-  return env.VERCEL === "1";
-}
+export const isOwnerToken = isToken;
 
 /**
  * Cookie options for the owner cookie. Always `Secure` on Vercel, whatever the
- * request headers say (#108). Elsewhere, `Secure` unless the request came in
- * over plain http (local dev, e2e, testing from a phone on the LAN), where the
- * browser would drop a Secure cookie.
+ * request headers say (#108, #155). Elsewhere, `Secure` unless the request came
+ * in over plain http (local dev, e2e, testing from a phone on the LAN), where
+ * the browser would drop a Secure cookie. The rule is `isHttpsRequest`
+ * (./https.ts), shared with the session cookie.
  */
-export function ownerCookieOptions(forwardedProto: string | null, onVercel = isOnVercel()) {
+export function ownerCookieOptions(forwardedProto: string | null, onVercel = Boolean(process.env.VERCEL)) {
   return {
     httpOnly: true,
-    secure: onVercel || isHttpsRequest(forwardedProto),
+    secure: isHttpsRequest(forwardedProto, onVercel),
     sameSite: "lax" as const,
     path: "/",
     maxAge: MAX_AGE_SECONDS,

@@ -13,7 +13,7 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers(requestHeaders),
 }));
 
-const { currentOrNewOwner, currentOwner, hashOwnerToken, isHttpsRequest, isOnVercel, isOwnerToken, newOwnerToken, OWNER_COOKIE, ownerCookieOptions } =
+const { currentOrNewOwner, currentOwner, hashOwnerToken, isHttpsRequest, isOwnerToken, newOwnerToken, OWNER_COOKIE, ownerCookieOptions } =
   await import("./owner");
 
 afterEach(() => {
@@ -81,10 +81,11 @@ describe("ownerCookieOptions", () => {
     }
   });
 
-  it("knows it's on Vercel from VERCEL=1", () => {
-    expect(isOnVercel({ VERCEL: "1" })).toBe(true);
-    expect(isOnVercel({})).toBe(false);
-    expect(isOnVercel({ VERCEL: "" })).toBe(false);
+  it("knows it's on Vercel from the VERCEL variable", () => {
+    vi.stubEnv("VERCEL", "1");
+    expect(ownerCookieOptions("http").secure).toBe(true);
+    vi.stubEnv("VERCEL", "");
+    expect(ownerCookieOptions("http").secure).toBe(false);
   });
 });
 
@@ -115,7 +116,7 @@ describe("currentOwner / currentOrNewOwner", () => {
     expect(jar.get(OWNER_COOKIE)!.options).toMatchObject({ secure });
   });
 
-  it("sets a Secure cookie on Vercel even when the request says http (#108)", async () => {
+  it("sets a Secure cookie on Vercel even when the request says http (shares isHttpsRequest's rule, #108, #155)", async () => {
     vi.stubEnv("VERCEL", "1");
     requestHeaders = { host: "zoom-out.vercel.app", "x-forwarded-proto": "http" };
     await currentOrNewOwner();
