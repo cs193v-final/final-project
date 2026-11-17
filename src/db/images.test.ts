@@ -96,7 +96,9 @@ describe("saveLevelImages", () => {
   });
 
   it("drops levels a puzzle no longer has", async () => {
-    await saveLevelImages(db, "pz-0a1b2c3d", levels(4));
+    await saveLevelImages(db, "pz-0a1b2c3d", levels(3));
+    // The content now has fewer zoom levels (re-seeded), then it's cut again.
+    await db.update(schema.puzzles).set({ zoomLevels: [2, 1] }).where(eq(schema.puzzles.id, "pz-0a1b2c3d"));
     await saveLevelImages(db, "pz-0a1b2c3d", levels(2));
     const rows = await db.select().from(schema.puzzleImages).where(eq(schema.puzzleImages.puzzleId, "pz-0a1b2c3d"));
     expect(rows.map((r) => r.level).sort()).toEqual([0, 1]);
@@ -115,9 +117,18 @@ describe("saveLevelImages", () => {
     await expect(saveLevelImages(db, "pz-0a1b2c3d", levels(3).reverse())).rejects.toThrow(/in order/);
   });
 
+  it("refuses a cut with more or fewer images than the puzzle has zoom levels, writing nothing", async () => {
+    // The puzzle has 3 zoom levels; the database can't check this itself (#82).
+    for (const count of [2, 4]) {
+      await expect(saveLevelImages(db, "pz-0a1b2c3d", levels(count))).rejects.toThrow(/has 3 zoom levels, but \d images/);
+    }
+    expect(await db.select().from(schema.imageFiles)).toHaveLength(0);
+    expect(await db.select().from(schema.puzzleImages)).toHaveLength(0);
+  });
+
   it("needs the puzzle to exist, and deletes its images with it", async () => {
-    await expect(saveLevelImages(db, "pz-11111111", levels(2))).rejects.toThrow();
-    await saveLevelImages(db, "pz-0a1b2c3d", levels(2));
+    await expect(saveLevelImages(db, "pz-11111111", levels(3))).rejects.toThrow(/no puzzle "pz-11111111"/);
+    await saveLevelImages(db, "pz-0a1b2c3d", levels(3));
     await db.delete(schema.puzzles).where(eq(schema.puzzles.id, "pz-0a1b2c3d"));
     expect(await db.select().from(schema.imageFiles)).toHaveLength(0);
     expect(await db.select().from(schema.puzzleImages)).toHaveLength(0);

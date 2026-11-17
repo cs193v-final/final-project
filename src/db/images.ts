@@ -15,7 +15,7 @@ import { randomBytes } from "node:crypto";
 import { and, asc, eq, gte, inArray, notInArray, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
-import { imageFiles, puzzleImages } from "./schema.ts";
+import { imageFiles, puzzleImages, puzzles } from "./schema.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- any schema, any driver
 export type AnyDb = PgDatabase<PgQueryResultHKT, any>;
@@ -63,6 +63,18 @@ export async function saveLevelImages(
   levels.forEach((l, i) => {
     if (l.level !== i) throw new Error(`saveLevelImages: levels must be 0..${levels.length - 1} in order`);
   });
+  // The database can't check a level against the puzzle's own zoom levels
+  // (#82), so check here: exactly one image per zoom level.
+  const [puzzle] = await db
+    .select({ zoomLevels: puzzles.zoomLevels })
+    .from(puzzles)
+    .where(eq(puzzles.id, puzzleId));
+  if (puzzle === undefined) throw new Error(`saveLevelImages: no puzzle "${puzzleId}" (seed it first)`);
+  if (levels.length !== puzzle.zoomLevels.length) {
+    throw new Error(
+      `saveLevelImages: puzzle "${puzzleId}" has ${puzzle.zoomLevels.length} zoom levels, but ${levels.length} images were given`,
+    );
+  }
 
   const stored: (StoredLevel & { id: string })[] = levels.map((l) => {
     const id = newImageId();
