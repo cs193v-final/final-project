@@ -23,7 +23,7 @@ As of the evening of Nov 16, 2026 (PST).
 | Configurable scoring | **In review** (#76, #64). |
 | Accounts | **On a branch, no PR yet** (`feat/accounts-53`, #53). |
 | Daily streaks | **Logic merged** (#73, #81; part of #63). The query and the display wait for #53 and #58. |
-| Daily themes | **Not started:** #58; content #55 and #59. |
+| Daily themes | **In PR:** today's pack and the intro screen (#100, part of #58). Content not started: #55 and #59. |
 | Accessibility, full-flow e2e tests | **Not started:** #49, #61. |
 | Checkpoint 2 backend | **Not started:** encryption (#84), game-server rate limits (#85), `COST-CONTROLS.md` (#86), secrets and `SECRETS.md` (#87), gitleaks on every checkout (#88), security audit (#95). |
 | Checkpoint 2 frontend | **Not started:** consistent controls (#89), user tests (#90–#93), deciding which features ship (#94). The user-test notes folder is approved (#99, #98). |
