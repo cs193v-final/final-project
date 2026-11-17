@@ -47,7 +47,8 @@ export async function imageResponse(connect: () => AnyDb, file: string, search =
       // max-age alone (security audit M6, #95).
       "CDN-Cache-Control": `max-age=${ONE_YEAR_SECONDS}`,
       // Only ever an image: browsers mustn't guess another type, and other
-      // sites can't embed it.
+      // sites can't embed it. next.config.ts also sends nosniff on every
+      // response (#105); this one keeps the route safe on its own.
       "X-Content-Type-Options": "nosniff",
       "Cross-Origin-Resource-Policy": "same-origin",
       // Puzzle images shouldn't turn up in image search.

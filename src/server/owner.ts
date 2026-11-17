@@ -10,45 +10,29 @@
 // (#54/#62); today only the practice pack can be started (src/server/games.ts).
 import "server-only";
 
-import { createHash, randomBytes } from "node:crypto";
 import { cookies, headers } from "next/headers";
 
+import { isToken, newToken, sha256Hex } from "@/auth/crypto";
 import type { GameOwner } from "@/game/server-game";
 
 import { getCurrentUser } from "./current-user";
+import { isHttpsRequest } from "./https";
+
+export { isHttpsRequest };
 
 export const OWNER_COOKIE = "zo_owner";
-
-/** 32 random bytes as base64url: 43 characters, no padding. */
-const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 
 /** About a year; browsers cap cookie lifetimes at 400 days anyway. */
 const MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
-export function newOwnerToken(): string {
-  return randomBytes(32).toString("base64url");
-}
+/** A new owner token: 32 random bytes as base64url, the same format as session tokens. */
+export const newOwnerToken = newToken;
 
 /** The owner id for a cookie token: its SHA-256 as lowercase hex. */
-export function hashOwnerToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
+export const hashOwnerToken = sha256Hex;
 
 /** A cookie value we issued, rather than garbage or a tampered value. */
-export function isOwnerToken(value: string | undefined): value is string {
-  return value !== undefined && TOKEN.test(value);
-}
-
-/**
- * Whether the request reached us over https, from `X-Forwarded-Proto`. Next
- * sets that header from the connection when a proxy (e.g. Vercel) hasn't, so
- * plain `next dev` / `next start` report "http". With a proxy chain the
- * first value is the client's. Unknown means https, the safe default.
- */
-export function isHttpsRequest(forwardedProto: string | null): boolean {
-  const first = forwardedProto?.split(",")[0]?.trim().toLowerCase();
-  return first === undefined || first === "" ? true : first === "https";
-}
+export const isOwnerToken = isToken;
 
 /**
  * Cookie options for the owner cookie. `Secure` whenever the request came in
