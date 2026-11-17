@@ -675,7 +675,7 @@ describe("stored record", () => {
         puzzleIds: ["p1", "p2", "p3"],
         scoring: CONFIG,
         index: 0,
-        round: { puzzleId: "p1", state: "playing", revealLevel: 1, maxRevealLevel: 3, wrongGuesses: 1 },
+        round: { puzzleId: "p1", state: "playing", revealLevel: 1, maxRevealLevel: puzzles[0]!.reveal.zoomLevels.length - 1, wrongGuesses: 1 },
         finished: false,
         events: [
           { type: "reveal", puzzleId: "p1", revealLevel: 1 },
