@@ -4,8 +4,8 @@ import "server-only";
 import { cacheLife } from "next/cache";
 
 import { getDb } from "@/db";
-import { getDailyIntro, todaysDate } from "@/db/daily";
-import { DEFAULT_DAILY_RESET } from "@/game/daily-date";
+import { getDailyIntro } from "@/db/daily";
+import { dailyDateFor, DEFAULT_DAILY_RESET } from "@/game/daily-date";
 import type { DailyIntro } from "@/game/daily";
 
 /**
@@ -16,7 +16,7 @@ import type { DailyIntro } from "@/game/daily";
  * set (#63, decided in #58).
  */
 export async function loadDailyIntro(now = new Date()): Promise<DailyIntro> {
-  return cachedIntro(todaysDate(now, DEFAULT_DAILY_RESET));
+  return cachedIntro(dailyDateFor(now, DEFAULT_DAILY_RESET));
 }
 
 /**
@@ -24,10 +24,11 @@ export async function loadDailyIntro(now = new Date()): Promise<DailyIntro> {
  * date changes, so it's a new entry. "minutes": refreshed in the background
  * after a minute, so a pack seeded during the day shows up within about a
  * minute, and the database sees at most about one query a minute per server.
- * A thrown error isn't cached.
+ * A broken day (a scheduled pack with no puzzles) is a result, so it's cached
+ * too; only a database error is thrown, and isn't cached.
  */
 async function cachedIntro(date: string): Promise<DailyIntro> {
   "use cache";
   cacheLife("minutes");
-  return getDailyIntro(getDb(), date, DEFAULT_DAILY_RESET);
+  return getDailyIntro(getDb(), date);
 }

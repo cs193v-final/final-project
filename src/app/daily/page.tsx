@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { DailyIntroScreen } from "@/components/daily/DailyIntroScreen";
+import { ButtonLink, TextLink } from "@/components/ui/controls";
 import { loadDailyIntro } from "@/server/daily";
 import { GAME_NAME } from "@/site";
 
@@ -17,7 +18,14 @@ export const metadata: Metadata = {
  */
 export default function DailyPage() {
   return (
-    <main className="flex flex-1 flex-col items-center gap-6 px-4 py-12">
+    <main className="flex flex-1 flex-col items-center gap-6 px-4 py-10">
+      <nav aria-label="Back" className="w-full max-w-md">
+        {/* "Home", like /play and the site header (#80). The arrow is decoration. */}
+        <TextLink href="/" className="gap-1">
+          <span aria-hidden="true">←</span>
+          Home
+        </TextLink>
+      </nav>
       <h1 className="sr-only">Daily challenge</h1>
       <Suspense fallback={<p className="text-zinc-600 dark:text-zinc-400">Loading today&apos;s challenge…</p>}>
         <Today />
@@ -32,10 +40,13 @@ async function Today() {
     console.error("Couldn't load today's daily challenge", error);
     return null;
   });
-  if (intro !== null) return <DailyIntroScreen intro={intro} />;
+  if (intro !== null && !intro.broken) return <DailyIntroScreen intro={intro} />;
   return (
-    <p role="alert" className="max-w-md text-center text-zinc-700 dark:text-zinc-300">
-      Couldn&apos;t load today&apos;s challenge. Please try again later.
-    </p>
+    <div className="flex max-w-md flex-col items-center gap-4 text-center">
+      <p role="alert" className="text-zinc-700 dark:text-zinc-300">
+        Couldn&apos;t load today&apos;s challenge. Please try again later, or play the practice images meanwhile.
+      </p>
+      <ButtonLink href="/play">Play practice</ButtonLink>
+    </div>
   );
 }

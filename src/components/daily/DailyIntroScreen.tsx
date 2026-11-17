@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { ButtonLink, PrototypeNotice } from "@/components/ui/controls";
 
 import type { DailyIntro } from "@/game/daily";
-import type { DailyResetConfig } from "@/game/daily-date";
+import { DEFAULT_DAILY_RESET, type DailyResetConfig } from "@/game/daily-date";
 
 /** "Friday, November 20" for "2026-11-20". The date is already a calendar day, so format it in UTC. */
 export function formatDailyDate(date: string): string {
@@ -12,17 +12,23 @@ export function formatDailyDate(date: string): string {
   );
 }
 
-/** "midnight Pacific Time", "6:00 Coordinated Universal Time", ...: the zone's name, for any zone. */
-export function resetLabel({ timeZone, resetHour }: Readonly<DailyResetConfig>): string {
+/** "midnight Pacific Time", "6 PM Eastern Time", "6 AM Coordinated Universal Time": the zone's name, for any zone. */
+export function resetLabel({ timeZone, resetHour }: Readonly<DailyResetConfig> = DEFAULT_DAILY_RESET, now = new Date()): string {
   const name = (style: "longGeneric" | "long") =>
     new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: style })
-      .formatToParts(new Date(0))
+      .formatToParts(now)
       .find((part) => part.type === "timeZoneName")?.value;
   // "Pacific Time" for most zones; a zone with no generic name (UTC) gives
   // "GMT+00:00", so use its long name ("Coordinated Universal Time") instead.
   const generic = name("longGeneric");
   const zone = generic && !generic.startsWith("GMT") ? generic : (name("long") ?? timeZone);
-  return `${resetHour === 0 ? "midnight" : `${resetHour}:00`} ${zone}`;
+  const hour =
+    resetHour === 0
+      ? "midnight"
+      : resetHour === 12
+        ? "noon"
+        : new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(2000, 0, 1, resetHour)));
+  return `${hour} ${zone}`;
 }
 
 /**
@@ -34,7 +40,7 @@ export function resetLabel({ timeZone, resetHour }: Readonly<DailyResetConfig>):
  */
 export function DailyIntroScreen({ intro, start }: { intro: DailyIntro; start?: ReactNode }) {
   const day = formatDailyDate(intro.date);
-  const next = `A new challenge starts at ${resetLabel(intro.reset)}.`;
+  const next = `A new challenge starts at ${resetLabel()}.`;
 
   if (intro.pack === null) {
     return (
