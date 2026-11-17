@@ -104,7 +104,8 @@ test("plays the practice game from the start screen to the final score and again
   await actions.expectNoAnswer(first); // start, wrong guess, zoom out
   // Case and extra spaces don't matter.
   await guess(page, `  ${first.answer.toUpperCase()} `);
-  await expect(status(page)).toHaveText(`Correct! It's ${first.answer}.`);
+  // Contains, not equals: the status line also shows a ✓ icon before the text (#48).
+  await expect(status(page)).toContainText(`Correct! It's ${first.answer}.`);
   await expect(page.getByText(`+${firstPoints} points for this image`)).toBeVisible();
   await expect(score(page)).toHaveText(`Score ${firstPoints}`);
   // The image credit only appears once the round is over.
@@ -131,7 +132,9 @@ test("plays the practice game from the start screen to the final score and again
     await actions.expectNoAnswer(p);
     await guess(page, p.acceptedAnswers[0] ?? p.answer);
     // The server sends only the canonical answer, never the alternate that matched.
-    await expect(status(page)).toHaveText(`Correct! It's ${p.answer}.`);
+    // Contains, not equals, because of the ✓ icon (#48), so check for "you said" separately.
+    await expect(status(page)).toContainText(`Correct! It's ${p.answer}.`);
+    await expect(status(page)).not.toContainText("you said");
     total += pointsIfCorrect(0, 0);
     await expect(score(page)).toHaveText(`Score ${total}`);
     actions.skip();
@@ -204,7 +207,7 @@ test("a refresh resumes the game, and the page HTML has no answer for the round 
 
   // And play carries on from there.
   await guess(page, first.answer);
-  await expect(status(page)).toHaveText(`Correct! It's ${first.answer}.`);
+  await expect(status(page)).toContainText(`Correct! It's ${first.answer}.`);
 });
 
 test("another browser can't open or play someone else's game", async ({ page, browser }) => {

@@ -96,6 +96,7 @@ describe("migrations", () => {
       "daily_schedule",
       "game_rounds",
       "games",
+      "image_files", // per-level image bytes (#57)
       "pack_puzzles",
       "packs",
       "puzzle_images",

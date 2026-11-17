@@ -14,6 +14,7 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 
 import { getDb } from "@/db";
+import { isHttpsRequest } from "@/server/owner";
 import { deleteSession } from "@/db/accounts";
 import { getVault } from "@/crypto/vault";
 import type { PublicUser } from "@/game/types";
@@ -42,7 +43,7 @@ export async function getCurrentUserOrLoggedOut(): Promise<PublicUser | null> {
   try {
     return await sessionUser(getDb(), getVault(), sha256Hex(token), new Date());
   } catch (error) {
-    console.error("Couldn't check the session; showing the user as logged out", error);
+    console.error(`Couldn't check the session; showing the user as logged out: ${describeError(error)}`);
     return null;
   }
 }
@@ -64,15 +65,32 @@ export async function requireUser(): Promise<PublicUser> {
   return user;
 }
 
-/** Sets the session cookie. Only from a Server Action or Route Handler. */
-export async function setSessionCookie(token: string, expiresAt: Date): Promise<void> {
-  (await cookies()).set(SESSION_COOKIE, token, {
+/**
+ * The session cookie's options. `Secure` whenever the request came in over
+ * https (always on Vercel). On plain http, e.g. testing from a phone on the
+ * LAN, a browser drops a Secure cookie, so it's left off there, the same rule
+ * as #77's owner cookie (`isHttpsRequest`).
+ */
+export function sessionCookieOptions(expiresAt: Date, forwardedProto: string | null) {
+  return {
     httpOnly: true,
-    secure: true,
-    sameSite: "lax",
+    secure: isHttpsRequest(forwardedProto),
+    sameSite: "lax" as const,
     path: "/",
     expires: expiresAt,
-  });
+  };
+}
+
+/**
+ * Starts a session in the browser: ends the one this browser already had (if
+ * any), so logging in again doesn't leave an old session valid for 30 days,
+ * then sets the new cookie. Only from a Server Action or Route Handler.
+ */
+export async function setSessionCookie(token: string, expiresAt: Date): Promise<void> {
+  const jar = await cookies();
+  const previous = jar.get(SESSION_COOKIE)?.value;
+  if (previous && previous !== token) await deleteSession(getDb(), sha256Hex(previous));
+  jar.set(SESSION_COOKIE, token, sessionCookieOptions(expiresAt, (await headers()).get("x-forwarded-proto")));
 }
 
 /** Ends the session on the server and removes the cookie. Only from a Server Action or Route Handler. */
@@ -84,11 +102,28 @@ export async function endSession(): Promise<void> {
 }
 
 /**
- * The client's IP address, for rate limiting only (stored hashed). On Vercel,
- * `x-forwarded-for` is set by Vercel's edge and its first entry is the client.
+ * The client's IP address, for rate limiting only (stored hashed).
+ *
+ * Assumes Vercel: its edge sets `x-vercel-forwarded-for` and overwrites
+ * `x-forwarded-for`, so a client can't choose its own address. On any other
+ * host these headers come from the client and can be spoofed, which would let
+ * someone dodge the per-address limits (the per-username limit still holds).
+ * With no header at all (local dev, CI) every request shares one "unknown"
+ * address.
  */
 export async function requestIp(): Promise<string | null> {
   const h = await headers();
-  const first = h.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return first || h.get("x-real-ip") || null;
+  const first = (name: string) => h.get(name)?.split(",")[0]?.trim() || null;
+  return first("x-vercel-forwarded-for") ?? first("x-forwarded-for") ?? first("x-real-ip");
+}
+
+/**
+ * A short description of an error for the server log. Never the error itself:
+ * a failed query's message includes its parameters (a username, a password
+ * hash).
+ */
+export function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return typeof error;
+  const code = (error.cause as { code?: unknown } | undefined)?.code ?? (error as { code?: unknown }).code;
+  return typeof code === "string" ? `${error.name} (${code})` : error.name;
 }

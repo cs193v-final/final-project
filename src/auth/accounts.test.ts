@@ -223,6 +223,44 @@ describe("login", () => {
     expect(await login(db, { username: "Ethan", password: PASSWORD }, req())).toMatchObject({ reason: "rate-limited" });
     expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("198.51.100.50")));
   });
+
+  it("an address over its limit can't add to a username's count, so it can't keep an account locked", async () => {
+    const attacker = "198.51.100.66";
+    for (let i = 0; i < RATE_LIMITS.loginPerIp.max; i++) {
+      await login(db, { username: `guess${i}`, password: "wrong pass" }, req(attacker));
+    }
+    // Blocked: from here on, its attempts on Ethan don't count against Ethan.
+    for (let i = 0; i < RATE_LIMITS.loginPerUser.max + 5; i++) {
+      expect(await login(db, { username: "Ethan", password: "wrong pass" }, req(attacker))).toMatchObject({
+        reason: "rate-limited",
+      });
+    }
+    const [row] = await rows<{ key: string }>(`SELECT key FROM rate_limits WHERE key = '${loginUserKey(vault, "Ethan")}'`);
+    expect(row).toBeUndefined();
+    expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("192.0.2.80")));
+  });
+
+  it("never stores what was typed as the username: an email or a password typed into the wrong box", async () => {
+    for (const typed of ["Alice@Example.com", "MySecretPassw0rd!", "MySecretPassw0rd", "Ethan"]) {
+      await login(db, { username: typed, password: "wrong pass" }, req());
+    }
+    const keys = (await rows<{ key: string }>("SELECT key FROM rate_limits")).map((r) => r.key).join("\n").toLowerCase();
+    for (const typed of ["alice", "example.com", "mysecretpassw0rd", "ethan"]) expect(keys).not.toContain(typed);
+    expect(keys).toContain(loginUserKey(vault, "ETHAN"));
+  });
+
+  it("refuses a username no account could have, without touching the database", async () => {
+    const noDb = () => {
+      throw new Error("the database should not be touched");
+    };
+    for (const username of ["x".repeat(12_000), "alice@example.com", "has space", "ab"]) {
+      expect(await login(noDb, { username, password: "wrong pass" }, req())).toEqual({
+        ok: false,
+        reason: "wrong-credentials",
+        message: "That username and password don't match.",
+      });
+    }
+  });
 });
 
 describe("sessions", () => {

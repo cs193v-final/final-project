@@ -1,6 +1,6 @@
 {
-  "id": "a4651278-ec72-42d3-a492-2d1422c1fa6d",
-  "prevId": "a631340c-f857-489b-9df9-bf3c7c98e256",
+  "id": "e3e17131-6f06-4ef8-8c4d-eb52807d2649",
+  "prevId": "2740beda-4c1a-4bd0-9082-fd933fb3927b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -376,6 +376,101 @@
         "games_single_owner": {
           "name": "games_single_owner",
           "value": "\"games\".\"user_id\" IS NULL OR \"games\".\"anon_owner_hash\" IS NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.image_files": {
+      "name": "image_files",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "puzzle_id": {
+          "name": "puzzle_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bytes": {
+          "name": "bytes",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "width": {
+          "name": "width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "height": {
+          "name": "height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "image_files_puzzle_id_idx": {
+          "name": "image_files_puzzle_id_idx",
+          "columns": [
+            {
+              "expression": "puzzle_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "image_files_puzzle_id_puzzles_id_fk": {
+          "name": "image_files_puzzle_id_puzzles_id_fk",
+          "tableFrom": "image_files",
+          "tableTo": "puzzles",
+          "columnsFrom": [
+            "puzzle_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "image_files_id_format": {
+          "name": "image_files_id_format",
+          "value": "\"image_files\".\"id\" ~ '^[0-9a-f]{32}$'"
+        },
+        "image_files_content_type": {
+          "name": "image_files_content_type",
+          "value": "\"image_files\".\"content_type\" IN ('image/webp')"
         }
       },
       "isRLSEnabled": false
@@ -849,14 +944,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "username_encrypted": {
-          "name": "username_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "username_index": {
-          "name": "username_index",
+        "username": {
+          "name": "username",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -876,13 +965,13 @@
         }
       },
       "indexes": {
-        "users_username_index_key": {
-          "name": "users_username_index_key",
+        "users_username_lower_key": {
+          "name": "users_username_lower_key",
           "columns": [
             {
-              "expression": "username_index",
-              "isExpression": false,
+              "expression": "lower(\"username\")",
               "asc": true,
+              "isExpression": true,
               "nulls": "last"
             }
           ],
