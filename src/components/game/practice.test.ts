@@ -20,6 +20,7 @@ function round(overrides: Partial<PublicRound> = {}): PublicRound {
 function view(r: PublicRound | null, extra: Partial<GameView> = {}): GameView {
   return {
     gameId: "g1",
+    revision: 0,
     pack: { id: "pk", kind: "practice", title: "Practice", theme: "Mixed" },
     round: r,
     results: [],

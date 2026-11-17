@@ -118,15 +118,15 @@ export function describeGameStoreContract(name: string, setup: () => Promise<Gam
       const pack: Pack = { id: packId, kind: "practice", title: "Practice", theme: "Mixed", puzzleIds: CONTRACT_PUZZLES.map((p) => p.id) };
       let view = await startGame(deps, pack, alice, CONFIG);
       await expect(getGame(deps, view.gameId, bob)).rejects.toBeInstanceOf(GameNotFoundError);
-      await expect(act(deps, view.gameId, bob, { type: "skip" })).rejects.toBeInstanceOf(GameNotFoundError);
+      await expect(act(deps, view.gameId, bob, { type: "skip" }, view.revision)).rejects.toBeInstanceOf(GameNotFoundError);
 
-      view = await act(deps, view.gameId, alice, { type: "reveal" });
-      view = await act(deps, view.gameId, alice, { type: "guess", guess: CONTRACT_PUZZLES[0]!.answer });
+      view = await act(deps, view.gameId, alice, { type: "reveal" }, view.revision);
+      view = await act(deps, view.gameId, alice, { type: "guess", guess: CONTRACT_PUZZLES[0]!.answer }, view.revision);
       for (let i = 1; i < CONTRACT_PUZZLES.length; i++) {
-        view = await act(deps, view.gameId, alice, { type: "next" });
-        view = await act(deps, view.gameId, alice, { type: "skip" });
+        view = await act(deps, view.gameId, alice, { type: "next" }, view.revision);
+        view = await act(deps, view.gameId, alice, { type: "skip" }, view.revision);
       }
-      view = await act(deps, view.gameId, alice, { type: "next" });
+      view = await act(deps, view.gameId, alice, { type: "next" }, view.revision);
       expect(view).toMatchObject({ finished: true, round: null, total: 80 });
       expect(await getGame(deps, view.gameId, alice)).toEqual(view);
     });
