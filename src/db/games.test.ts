@@ -48,7 +48,8 @@ beforeAll(async () => {
   await migrate(pglite, { migrationsFolder });
   db = pglite as unknown as Db;
   const { rows } = await pg.query<{ id: string }>(
-    "INSERT INTO users (username, password_hash) VALUES ('alice', 'hash') RETURNING id",
+    // Usernames are stored encrypted with a keyed-hash index (#84); placeholders are enough here.
+    "INSERT INTO users (username_encrypted, username_index, password_hash) VALUES ('v1.encrypted', 'index-alice', 'hash') RETURNING id",
   );
   alice = { userId: rows[0]!.id };
   await ensurePackRow(db, PACK);

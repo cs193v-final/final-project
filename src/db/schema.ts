@@ -69,13 +69,17 @@ export const users = pgTable(
   "users",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    // Stored as typed (for display). Uniqueness ignores case, see the index below.
-    username: text("username").notNull(),
+    // The username as typed (for display), encrypted with this user's key
+    // (AES-256-GCM, src/crypto/vault.ts, #84). Never stored in plain text.
+    usernameEncrypted: text("username_encrypted").notNull(),
+    // Keyed hash (HMAC) of the lowercased username: what login looks up and
+    // what keeps usernames unique ignoring case, without storing the name.
+    usernameIndex: text("username_index").notNull(),
     // argon2/bcrypt hash including its salt and parameters. Never the password.
     passwordHash: text("password_hash").notNull(),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("users_username_lower_key").on(sql`lower(${t.username})`)],
+  (t) => [uniqueIndex("users_username_index_key").on(t.usernameIndex)],
 );
 
 export const sessions = pgTable(
@@ -98,9 +102,9 @@ export const sessions = pgTable(
 
 /**
  * Fixed-window counters for rate limiting login and sign-up (#53). One row per
- * key, e.g. `login:user:<SHA-256 of the lowercased username>` or
- * `login:ip:<SHA-256 of the IP>`. Never what was typed, and never a raw IP
- * address (src/auth/accounts.ts builds the keys). A row is only useful until its window ends; expired
+ * key, e.g. `login:user:<HMAC of the lowercased username>` or
+ * `login:ip:<HMAC of the IP>` (#84). Never what was typed, and never a raw
+ * username or IP address (src/auth/accounts.ts builds the keys). A row is only useful until its window ends; expired
  * rows are reset on the next hit and swept by `deleteExpiredRateLimits`.
  */
 export const rateLimits = pgTable(
