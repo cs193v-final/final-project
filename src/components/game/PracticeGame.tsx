@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GameError, GameResult } from "@/game/game-result";
 import type { GameAction, GameView, Puzzle, PublicRound } from "@/game/types";
 import { FinalScore } from "./FinalScore";
@@ -17,7 +17,14 @@ export type PracticeGameProps = {
   start: () => Promise<GameResult>;
   act: (gameId: string, action: GameAction) => Promise<GameResult>;
   get: (gameId: string) => Promise<GameResult>;
+  /** Where a started game lives, so a refresh resumes it. Default: `/play?game=<id>`. */
+  gameHref?: (gameId: string) => string;
+  /** Whether the final score offers Play again. The daily (#58) is one game per day: false, with `afterFinish`. */
+  replay?: boolean;
+  afterFinish?: ReactNode;
 };
+
+const playHref = (gameId: string) => `/play?game=${encodeURIComponent(gameId)}`;
 
 const PROBLEMS: Record<GameError, string> = {
   "not-found": "We couldn't find that game. It may have been started in another browser.",
@@ -33,7 +40,7 @@ const PROBLEMS: Record<GameError, string> = {
  * only renders that view. It never sees answers before a round ends, and it
  * doesn't score anything.
  */
-export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
+export function PracticeGame({ initial, start, act, get, gameHref = playHref, replay = true, afterFinish }: PracticeGameProps) {
   const [view, setView] = useState<GameView | null>(initial?.ok ? initial.view : null);
   const [problem, setProblem] = useState<GameError | null>(initial && !initial.ok ? initial.error : null);
   const [feedback, setFeedback] = useState<Feedback>(() =>
@@ -87,7 +94,7 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       if (result.ok) {
         setAnswers({});
         // Put the game in the URL, so a refresh resumes it (the page loads it with getGame).
-        window.history.replaceState(null, "", `/play?game=${encodeURIComponent(result.view.gameId)}`);
+        window.history.replaceState(null, "", gameHref(result.view.gameId));
       }
       show(result, null);
     });
@@ -181,7 +188,8 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
         <FinalScore
           puzzles={finalScoreLabels(view, answers)}
           score={{ rounds: view.results, total: view.total }}
-          onPlayAgain={() => void newGame()}
+          {...(replay ? { onPlayAgain: () => void newGame() } : {})}
+          after={afterFinish}
         />
       </div>
     );

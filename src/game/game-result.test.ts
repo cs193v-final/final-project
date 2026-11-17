@@ -67,6 +67,7 @@ describe("two tabs acting on the same game at once", () => {
     return {
       create: (game) => inner.create(game),
       save: (game: StoredGame) => inner.save(game),
+      findDaily: (owner, dailyDate) => inner.findDaily(owner, dailyDate),
       async get(id) {
         const game = await inner.get(id);
         await new Promise<void>((resolve) => {

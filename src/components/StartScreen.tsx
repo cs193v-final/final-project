@@ -42,7 +42,7 @@ export function StartScreen() {
         </ol>
       </section>
 
-      <PrototypeNotice>Prototype: 3 practice images. Daily puzzles aren&apos;t built yet.</PrototypeNotice>
+      <PrototypeNotice>Prototype: point values are still being tuned.</PrototypeNotice>
     </main>
   );
 }

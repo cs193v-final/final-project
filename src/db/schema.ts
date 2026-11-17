@@ -284,8 +284,22 @@ export const games = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    // The daily challenge this game is (#58): the day it was started for, in
+    // the reset time zone. NULL for practice, Stanford and lobby games. Stored
+    // when the game starts, so a game started at 23:59 counts for that day,
+    // and changing the reset time later doesn't move past games (#63).
+    dailyDate: date("daily_date", { mode: "string" }),
   },
   (t) => [
+    // One daily game per owner per day (#58). For logged-in players this is
+    // the rule; an anonymous owner is one browser cookie, so a private window
+    // is a new owner (the brief says so).
+    uniqueIndex("games_daily_user_key")
+      .on(t.userId, t.dailyDate)
+      .where(sql`${t.dailyDate} IS NOT NULL AND ${t.userId} IS NOT NULL`),
+    uniqueIndex("games_daily_anon_key")
+      .on(t.anonOwnerHash, t.dailyDate)
+      .where(sql`${t.dailyDate} IS NOT NULL AND ${t.anonOwnerHash} IS NOT NULL`),
     index("games_user_id_created_at_idx").on(t.userId, t.createdAt),
     index("games_anon_owner_hash_idx").on(t.anonOwnerHash),
     // Leaderboards (#62): finished games of a pack, by score.

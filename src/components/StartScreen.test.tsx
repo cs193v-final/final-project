@@ -39,7 +39,8 @@ describe("StartScreen", () => {
     expect(html).not.toMatch(/<a[^>]*>[^<]*leaderboard/iu);
   });
 
-  it("labels the prototype as a placeholder for the daily game", () => {
-    expect(html).toContain("Daily puzzles aren&#x27;t built yet");
+  it("labels what's still a placeholder (#58: the daily is built now)", () => {
+    expect(html).toContain("Prototype: point values are still being tuned.");
+    expect(html).not.toContain("Daily puzzles aren");
   });
 });

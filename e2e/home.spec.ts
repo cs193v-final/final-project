@@ -81,9 +81,11 @@ test("the header links home from the game and the final score screen", async ({ 
 
 test("the whole trip works from the keyboard alone", async ({ page }) => {
   await page.goto("/");
-  // Tab order: the home link, then the only playable mode. Coming-soon cards are skipped.
+  // Tab order: the home link, then the playable modes (Daily, then Practice). Coming-soon cards are skipped.
   await page.keyboard.press("Tab");
   await expect(homeLink(page)).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Play today's" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Start practice" })).toBeFocused();
   await page.keyboard.press("Enter");
