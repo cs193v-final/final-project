@@ -168,7 +168,7 @@ export const puzzleImages = pgTable(
     primaryKey({ columns: [t.puzzleId, t.level] }),
     // 0-based, like the index into `puzzles.zoom_levels`. The upper bound
     // (level < number of zoom levels) would need to read the puzzle row, which
-    // a CHECK can't do; the seed script (#52) checks it before inserting.
+    // a CHECK can't do. Whatever loads per-level images (#57) must check it.
     check("puzzle_images_level_min", sql`${t.level} >= 0`),
   ],
 );
