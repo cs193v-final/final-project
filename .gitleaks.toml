@@ -26,12 +26,25 @@ keywords = ["password"]
 
 # Neon passwords start with npg_ followed by random letters and digits
 # (12 today). Catches one on its own: a JSON field, a string literal, an
-# env line. The bare prefix in docs ("npg_", "npg_...") doesn't match.
+# env line, or glued to other text (after a "\n" escape, before "_old").
+# No anchors on either side: \b fails next to a letter, digit or "_", and
+# in "\nnpg_..." the character before npg_ is the letter n. The bare prefix
+# in docs ("npg_", "npg_...") doesn't match: it needs 8+ letters/digits.
 [[rules]]
 id = "neon-password"
 description = "Neon Postgres password (npg_...)"
-regex = '''\bnpg_[A-Za-z0-9]{8,}\b'''
+regex = '''npg_[A-Za-z0-9]{8,}'''
 keywords = ["npg_"]
+  # Placeholders that only show the shape: npg_xxxxxxxx, npg_XXXXXXXX.
+  [[rules.allowlists]]
+  description = "Placeholder Neon password"
+  regexes = ['''^npg_(?:x+|X+)$''']
+  # The password part of a full URL is already reported by
+  # postgres-connection-url, so a leaked URL gives one finding, not two.
+  [[rules.allowlists]]
+  description = "Password inside a postgres:// URL (postgres-connection-url reports it)"
+  regexTarget = "line"
+  regexes = ['''(?i)postgres(?:ql)?://[^:\s/@'"]+:npg_[A-Za-z0-9]+@[^\s/'"]''']
 
 [[rules]]
 id = "env-file"
@@ -46,4 +59,5 @@ description = "Placeholder credentials in templates and docs"
 regexes = [
   '''(?i)postgres(?:ql)?://(USER|username)(:|%3A)(PASSWORD)@''',
   '''^(?i)(PASSWORD|<password>|your[-_]password)$''',
+  '''(?i)postgres(?:ql)?://[^:\s/@'"]+:npg_(?:x+|X+)@''',
 ]
