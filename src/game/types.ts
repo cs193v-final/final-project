@@ -67,3 +67,81 @@ export type RoundResult = {
   points: number;
   breakdown: { base: number; revealPenalty: number; wrongGuessPenalty: number };
 };
+
+// ---------------------------------------------------------------------------
+// Week 9 plan (#46): PROPOSALs for the server-side game, packs, accounts and
+// leaderboards. Types only. The owner of each type makes the final call; change
+// one only through a PR that its owner reviews. `Puzzle` changes (opaque `id`,
+// `aiSolvedLevel`, per-level images) are planned in #52 and not made here yet.
+// ---------------------------------------------------------------------------
+
+/** Owner: Joseph. PROPOSAL (#52). Which mode a pack belongs to. */
+export type PackKind = "practice" | "daily" | "stanford" | "lobby";
+
+/** Owner: Joseph. PROPOSAL (#52). A set of puzzles played together, in order. */
+export type Pack = {
+  id: string; // opaque; never derived from the theme or the answers
+  kind: PackKind;
+  title: string; // e.g. "Landmarks"
+  theme: string; // shown before play (open decision: hide it for a bonus?)
+  puzzleIds: string[]; // play order; usually 5
+  scoring?: ScoringConfig; // per-pack override (type: Ethan; storage: Jacky, #64); default when absent
+};
+
+/** Owner: Joseph. PROPOSAL (#52, #58). Which pack is a given day's daily challenge. */
+export type DailyEntry = {
+  date: string; // "YYYY-MM-DD" in the reset time zone (open decision; default America/Los_Angeles)
+  packId: string;
+};
+
+/**
+ * Owner: Jacky. PROPOSAL (#54). Everything a player can do in a game.
+ *
+ * Moved here from `round.ts` (which re-exports it) so the browser and the
+ * server share one definition. The field is `guess`, as `step` already uses.
+ */
+export type GameAction =
+  | { type: "reveal" }
+  | { type: "guess"; guess: string }
+  | { type: "skip" }
+  | { type: "next" };
+
+/**
+ * Owner: Jacky (image fields: Darian). PROPOSAL (#54, #57).
+ * Everything the browser may see about the current puzzle. No answer until the round ends.
+ */
+export type PublicRound = {
+  position: number; // 1-based
+  puzzleCount: number;
+  state: RoundState;
+  revealLevel: RevealLevel;
+  levelCount: number;
+  imageSrc: string; // Darian (#57): the image for revealLevel ONLY
+  wrongGuesses: number;
+  pointsAvailable: number;
+  aiSolvedLevel: RevealLevel | null; // Darian (Beat the AI, #56); null = the AI never got it
+  answer?: string; // only once state !== "playing"
+  credit?: Puzzle["credit"]; // only once state !== "playing"
+};
+
+/** Owner: Jacky. PROPOSAL (#54). Returned by every game call (`startGame`, `act`, `getGame`). */
+export type GameView = {
+  gameId: string;
+  pack: Pick<Pack, "id" | "kind" | "title" | "theme">;
+  round: PublicRound | null; // null once the game is over
+  lastOutcome?: GuessOutcome;
+  results: RoundResult[]; // finished rounds so far, scored on the server
+  total: number;
+  finished: boolean;
+};
+
+/** Owner: Ethan. PROPOSAL (#53). What other code and the browser may know about a user. */
+export type PublicUser = { id: string; username: string };
+
+/** Owner: Ethan. PROPOSAL (#62). One row of a leaderboard. */
+export type LeaderboardEntry = {
+  rank: number;
+  username: string;
+  score: number;
+  beatAiCount: number;
+};
