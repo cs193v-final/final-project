@@ -7,18 +7,23 @@
 //
 // Connects with DATABASE_URL_UNPOOLED, like drizzle.config.ts: a value already
 // in the environment wins; only when it's unset does it fall back to the dev
-// database in .env.local. TLS is required (localhost exempt, src/db/tls.ts),
+// database in .env.local. TLS is required (localhost exempt, src/db/tls.ts,
+// checked by `connect`),
 // and the driver follows the host like the seed script's (`connect` in
 // ./seed-db.ts): Neon's HTTP driver for Neon, node-postgres for a local one.
-// Prints only the database host, never credentials.
+// Prints only the database host, never credentials. The username is stored
+// encrypted (#84), so DATA_ENCRYPTION_KEY must be the same key the app uses.
 //
 // Runs with plain Node (type stripping), so imports are relative with `.ts`.
 import { existsSync } from "node:fs";
 
 import { hashPassword } from "../src/auth/crypto.ts";
+import { EncryptionKeyError, Vault } from "../src/crypto/vault.ts";
 import { checkNewPassword, checkUsername } from "../src/auth/rules.ts";
+import { newUserRow } from "../src/auth/user-row.ts";
 import { insertUser, type PgDb } from "../src/db/accounts.ts";
-import { assertDatabaseUrlRequiresTls, InsecureDatabaseUrlError } from "../src/db/tls.ts";
+import { InsecureDatabaseUrlError } from "../src/db/tls.ts";
+import { errorSummary } from "../src/server/error-summary.ts";
 import { connect } from "./seed-db.ts";
 
 export const USAGE = "Usage: TEST_USER_PASSWORD=... npm run db:test-user -- <username>\n(put TEST_USER_PASSWORD in .env.local)";
@@ -41,10 +46,15 @@ export function parseInput(args: readonly string[], password: string | undefined
 }
 
 /** Creates the user and returns what to print. An existing user is left unchanged. */
-export async function createTestUser(db: PgDb, input: { username: string; password: string }): Promise<string> {
-  const user = await insertUser(db, input.username, await hashPassword(input.password));
-  return user
-    ? `Created test user "${user.username}". Log in at /login.`
+export async function createTestUser(
+  db: PgDb,
+  vault: Vault,
+  input: { username: string; password: string },
+): Promise<string> {
+  // Built exactly like sign-up builds it (`register`), so the user can log in.
+  const created = await insertUser(db, newUserRow(vault, input.username, await hashPassword(input.password)));
+  return created
+    ? `Created test user "${input.username}". Log in at /login.`
     : `A user named "${input.username}" already exists (ignoring case); nothing changed.`;
 }
 
@@ -56,21 +66,26 @@ async function main(): Promise<void> {
     const input = parseInput(process.argv.slice(2), process.env.TEST_USER_PASSWORD);
     const url = process.env.DATABASE_URL_UNPOOLED;
     if (!url) throw new UsageError("DATABASE_URL_UNPOOLED is not set (see README.md → Database).");
-    assertDatabaseUrlRequiresTls(url, "DATABASE_URL_UNPOOLED");
-    console.log(`Database host: ${new URL(url).host}`);
-    const { db, close } = await connect(url);
+    // connect() checks TLS first, so an insecure URL is rejected before
+    // anything is printed. Neither driver opens a connection until the insert.
+    const { db, close } = await connect(url, "DATABASE_URL_UNPOOLED");
     try {
-      console.log(await createTestUser(db as unknown as PgDb, input));
+      const vault = Vault.fromEnv();
+      console.log(`Database host: ${new URL(url).host}`);
+      console.log(await createTestUser(db as unknown as PgDb, vault, input));
     } finally {
       await close();
     }
   } catch (error) {
-    if (error instanceof UsageError || error instanceof InsecureDatabaseUrlError) {
+    process.exitCode = 1;
+    if (error instanceof UsageError || error instanceof InsecureDatabaseUrlError || error instanceof EncryptionKeyError) {
       console.error(error.message);
-      process.exitCode = 1;
       return;
     }
-    throw error;
+    // Never the error itself: Node would print a failed insert's params (the
+    // username and the password hash). errorSummary keeps names, Postgres
+    // codes and value-free messages only (#60).
+    console.error(`Couldn't create the test user: ${errorSummary(error)}`);
   }
 }
 

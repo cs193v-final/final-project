@@ -7,6 +7,8 @@ const CI = !!process.env.CI;
 
 export default defineConfig({
   testDir: "./e2e",
+  // Removes the daily spec's test data once every project has finished.
+  globalTeardown: "./e2e/global-teardown.ts",
   forbidOnly: CI,
   retries: CI ? 1 : 0,
   reporter: CI ? [["list"], ["html", { open: "never" }]] : "list",

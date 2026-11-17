@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { GameScore } from "@/game/scoring";
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import type { Puzzle, RoundResult, ScoringConfig } from "@/game/types";
@@ -34,11 +34,14 @@ export function FinalScore({
   puzzles,
   score,
   onPlayAgain,
+  after,
   config = SCORING_CONFIG,
 }: {
   puzzles: readonly Pick<Puzzle, "id" | "answer">[];
   score: GameScore;
-  onPlayAgain: () => void;
+  /** Omit for a game you can't replay (the daily, #58); show `after` instead. */
+  onPlayAgain?: () => void;
+  after?: ReactNode;
   config?: ScoringConfig;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -80,7 +83,8 @@ export function FinalScore({
         ))}
       </ol>
 
-      <Button onClick={onPlayAgain}>Play again</Button>
+      {onPlayAgain ? <Button onClick={onPlayAgain}>Play again</Button> : null}
+      {after}
     </section>
   );
 }
