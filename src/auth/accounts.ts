@@ -6,11 +6,9 @@
 // and looked up by a keyed hash. Rate-limit keys use keyed hashes too, so the
 // database never holds a username or an IP address in a form anyone without
 // the key can read or recompute. See src/crypto/vault.ts.
-import { randomUUID } from "node:crypto";
-
-import type { PublicUser } from "../game/types.ts";
 import {
   clearRateLimit,
+  deleteSession,
   findLoginRow,
   findSessionUser,
   hitRateLimit,
@@ -18,17 +16,18 @@ import {
   insertUser,
   type PgDb,
   type StoredUser,
-} from "../db/accounts.ts";
-import { getVault, resolveVault, type Vault, type VaultSource } from "../crypto/vault.ts";
-import { getDummyPasswordHash, hashPassword, newToken, sha256Hex, verifyPassword } from "./crypto.ts";
-import { checkNewPassword, checkUsername, usernameKey } from "./rules.ts";
+} from "@/db/accounts";
+import { DecryptionError, getVault, resolveVault, type Vault, type VaultSource } from "@/crypto/vault";
+import type { PublicUser } from "@/game/types";
 
-/** Field and keyed-hash purposes, as passed to the vault. Changing one makes existing values unreadable. */
-export const USERNAME_FIELD = "users.username";
-const PURPOSE = { username: "users.username", loginUser: "rate-limit.login-user", ip: "rate-limit.ip" } as const;
+import { getDummyPasswordHash, hashPassword, newToken, sha256Hex, verifyPassword } from "./crypto";
+import { checkNewPassword, checkUsername, usernameKey } from "./rules";
+import { newUserRow, USERNAME_FIELD, usernameIndex } from "./user-row";
 
-/** The keyed hash that login looks up and that keeps usernames unique, ignoring case. */
-export const usernameIndex = (vault: Vault, username: string) => vault.blindIndex(PURPOSE.username, usernameKey(username));
+export { USERNAME_FIELD, usernameIndex };
+
+/** Keyed-hash purposes for rate-limit keys, as passed to the vault. Changing one only resets the counters. */
+const PURPOSE = { loginUser: "rate-limit.login-user", ip: "rate-limit.ip" } as const;
 
 /** A stored user as the app sees it: the username decrypted. */
 export const toPublicUser = (vault: Vault, row: StoredUser): PublicUser => ({
@@ -36,10 +35,24 @@ export const toPublicUser = (vault: Vault, row: StoredUser): PublicUser => ({
   username: vault.decrypt(row.id, USERNAME_FIELD, row.usernameEncrypted),
 });
 
-/** The session's user, decrypted, if the session exists and hasn't expired at `now`. */
+/**
+ * The session's user, decrypted, if the session exists and hasn't expired at
+ * `now`. A username that doesn't decrypt (the tier's key was changed or set
+ * wrong, or the row is corrupt) counts as logged out, like a missing session:
+ * the session is deleted, best effort, and the cookie then matches nothing.
+ * Only database errors throw.
+ */
 export async function sessionUser(db: PgDb, vault: Vault, tokenHash: string, now: Date): Promise<PublicUser | null> {
   const row = await findSessionUser(db, tokenHash, now);
-  return row ? toPublicUser(vault, row) : null;
+  if (!row) return null;
+  try {
+    return toPublicUser(vault, row);
+  } catch (error) {
+    if (!(error instanceof DecryptionError)) throw error;
+    console.error("A session's username couldn't be decrypted (is DATA_ENCRYPTION_KEY right for this tier?); ending that session");
+    await deleteSession(db, tokenHash).catch(() => {});
+    return null;
+  }
 }
 
 export const SESSION_DAYS = 30;
@@ -142,15 +155,9 @@ export async function register(
     return { ok: false, reason: "rate-limited", message: RATE_LIMITED };
   }
 
-  // The id is chosen here, because the username is encrypted with a key derived from it.
-  const user: PublicUser = { id: randomUUID(), username: username.value };
-  const inserted = await insertUser(db, {
-    id: user.id,
-    usernameEncrypted: vault.encrypt(user.id, USERNAME_FIELD, user.username),
-    usernameIndex: usernameIndex(vault, user.username),
-    passwordHash: await hashPassword(password.value),
-  });
-  if (!inserted) return { ok: false, reason: "taken", errors: { username: "That username is taken." } };
+  const row = newUserRow(vault, username.value, await hashPassword(password.value));
+  const user: PublicUser = { id: row.id, username: username.value };
+  if (!(await insertUser(db, row))) return { ok: false, reason: "taken", errors: { username: "That username is taken." } };
   return startSession(db, user, req.now);
 }
 
@@ -198,6 +205,8 @@ export async function login(
   const matches = await verifyPassword(password.slice(0, 1024), row?.passwordHash ?? (await getDummyPasswordHash()));
   if (!row || !matches) return { ok: false, reason: "wrong-credentials", message: WRONG_CREDENTIALS };
 
+  // Decrypt before clearing the limit: if the key is wrong, the attempt still counts.
+  const user = toPublicUser(vault, row);
   await clearRateLimit(db, loginUserKey(vault, username));
-  return startSession(db, toPublicUser(vault, row), req.now);
+  return startSession(db, user, req.now);
 }

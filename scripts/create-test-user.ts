@@ -14,13 +14,12 @@
 // encrypted (#84), so DATA_ENCRYPTION_KEY must be the same key the app uses.
 //
 // Runs with plain Node (type stripping), so imports are relative with `.ts`.
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 
-import { USERNAME_FIELD, usernameIndex } from "../src/auth/accounts.ts";
 import { hashPassword } from "../src/auth/crypto.ts";
 import { EncryptionKeyError, Vault } from "../src/crypto/vault.ts";
 import { checkNewPassword, checkUsername } from "../src/auth/rules.ts";
+import { newUserRow } from "../src/auth/user-row.ts";
 import { insertUser, type PgDb } from "../src/db/accounts.ts";
 import { assertDatabaseUrlRequiresTls, InsecureDatabaseUrlError } from "../src/db/tls.ts";
 import { connect } from "./seed-db.ts";
@@ -50,13 +49,8 @@ export async function createTestUser(
   vault: Vault,
   input: { username: string; password: string },
 ): Promise<string> {
-  const id = randomUUID();
-  const created = await insertUser(db, {
-    id,
-    usernameEncrypted: vault.encrypt(id, USERNAME_FIELD, input.username),
-    usernameIndex: usernameIndex(vault, input.username),
-    passwordHash: await hashPassword(input.password),
-  });
+  // Built exactly like sign-up builds it (`register`), so the user can log in.
+  const created = await insertUser(db, newUserRow(vault, input.username, await hashPassword(input.password)));
   return created
     ? `Created test user "${input.username}". Log in at /login.`
     : `A user named "${input.username}" already exists (ignoring case); nothing changed.`;

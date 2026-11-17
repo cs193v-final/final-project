@@ -85,6 +85,19 @@ describe("blindIndex", () => {
   });
 });
 
+describe("key cache", () => {
+  it("keeps only the keyed-hash keys, so it doesn't grow with users or records", () => {
+    const v = new Vault(randomBytes(32));
+    for (let i = 0; i < 50; i++) {
+      const id = `user-${i}`;
+      v.decrypt(id, "users.username", v.encrypt(id, "users.username", "Ethan"));
+      v.blindIndex("users.username", `name${i}`);
+      v.blindIndex("rate-limit.ip", `203.0.113.${i}`);
+    }
+    expect(v.cachedKeyCount).toBe(2);
+  });
+});
+
 describe("the master key", () => {
   const good = randomBytes(32).toString("base64");
 

@@ -54,7 +54,12 @@ function checkName(kind: string, name: string): void {
 
 export class Vault {
   readonly #master: Buffer;
-  readonly #keys = new Map<string, Buffer>();
+  /**
+   * Keyed-hash keys, one per purpose: a small, fixed set, so they're cached.
+   * Per-record encryption keys are never cached (HKDF takes microseconds), so
+   * a long-lived vault doesn't grow with its traffic or hold everyone's keys.
+   */
+  readonly #indexKeys = new Map<string, Buffer>();
 
   constructor(masterKey: Buffer) {
     if (masterKey.length !== KEY_BYTES) {
@@ -77,13 +82,26 @@ export class Vault {
     return new Vault(Buffer.from(raw, "base64"));
   }
 
-  #key(info: string): Buffer {
-    let key = this.#keys.get(info);
+  #derive(info: string): Buffer {
+    return Buffer.from(hkdfSync("sha256", this.#master, HKDF_SALT, info, KEY_BYTES));
+  }
+
+  #encKey(userId: string, field: string): Buffer {
+    return this.#derive(`enc\0${field}\0${userId}`);
+  }
+
+  #indexKey(purpose: string): Buffer {
+    let key = this.#indexKeys.get(purpose);
     if (!key) {
-      key = Buffer.from(hkdfSync("sha256", this.#master, HKDF_SALT, info, KEY_BYTES));
-      this.#keys.set(info, key);
+      key = this.#derive(`idx\0${purpose}`);
+      this.#indexKeys.set(purpose, key);
     }
     return key;
+  }
+
+  /** How many derived keys this vault keeps in memory. For tests: it's one per keyed-hash purpose, never per user. */
+  get cachedKeyCount(): number {
+    return this.#indexKeys.size;
   }
 
   #aad(userId: string, field: string): Buffer {
@@ -95,7 +113,7 @@ export class Vault {
     checkName("field", field);
     if (userId === "") throw new Error("Vault: userId is required");
     const nonce = randomBytes(NONCE_BYTES);
-    const cipher = createCipheriv("aes-256-gcm", this.#key(`enc\0${field}\0${userId}`), nonce, { authTagLength: TAG_BYTES });
+    const cipher = createCipheriv("aes-256-gcm", this.#encKey(userId, field), nonce, { authTagLength: TAG_BYTES });
     cipher.setAAD(this.#aad(userId, field));
     const body = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final(), cipher.getAuthTag()]);
     return `${VERSION}.${b64url(nonce)}.${b64url(body)}`;
@@ -110,7 +128,7 @@ export class Vault {
     const body = Buffer.from(parts[2]!, "base64url");
     if (nonce.length !== NONCE_BYTES || body.length < TAG_BYTES) throw new DecryptionError();
     try {
-      const decipher = createDecipheriv("aes-256-gcm", this.#key(`enc\0${field}\0${userId}`), nonce, {
+      const decipher = createDecipheriv("aes-256-gcm", this.#encKey(userId, field), nonce, {
         authTagLength: TAG_BYTES,
       });
       decipher.setAAD(this.#aad(userId, field));
@@ -137,7 +155,7 @@ export class Vault {
    */
   blindIndex(purpose: string, value: string): string {
     checkName("purpose", purpose);
-    return createHmac("sha256", this.#key(`idx\0${purpose}`)).update(value, "utf8").digest("hex");
+    return createHmac("sha256", this.#indexKey(purpose)).update(value, "utf8").digest("hex");
   }
 }
 

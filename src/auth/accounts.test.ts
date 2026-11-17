@@ -5,9 +5,9 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { Vault } from "@/crypto/vault";
+import { DecryptionError, Vault } from "@/crypto/vault";
 import { deleteExpiredRateLimits, deleteExpiredSessions, deleteSession, hitRateLimit, type PgDb } from "@/db/accounts";
 import * as schema from "@/db/schema";
 
@@ -26,8 +26,10 @@ import {
 } from "./accounts";
 import { sha256Hex } from "./crypto";
 
-// register and login read the key from the environment (getVault), like the app.
-process.env.DATA_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString("base64");
+// register and login read the key from the environment (getVault), like the
+// app. Stubbed for this file only (restored in afterAll), so other test files
+// in the same worker don't depend on file order.
+vi.stubEnv("DATA_ENCRYPTION_KEY", Buffer.alloc(32, 9).toString("base64"));
 const vault = Vault.fromEnv();
 const findSessionUser = (db: PgDb, tokenHash: string, now: Date) => sessionUser(db, vault, tokenHash, now);
 
@@ -44,6 +46,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  vi.unstubAllEnvs();
   await pg.close();
 });
 
@@ -257,6 +260,14 @@ describe("login", () => {
     expect(keys).toContain(loginUserKey(vault, "ETHAN"));
   });
 
+  it("decrypts the username before clearing the username's attempts, so a bad key doesn't reset the limit", async () => {
+    await pg.exec(`UPDATE users SET username_encrypted = 'v1.${"A".repeat(16)}.${"A".repeat(40)}'`);
+    await expect(login(db, { username: "Ethan", password: PASSWORD }, req())).rejects.toThrow(DecryptionError);
+    const [row] = await rows<{ count: number }>(`SELECT count FROM rate_limits WHERE key = '${loginUserKey(vault, "Ethan")}'`);
+    expect(row?.count).toBe(1);
+    expect(await rows("SELECT * FROM sessions")).toHaveLength(1); // only the one from sign-up
+  });
+
   it("refuses a username no account could have, without touching the database", async () => {
     const noDb = () => {
       throw new Error("the database should not be touched");
@@ -277,6 +288,26 @@ describe("sessions", () => {
     const hash = sha256Hex(session.token);
     expect(await findSessionUser(db, hash, at(SESSION_DAYS * 86_400_000 - 1))).toEqual(user);
     expect(await findSessionUser(db, hash, at(SESSION_DAYS * 86_400_000))).toBeNull();
+  });
+
+  it("count as logged out when the username doesn't decrypt (another key), and that session is ended", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { session } = expectOk(await register(db, { username: "ethan", password: PASSWORD }, req()));
+    const other = new Vault(Buffer.alloc(32, 1));
+    expect(await sessionUser(db, other, sha256Hex(session.token), T0)).toBeNull();
+    expect(await rows("SELECT * FROM sessions")).toHaveLength(0);
+    expect(error).toHaveBeenCalledWith(expect.stringMatching(/DATA_ENCRYPTION_KEY/));
+    expect(JSON.stringify(error.mock.calls)).not.toContain("ethan");
+    error.mockRestore();
+  });
+
+  it("still throw for a database error", async () => {
+    const broken = {
+      select: () => {
+        throw new Error("Failed query");
+      },
+    } as unknown as PgDb;
+    await expect(sessionUser(broken, vault, "x".repeat(64), T0)).rejects.toThrow("Failed query");
   });
 
   it("can't be found by the raw token, only by its hash", async () => {
