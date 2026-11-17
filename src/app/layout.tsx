@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
+import { AccountStatus } from "@/components/account/AccountStatus";
 import { SiteHeader } from "@/components/SiteHeader";
 import { GAME_NAME } from "@/site";
 import "./globals.css";
@@ -27,7 +29,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         {/* On every screen: the game's name links home (#50). */}
-        <SiteHeader />
+        <SiteHeader
+          account={
+            // Reads the session cookie, so it streams in per request (#53).
+            <Suspense fallback={null}>
+              <AccountStatus />
+            </Suspense>
+          }
+        />
         {children}
       </body>
     </html>
