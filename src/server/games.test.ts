@@ -27,7 +27,7 @@ vi.mock("next/headers", () => ({
 }));
 
 const { actOnGame, loadGame, startPracticeGame } = await import("./games");
-const { GAME_LIMITS, MAX_UNFINISHED_GAMES } = await import("./limits");
+const { GAME_LIMITS, MAX_UNFINISHED_GAMES_PER_PACK } = await import("./limits");
 
 let pg: PGlite;
 
@@ -138,18 +138,18 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     expect(await ownGameCount()).toBe(2);
   });
 
-  it(`never lets a player have more than ${MAX_UNFINISHED_GAMES} unfinished games: the next start resumes the latest`, async () => {
+  it(`never lets a player have more than ${MAX_UNFINISHED_GAMES_PER_PACK} unfinished games: the next start resumes the latest`, async () => {
     let latest = "";
-    for (let i = 0; i < MAX_UNFINISHED_GAMES; i++) {
+    for (let i = 0; i < MAX_UNFINISHED_GAMES_PER_PACK; i++) {
       latest = (await started()).gameId;
       await actOnGame(latest, { type: "reveal" });
     }
-    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES);
+    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
 
     const resumed = await started();
     expect(resumed.gameId).toBe(latest);
     expect(resumed.round).toMatchObject({ revealLevel: 1 });
-    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES);
+    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
   });
 
   it("starts a new game after a finished one (Play again), even with other unfinished games", async () => {
@@ -164,7 +164,7 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     expect(again.finished).toBe(false);
   });
 
-  it("refuses with `rate-limited` at the cap when there's no practice game to resume", async () => {
+  it(`still starts practice when the player has ${MAX_UNFINISHED_GAMES_PER_PACK} unfinished games of another pack`, async () => {
     const view = await started();
     const { rows } = await pg.query<{ anon_owner_hash: string; state: unknown }>(
       "SELECT anon_owner_hash, state FROM games WHERE id = $1",
@@ -174,15 +174,29 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     await pg.query(
       "INSERT INTO packs (id, kind, title, theme) VALUES ('pk_other_85', 'practice', 'Other', 'Mixed') ON CONFLICT DO NOTHING",
     );
-    for (let i = 0; i < MAX_UNFINISHED_GAMES; i++) {
+    for (let i = 0; i < MAX_UNFINISHED_GAMES_PER_PACK; i++) {
       await pg.query("INSERT INTO games (pack_id, anon_owner_hash, state) VALUES ('pk_other_85', $1, $2)", [
         own.anon_owner_hash,
         JSON.stringify(own.state),
       ]);
     }
     await pg.query("DELETE FROM games WHERE id = $1", [view.gameId]);
-    expect(await startPracticeGame()).toEqual({ ok: false, error: "rate-limited" });
-    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES);
+
+    // Abandoned games of another pack (e.g. old daily packs) never block practice.
+    const fresh = await started();
+    expect(fresh.gameId).not.toBe(view.gameId);
+    expect(fresh.round).toMatchObject({ position: 1, revealLevel: 0 });
+    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK + 1);
+
+    // And the practice cap still holds on top of them.
+    let latest = fresh.gameId;
+    await actOnGame(latest, { type: "reveal" });
+    for (let i = 1; i < MAX_UNFINISHED_GAMES_PER_PACK; i++) {
+      latest = (await started()).gameId;
+      await actOnGame(latest, { type: "reveal" });
+    }
+    expect((await started()).gameId).toBe(latest);
+    expect(await ownGameCount()).toBe(2 * MAX_UNFINISHED_GAMES_PER_PACK);
   });
 });
 

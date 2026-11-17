@@ -49,12 +49,17 @@ export const GAME_LIMITS = {
 export type LimitName = keyof typeof GAME_LIMITS;
 
 /**
- * At most this many unfinished games per player (all packs). Starting
- * practice when the player already has this many resumes their latest
- * unfinished practice game instead of creating a row (see
- * src/server/games.ts), so the cap never leaves a player stuck.
+ * At most this many unfinished games per player **per pack**. Starting a pack
+ * when the player already has this many of it resumes their latest one
+ * instead of creating a row (see src/server/games.ts). Per pack, not in
+ * total, so it can never leave a player stuck: at the cap there is always a
+ * game of that same pack to resume, and abandoned games of one pack (e.g.
+ * old daily packs) never block another. There's no total cap, because any
+ * total cap that refuses would strand a player (unfinished games never
+ * expire); rows per player are bounded by this times the packs they've
+ * played, and new games by the start limits above.
  */
-export const MAX_UNFINISHED_GAMES = 10;
+export const MAX_UNFINISHED_GAMES_PER_PACK = 10;
 
 /** The owner part of a key. Same id the `games` table stores. */
 export function ownerKey(owner: GameOwner): string {

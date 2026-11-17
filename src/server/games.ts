@@ -11,7 +11,7 @@ import { headers } from "next/headers";
 
 import { getDb, type Db } from "@/db";
 import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
-import { RateLimitedError, runGameCall, type GameResult } from "@/game/game-result";
+import { runGameCall, type GameResult } from "@/game/game-result";
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import {
   act,
@@ -25,7 +25,7 @@ import type { GameAction } from "@/game/types";
 import { PRACTICE_PACK, SAMPLE_PUZZLES } from "@/puzzles";
 
 import { hashIp, ipHmacKey } from "./ip-key";
-import { checkActionLimits, checkStartLimits, MAX_UNFINISHED_GAMES } from "./limits";
+import { checkActionLimits, checkStartLimits, MAX_UNFINISHED_GAMES_PER_PACK } from "./limits";
 import { currentOrNewOwner, currentOwner } from "./owner";
 
 /**
@@ -75,8 +75,10 @@ async function requestIpHash(): Promise<string> {
  * Start a practice game for the current owner, creating the owner cookie if
  * needed. Rate-limited per owner and per IP (#85). Reuses a game instead of
  * creating a row when the owner has one nobody has played yet (a refresh of
- * /play, a second "Start practice"), or already has `MAX_UNFINISHED_GAMES`
- * unfinished games (then their latest unfinished practice game is resumed).
+ * /play, a second "Start practice"), or already has
+ * `MAX_UNFINISHED_GAMES_PER_PACK` unfinished practice games (then the latest
+ * one is resumed). The cap is per pack, so other packs' games never block
+ * practice, and at the cap there is always a game of this pack to resume.
  */
 export async function startPracticeGame(): Promise<GameResult> {
   return runGameCall(async () => {
@@ -85,11 +87,9 @@ export async function startPracticeGame(): Promise<GameResult> {
     await checkStartLimits(db, owner, await requestIpHash(), new Date());
     await ensurePracticePack(db);
     const unfinished = await findUnfinishedGames(db, owner, PRACTICE_PACK.id);
-    const atCap = unfinished.count >= MAX_UNFINISHED_GAMES;
+    const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;
     const reuse = unfinished.untouchedId ?? (atCap ? unfinished.latestId : null);
     if (reuse !== null) return getGame(deps(db), reuse, owner);
-    // At the cap with no practice game to resume (only other packs' games).
-    if (atCap) throw new RateLimitedError("maxUnfinishedGames");
     // TODO(#64): getScoringConfig(PRACTICE_PACK.id) once it lands.
     return startGame(deps(db), PRACTICE_PACK, owner, SCORING_CONFIG);
   });

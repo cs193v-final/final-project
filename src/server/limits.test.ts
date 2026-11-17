@@ -15,7 +15,7 @@ import { RateLimitedError } from "@/game/game-result";
 import type { GameOwner } from "@/game/server-game";
 
 import { hashIp } from "./ip-key";
-import { checkActionLimits, checkStartLimits, GAME_LIMITS, MAX_UNFINISHED_GAMES, ownerKey, type LimitName } from "./limits";
+import { checkActionLimits, checkStartLimits, GAME_LIMITS, MAX_UNFINISHED_GAMES_PER_PACK, ownerKey, type LimitName } from "./limits";
 
 const migrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url));
 
@@ -131,6 +131,6 @@ describe("game rate limit keys", () => {
     // A game is ~20 actions; a player should get through several a minute.
     expect(GAME_LIMITS.actionsPerOwner.max / (GAME_LIMITS.actionsPerOwner.windowMs / 60_000)).toBeGreaterThanOrEqual(60);
     expect(GAME_LIMITS.startsPerOwner.max).toBeGreaterThanOrEqual(10);
-    expect(MAX_UNFINISHED_GAMES).toBeGreaterThanOrEqual(2);
+    expect(MAX_UNFINISHED_GAMES_PER_PACK).toBeGreaterThanOrEqual(2);
   });
 });
