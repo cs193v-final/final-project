@@ -44,7 +44,7 @@ export function AccountForm({ mode, action }: Props) {
         <p id={`${id}-username-hint`} className={usernameError ? errorClass : "text-sm text-zinc-600 dark:text-zinc-400"}>
           {usernameError ??
             (isRegister
-              ? `${USERNAME_MIN}–${USERNAME_MAX} letters, numbers, _ or -. Not an email address.`
+              ? `${USERNAME_MIN}–${USERNAME_MAX} letters, numbers, _ or -, with no spaces. Not an email address.`
               : "")}
         </p>
       </div>

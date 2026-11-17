@@ -21,6 +21,19 @@ test("sign-up refuses an email address as a username and keeps what was typed", 
   await expect(page.getByLabel("Password")).toHaveValue("");
 });
 
+test("sign-up says up front that usernames have no spaces, and explains a full name (#133)", async ({ page }) => {
+  await page.goto("/register");
+  const username = page.getByLabel("Username");
+  await expect(username).toHaveAccessibleDescription(/no spaces/i);
+
+  await username.fill("Jane Doe");
+  await page.getByLabel("Password").fill("long enough password");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(username).toHaveAttribute("aria-invalid", "true");
+  await expect(username).toHaveAccessibleDescription(/can't contain spaces/i);
+  await expect(username).toHaveValue("Jane Doe");
+});
+
 test("sign-up explains a short password", async ({ page }) => {
   await page.goto("/register");
   await page.getByLabel("Username").fill("tester");

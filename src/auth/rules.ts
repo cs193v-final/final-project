@@ -26,6 +26,10 @@ export function checkUsername(raw: unknown): RuleResult {
   if (value.includes("@")) {
     return { ok: false, error: "Pick a username, not an email address. We don't store emails." };
   }
+  // The most common mistake in user testing (#133): typing a full name.
+  if (/\s/.test(value)) {
+    return { ok: false, error: "Usernames can't contain spaces. Try joining the words, or use _ or - between them." };
+  }
   if (value.length < USERNAME_MIN || value.length > USERNAME_MAX) {
     return { ok: false, error: `Usernames are ${USERNAME_MIN} to ${USERNAME_MAX} characters long.` };
   }

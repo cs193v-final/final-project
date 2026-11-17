@@ -28,6 +28,14 @@ describe("checkUsername", () => {
     expect(checkUsername(name).ok).toBe(false);
   });
 
+  it("says what's wrong when a username has a space, e.g. a full name (#133)", () => {
+    for (const name of ["Jane Doe", "jane\tdoe", "a b"]) {
+      const result = checkUsername(name);
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.error).toMatch(/can't contain spaces/);
+    }
+  });
+
   it.each([undefined, null, 42, "", "   "])("rejects a missing username (%s)", (raw) => {
     expect(checkUsername(raw)).toEqual({ ok: false, error: "Enter a username." });
   });
