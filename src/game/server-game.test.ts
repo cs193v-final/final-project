@@ -91,6 +91,7 @@ describe("startGame", () => {
     const view = await startGame(deps, pack, ALICE, CONFIG);
     expect(view).toEqual({
       gameId: "game-1",
+      revision: 0,
       pack: { id: "practice", kind: "practice", title: "Practice", theme: "Mixed" },
       round: {
         position: 1,
@@ -469,6 +470,33 @@ describe("parseGameAction", () => {
     expect(() => parseGameAction({ type: "guess", guess: "a".repeat(MAX_GUESS_LENGTH + 1) })).toThrow(
       InvalidGameActionError,
     );
+  });
+});
+
+describe("act with the revision the player saw (#107)", () => {
+  it("applies the action when the revision matches, and the view carries the new one", async () => {
+    const { deps, pack } = setup();
+    const start = await startGame(deps, pack, ALICE, CONFIG);
+    expect(start.revision).toBe(0);
+    const view = await act(deps, start.gameId, ALICE, { type: "reveal" }, start.revision);
+    expect(view.revision).toBe(1);
+    expect(view.round?.revealLevel).toBe(1);
+  });
+
+  it("throws GameConflictError for a stale revision and changes nothing", async () => {
+    const { deps, pack, store } = setup();
+    const tabA = await startGame(deps, pack, ALICE, CONFIG);
+    // Another tab skips round 1, so the game is on round 2.
+    await act(deps, tabA.gameId, ALICE, { type: "skip" }, tabA.revision);
+    const before = store.raw(tabA.gameId);
+    await expect(act(deps, tabA.gameId, ALICE, { type: "skip" }, tabA.revision)).rejects.toBeInstanceOf(GameConflictError);
+    expect(store.raw(tabA.gameId)).toBe(before);
+  });
+
+  it("checks the owner before the revision, so a stranger still gets GameNotFoundError", async () => {
+    const { deps, pack } = setup();
+    const view = await startGame(deps, pack, ALICE, CONFIG);
+    await expect(act(deps, view.gameId, BOB, { type: "skip" }, 99)).rejects.toBeInstanceOf(GameNotFoundError);
   });
 });
 

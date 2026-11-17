@@ -18,6 +18,7 @@ import type { GameAction, GameView, Pack, ScoringConfig } from "./types.ts";
 
 const VIEW: GameView = {
   gameId: "g1",
+  revision: 0,
   pack: { id: "pk", kind: "practice", title: "Practice", theme: "Mixed" },
   round: null,
   results: [],

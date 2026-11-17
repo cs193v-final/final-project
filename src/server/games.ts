@@ -14,6 +14,7 @@ import { SCORING_CONFIG } from "@/game/scoring-config";
 import {
   act,
   GameNotFoundError,
+  InvalidGameActionError,
   getGame,
   puzzleSourceFrom,
   startGame,
@@ -72,11 +73,15 @@ export async function startPracticeGame(): Promise<GameResult> {
  * (`parseGameAction`, the one validation path): a bad one gives `invalid`.
  * A conflict (another tab saved first) gives `conflict` and is not retried.
  */
-export async function actOnGame(gameId: unknown, action: unknown): Promise<GameResult> {
+export async function actOnGame(gameId: unknown, action: unknown, revision: unknown): Promise<GameResult> {
   return runGameCall(async () => {
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();
-    return act(deps(getDb()), gameId, owner, action as GameAction);
+    // Required from clients, so a stale tab can't act on a round it never saw (#107).
+    if (!Number.isSafeInteger(revision) || (revision as number) < 0) {
+      throw new InvalidGameActionError("revision must be a non-negative integer");
+    }
+    return act(deps(getDb()), gameId, owner, action as GameAction, revision as number);
   });
 }
 

@@ -41,7 +41,10 @@ function backend() {
   return {
     received,
     start: vi.fn(() => record(runGameCall(() => startGame(deps, PACK, OWNER, SCORING_CONFIG)))),
-    act: vi.fn((gameId: string, action: GameAction) => record(runGameCall(() => act(deps, gameId, OWNER, action)))),
+    // Passes the client's revision through, so a client sending a stale one would get `conflict` (#107).
+    act: vi.fn((gameId: string, action: GameAction, revision: number) =>
+      record(runGameCall(() => act(deps, gameId, OWNER, action, revision))),
+    ),
     get: vi.fn((gameId: string) => record(runGameCall(() => getGame(deps, gameId, OWNER)))),
   };
 }
@@ -106,8 +109,9 @@ describe("PracticeGame start and resume (#54)", () => {
     const started = await server.start();
     if (!started.ok) throw new Error("start failed");
     const { gameId } = started.view;
-    await server.act(gameId, { type: "reveal" });
-    const initial = await server.act(gameId, { type: "guess", guess: "bay bridge" });
+    const revealed = await server.act(gameId, { type: "reveal" }, started.view.revision);
+    if (!revealed.ok) throw new Error("reveal failed");
+    const initial = await server.act(gameId, { type: "guess", guess: "bay bridge" }, revealed.view.revision);
 
     render(<PracticeGame initial={initial} start={server.start} act={server.act} get={server.get} />);
     expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
@@ -163,9 +167,9 @@ describe("PracticeGame while a move is on its way to the server", () => {
     const { user, server } = await setup();
     const realAct = server.act.getMockImplementation()!;
     const gate = deferred<void>();
-    server.act.mockImplementationOnce(async (gameId, action) => {
+    server.act.mockImplementationOnce(async (gameId, action, revision) => {
       await gate.promise;
-      return realAct(gameId, action);
+      return realAct(gameId, action, revision);
     });
 
     const zoom = screen.getByRole("button", { name: "Zoom out" });
@@ -184,9 +188,9 @@ describe("PracticeGame while a move is on its way to the server", () => {
     const { user, input, server } = await setup();
     const realAct = server.act.getMockImplementation()!;
     const gate = deferred<void>();
-    server.act.mockImplementationOnce(async (gameId, action) => {
+    server.act.mockImplementationOnce(async (gameId, action, revision) => {
       await gate.promise;
-      return realAct(gameId, action);
+      return realAct(gameId, action, revision);
     });
 
     await user.type(input(), "bay bridge{Enter}");

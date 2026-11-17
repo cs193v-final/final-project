@@ -239,6 +239,7 @@ export function toGameView(game: StoredGame, puzzles: readonly Puzzle[]): GameVi
 
   const view: GameView = {
     gameId: game.id,
+    revision: game.revision,
     pack: { id: state.pack.id, kind: state.pack.kind, title: state.pack.title, theme: state.pack.theme },
     round,
     results: rounds,
@@ -322,15 +323,25 @@ export async function getGame(deps: GameDeps, gameId: string, owner: GameOwner):
  * `parseGameAction` first. An action the round rejects (guess after the round
  * ended, reveal at the full image, a blank guess, ...) changes nothing, just
  * like `step` in round.ts: nothing is saved and the current view is returned.
+ *
+ * `expectedRevision` is the `GameView.revision` the player was looking at.
+ * If the stored game has a different one, `GameConflictError` is thrown and
+ * nothing changes. Clients always send it; it's optional only for callers
+ * that just loaded the game themselves.
  */
 export async function act(
   deps: GameDeps,
   gameId: string,
   owner: GameOwner,
   action: GameAction,
+  expectedRevision?: number,
 ): Promise<GameView> {
   const parsed = parseGameAction(action);
   const { game, puzzles } = await load(deps, gameId, owner);
+  // The client acted on the view it was shown. If the game has moved on since
+  // (another tab answered, skipped, ...), the action was meant for a round
+  // that's gone: reject it rather than apply it to one the player never saw (#107).
+  if (expectedRevision !== undefined && expectedRevision !== game.revision) throw new GameConflictError(game.id);
   const { state } = game;
 
   const current: Game = { puzzles, index: state.index, round: state.round, finished: state.finished };

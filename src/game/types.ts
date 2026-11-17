@@ -143,6 +143,8 @@ export type PublicRound = {
 /** Owner: Jacky. PROPOSAL (#54). Returned by every game call (`startGame`, `act`, `getGame`). */
 export type GameView = {
   gameId: string;
+  /** The stored game's revision. The client sends it back with each action, so one from a stale tab is rejected (#107). */
+  revision: number;
   pack: Pick<Pack, "id" | "kind" | "title" | "theme">;
   round: PublicRound | null; // null once the game is over
   lastOutcome?: GuessOutcome;

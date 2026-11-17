@@ -17,7 +17,7 @@ export type PracticeGameProps = {
   initial: GameResult | null;
   /** Server Actions (src/app/play/actions.ts). Props, so tests can pass in-memory ones. */
   start: () => Promise<GameResult>;
-  act: (gameId: string, action: GameAction) => Promise<GameResult>;
+  act: (gameId: string, action: GameAction, revision: number) => Promise<GameResult>;
   get: (gameId: string) => Promise<GameResult>;
 };
 
@@ -108,9 +108,9 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       setFeedback({ kind: "empty" });
       return Promise.resolve();
     }
-    const { gameId } = view;
+    const { gameId, revision } = view;
     return exclusive(async () => {
-      const result = await act(gameId, action);
+      const result = await act(gameId, action, revision);
       if (!mounted.current) return;
       if (!result.ok && result.error === "conflict") {
         // Another tab changed the game first, so this action wasn't applied.
