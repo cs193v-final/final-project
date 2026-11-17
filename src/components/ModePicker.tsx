@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { MODES, type GameMode } from "./modes";
+import { ButtonLink, SectionHeading } from "./ui/controls";
 
 /**
  * The home screen's list of ways to play (#50). Available modes link to their
@@ -9,9 +9,7 @@ import { MODES, type GameMode } from "./modes";
 export function ModePicker({ modes = MODES }: { modes?: readonly GameMode[] }) {
   return (
     <section aria-labelledby="choose-mode" className="w-full max-w-2xl">
-      <h2 id="choose-mode" className="mb-3 text-center text-sm font-semibold tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
-        Choose a mode
-      </h2>
+      <SectionHeading id="choose-mode">Choose a mode</SectionHeading>
       <ul className="grid gap-3 sm:grid-cols-3">
         {modes.map((mode) => (
           <li
@@ -25,12 +23,9 @@ export function ModePicker({ modes = MODES }: { modes?: readonly GameMode[] }) {
             <h3 className="text-lg font-semibold">{mode.title}</h3>
             <p className="text-sm text-zinc-600 dark:text-zinc-400">{mode.description}</p>
             {mode.status === "available" ? (
-              <Link
-                href={mode.href}
-                className="mt-auto self-start rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-              >
+              <ButtonLink href={mode.href} className="mt-auto self-start">
                 {mode.cta}
-              </Link>
+              </ButtonLink>
             ) : (
               <p className="mt-auto self-start rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
                 Coming soon

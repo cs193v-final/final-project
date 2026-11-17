@@ -19,6 +19,7 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  customType,
   date,
   doublePrecision,
   index,
@@ -39,6 +40,20 @@ import type { ScoringConfig } from "../game/types";
 
 const createdAt = () =>
   timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+
+/**
+ * Raw bytes (Postgres `bytea`); Drizzle has no built-in column for it. Handed
+ * to the driver as a Buffer, which all three of ours take: node-postgres
+ * natively, PGlite as a Uint8Array, and Neon HTTP turns it into `\x…` hex itself
+ * (`encodeBuffersAsBytea`). Read back as a Uint8Array; a `\x…` string is also
+ * understood, in case a driver returns bytea as text.
+ */
+const bytea = customType<{ data: Uint8Array; driverData: Buffer | Uint8Array | string }>({
+  dataType: () => "bytea",
+  toDriver: (value) => Buffer.from(value.buffer, value.byteOffset, value.byteLength),
+  fromDriver: (value) =>
+    typeof value === "string" ? new Uint8Array(Buffer.from(value.replace(/^\\x/, ""), "hex")) : new Uint8Array(value),
+});
 
 /** Opaque text id for packs and puzzles; the seed script may supply its own. */
 const opaqueId = () =>
@@ -147,7 +162,19 @@ export const puzzles = pgTable(
   (t) => [
     check("puzzles_focus_x_range", sql`${t.focusX} BETWEEN 0 AND 1`),
     check("puzzles_focus_y_range", sql`${t.focusY} BETWEEN 0 AND 1`),
-    check("puzzles_zoom_levels_not_empty", sql`cardinality(${t.zoomLevels}) > 0`),
+    // Zoom levels follow the loader's rules (`parseZoomLevels` in
+    // src/game/puzzles.ts) as far as a CHECK can: a plain 1-based list, at
+    // least 2 levels, the last one 1 (the full image), and every level a
+    // finite number >= 1 with no NULLs. `'Infinity' > ALL` also rejects NaN,
+    // which Postgres sorts above every number, and the NULL test is needed
+    // because `1 <= ALL` is NULL (so passes) for a list with a NULL in it.
+    // "Each level smaller than the one before" can't be a CHECK (it would
+    // have to loop over the list); the seed script (#52) runs every puzzle
+    // through `parsePuzzles` before inserting it.
+    check(
+      "puzzles_zoom_levels_valid",
+      sql`array_ndims(${t.zoomLevels}) = 1 AND array_lower(${t.zoomLevels}, 1) = 1 AND cardinality(${t.zoomLevels}) >= 2 AND ${t.zoomLevels}[cardinality(${t.zoomLevels})] = 1 AND array_position(${t.zoomLevels}, NULL) IS NULL AND 1 <= ALL(${t.zoomLevels}) AND 'Infinity'::double precision > ALL(${t.zoomLevels})`,
+    ),
     check(
       "puzzles_ai_solved_level_range",
       sql`${t.aiSolvedLevel} IS NULL OR (${t.aiSolvedLevel} >= 0 AND ${t.aiSolvedLevel} < cardinality(${t.zoomLevels}))`,
@@ -157,8 +184,8 @@ export const puzzles = pgTable(
 
 /**
  * One pre-cut image per reveal level (#57), so the server can hand out only the
- * current level's image. `src` is a URL or storage key; where the files live
- * (Vercel Blob or Postgres) is still open in #57.
+ * current level's image. `src` is the URL the browser loads: for images cut
+ * into `image_files`, `/img/<id>.webp`.
  */
 export const puzzleImages = pgTable(
   "puzzle_images",
@@ -173,7 +200,40 @@ export const puzzleImages = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.puzzleId, t.level] }),
+    // 0-based, like the index into `puzzles.zoom_levels`. The upper bound
+    // (level < number of zoom levels) would need to read the puzzle row, which
+    // a CHECK can't do. Whatever loads per-level images (#57) must check it.
     check("puzzle_images_level_min", sql`${t.level} >= 0`),
+  ],
+);
+
+/**
+ * The bytes of each cut level image (#57), served by `GET /img/<id>.webp`.
+ *
+ * The id is 32 random hex characters (128 bits) and is the only thing that
+ * protects an image: the server sends a level's URL only once the player has
+ * reached it, and one level's id says nothing about another's. So ids are
+ * never derived from the puzzle, the level or the answer.
+ */
+export const imageFiles = pgTable(
+  "image_files",
+  {
+    id: text("id").primaryKey(),
+    // Whose image this is, so re-cutting a puzzle can drop its old files, and
+    // deleting a puzzle deletes them. Never sent to the browser.
+    puzzleId: text("puzzle_id")
+      .notNull()
+      .references(() => puzzles.id, { onDelete: "cascade" }),
+    contentType: text("content_type").notNull(),
+    bytes: bytea("bytes").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("image_files_puzzle_id_idx").on(t.puzzleId),
+    check("image_files_id_format", sql`${t.id} ~ '^[0-9a-f]{32}$'`),
+    check("image_files_content_type", sql`${t.contentType} IN ('image/webp')`),
   ],
 );
 

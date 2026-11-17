@@ -61,8 +61,9 @@ browser (PracticeGame)                          server
 | `users` | username, `password_hash` | UUID id. Username unique ignoring case. No email column. |
 | `sessions` | `token_hash`, `user_id`, `expires_at` | The cookie token is stored only as a hash (primary key). Deleted with the user. |
 | `packs` | `kind` (practice / daily / stanford / lobby), title, theme, `scoring` (per-pack override, #64; NULL = default) | Opaque text id |
-| `puzzles` | answer, accepted answers, full image, focus and zoom levels, credit, `ai_solved_level` (#56) | Opaque text id. Server-only. |
-| `puzzle_images` | one image `src` per reveal level (#57) | (puzzle, level). Deleted with the puzzle. |
+| `puzzles` | answer, accepted answers, full image, focus and zoom levels, credit, `ai_solved_level` (#56) | Opaque text id. Server-only. `zoom_levels` must have at least 2 levels, each a finite number ≥ 1, ending at 1 (the full image), like `parsePuzzles` requires (follow-up A from the #74 review). That each level is smaller than the one before can't be a CHECK, so it stays in the loader, which the seed script (#52) runs on every puzzle. |
+| `puzzle_images` | one image `src` per reveal level (#57): the URL the browser loads, `/img/<id>.webp` | (puzzle, level), `level` ≥ 0 and 0-based like `zoom_levels`. The upper bound (below the number of zoom levels) isn't a CHECK because it depends on the puzzle row, so `saveLevelImages` (#57) checks it. Deleted with the puzzle. |
+| `image_files` | the bytes of each cut level image (WebP), width, height (#57) | Random 32-hex id, which is the secret part of the URL. Deleted with the puzzle. |
 | `pack_puzzles` | a pack's puzzles in play order | (pack, position), 1-based; a puzzle at most once per pack. A puzzle in a pack can't be deleted. |
 | `daily_schedule` | which pack is a day's daily challenge | `date` is the primary key, so one pack per day |
 | `games` | a game: pack, owner (`user_id`, or `anon_owner_hash` if anonymous play is allowed), full `state` as JSON so a game resumes across requests (#54), `revision` (a save only applies if it hasn't changed, so two fast requests can't both update a game), `total`, `finished_at` | Deleted with the user. Never both owners. |
@@ -93,6 +94,8 @@ In development `getDb()` keeps its client on `globalThis`, so hot reload doesn't
 | dev | When a PR with a migration is ready to merge. Anyone with dev access may also run it to try the PR. | `.env.local`, which `drizzle.config.ts` reads only if the variable isn't set in the shell |
 | preview | Before deploying a preview of a PR that includes a migration | Typed at a hidden prompt for that one command, never saved in a file or shell history: `read -rs URL && DATABASE_URL_UNPOOLED="$URL" npm run db:migrate; unset URL`. The values live only in Vercel and the Neon console. |
 | production | Right before merging the PR (`main` deploys to production), and only after it passed on preview | Same as preview, with the production value |
+
+A migration that adds or tightens a CHECK fails if a row already in that database breaks it, so it can't leave bad data behind; fix the row (or the seed data) and run it again. `0001_zoom_level_checks` is one of these: it has to run on dev before its PR merges, then on preview and production as in the table above.
 
 If a migration fails partway, don't edit it; fix forward with a new migration, or restore the Neon branch to a point in time before the migration.
 
@@ -139,6 +142,17 @@ The writes are separate statements, not one transaction. If a run stops partway,
 
 **Reading content in the app:** `getPuzzles(db, ids)`, `getPack(db, id)` and `getDailyEntry(db, date)` in `src/db/content.ts`. Server-only, like everything in `src/db/`.
 
+### Images per zoom level (#57)
+
+The browser used to get each puzzle's full image and crop it with CSS, so anyone could open the whole picture at level 0. Now each zoom level is cut ahead of time into its own image, and the browser only gets the level the player has reached.
+
+- **Cutting.** `cutLevels` (`src/images/cut.ts`, using `sharp`) makes one WebP per level. Each shows exactly the window the CSS crop showed (`planLevels` in `src/game/levels.ts`). Phone photos are turned upright first. Images are never upscaled, and are at most 1600 × 1600 px, so a large original never reaches the browser. **All metadata is dropped**, including GPS location, which could otherwise name a landmark. Originals must be JPEG, PNG, WebP or HEIF and at most 50 megapixels, and levels are cut one at a time; `saveLevelImages` refuses any level over 1 MiB (security audit, #95).
+- **Storage (decided in #57): Postgres.** The bytes go in `image_files`, and `puzzle_images` maps each (puzzle, level) to its URL. No extra service or token: it uses the database credentials we already have. About 25 MB for ~60 puzzles, well within Neon's free 0.5 GB. We chose this over Vercel Blob, whose store and upload token only the Vercel project owner could manage on the free tier.
+- **Serving.** `GET /img/<id>.webp` (`src/app/img/[file]/route.ts`, `src/server/images.ts`). The response is cached for a year by browsers (`Cache-Control: … immutable`) and by Vercel's CDN (`CDN-Cache-Control`; still to confirm on a preview deploy with `x-vercel-cache: HIT`), so most loads never reach the database. A missing image is a 404 that isn't cached. Anything but 32 hex characters plus `.webp`, and any URL with a query string (which the CDN would cache separately), is a 404 without a query. Once an image is cached it can only be taken back with a Vercel cache purge, even after its row is deleted.
+- **What protects a level: a secret URL.** Each image id is 128 random bits, never derived from the puzzle, the level or the answer. The server only sends the current level's URL (`PublicRound.imageSrc`), and one URL says nothing about another. Re-cutting a puzzle gives every level a new id and deletes the old files. A player could share a URL they've reached, which is no worse than sharing the answer.
+- **Previewing levels while writing content.** `npm run images:preview -- photo.jpg --focus 0.4,0.66 --zoom 10,5,2.5,1` writes every level to a temporary folder (or `--out`), and says which levels will look soft on a 2× screen, meaning the original is too small for that zoom (#34). It won't write inside the repo unless that folder is git-ignored; symlinks are followed first, and a folder named like `..previews` still counts as inside.
+- **Still to do (after #54 merges; #52 has):** a command that cuts every seeded puzzle into the database, the game sending `imageSrc` from `puzzle_images`, the viewer showing pre-cut images, and removing the temporary `PublicRound.reveal`.
+
 ## 4. Secrets and user information
 
 - **Secrets we have:** the database connection strings (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`) and, since #85, `RATE_LIMIT_HMAC_KEY` (the key for hashing IP addresses in game rate limits; see [Rate limits on the game server](#rate-limits-on-the-game-server-85)). No API keys.
@@ -159,7 +173,7 @@ The writes are separate statements, not one transaction. If a run stops partway,
 
 ### What we store about users
 
-Games are written since #54 (`/play`), and accounts (#53) write `users`, `sessions` and `rate_limits`. This is what the schema (`src/db/schema.ts`) holds, and how each item is protected. No email, real name or other personal detail is stored. IP addresses are only stored hashed, for rate limiting (below).
+Accounts (#53) write `users`, `sessions` and `rate_limits`; games are written since #54 (`/play`). This is what the schema (`src/db/schema.ts`) holds, and how each item is protected. No email, real name or other personal detail is stored. IP addresses are only stored hashed, for rate limiting (below).
 
 | Data | Column(s) | How it's protected | Who can read it |
 |---|---|---|---|
@@ -167,7 +181,7 @@ Games are written since #54 (`/play`), and accounts (#53) write `users`, `sessio
 | Password | `users.password_hash` | Only a salted hash is stored, never the password: **argon2id** (Node's built-in `crypto.argon2`, no dependency) with OWASP's minimum parameters (19 MiB, 2 passes, 1 lane) and a random 16-byte salt, in PHC format so the parameters can be raised later (`src/auth/crypto.ts`). Login with an unknown username still runs one hash, so timing doesn't reveal which usernames exist. | The server only, to check a login. Never sent to a browser. |
 | Session | `sessions.token_hash`, `user_id`, `created_at`, `expires_at` | The `zo_session` cookie holds 32 random bytes; the database holds only their SHA-256, so a database leak doesn't hand out live sessions. The cookie is `HttpOnly`, `Secure` and `SameSite=Lax`. Sessions last 30 days; every request checks the row, so logout (which deletes it) and expiry apply at once (`src/auth/session.ts`). | The server only |
 | Games and rounds | `games.*` (owner, `state`, `total`, timestamps), `game_rounds.*` (outcome, points, wrong guesses, reveal level, `finished_at`) | `state` is server-only and never sent to the browser; the browser gets only a `GameView`. Every read or write checks that the game belongs to the requesting user or anonymous owner (#54; a stranger gets "not found", tested in unit and e2e tests). `game_rounds` isn't written for practice games yet. What leaderboards (#62) show is not decided. | The server, and the game's owner through `GameView` |
-| Rate limits | `rate_limits.key`, `window_start`, `count` | Keys are `login:user:<lowercased username>`, `login:ip:<SHA-256 of the IP>` and `register:ip:<SHA-256 of the IP>`. Never a raw IP address. A row only matters for its window (15 minutes for login, 1 hour for sign-up). Limits: 10 login attempts per username, 30 per address, 5 sign-ups per address. A successful login clears its username's count. Game limits (#85) use `game:start:…` and `game:action:…` keys with the owner id or the **HMAC**-SHA-256 of the IP, never a username or plain hash (see [Rate limits on the game server](#rate-limits-on-the-game-server-85)). | The server only |
+| Rate limits | `rate_limits.key`, `window_start`, `count` | Keys are `login:user:<SHA-256 of the lowercased username>`, `login:ip:<SHA-256 of the IP>` and `register:ip:<SHA-256 of the IP>`: never what was typed (people type emails or passwords into the username box) and never a raw IP address. These are plain SHA-256 hashes, so they're pseudonymous rather than secret (an IPv4 hash can be reversed by trying every address); #84 switches them to keyed hashes. A login with a username no account could have is refused before anything is stored. The address limit is checked first, so a client over its own limit can't add to a username's count. A row only matters for its window (15 minutes for login, 1 hour for sign-up). Limits: 10 login attempts per username, 30 per address, 5 sign-ups per address. A successful login clears its username's count. Game limits (#85) use `game:start:…` and `game:action:…` keys with the owner id or the **HMAC**-SHA-256 of the IP, never a username or plain hash (see [Rate limits on the game server](#rate-limits-on-the-game-server-85)). | The server only |
 | Anonymous owner | `games.anon_owner_hash` | The SHA-256 of the random token in the `zo_owner` cookie (#54), never the token; the store refuses anything that isn't a 64-character hex digest. The cookie is `HttpOnly`, `SameSite=Lax`, and `Secure` over https. Used for the practice pack; whether daily packs allow anonymous play is open (#54/#62). | The server only |
 | Timestamps | `created_at` on users, sessions and games; `updated_at` on games; `finished_at` on games and rounds; `expires_at` on sessions | Same as the row they belong to | Same as the row |
 
@@ -204,7 +218,7 @@ So nobody can run up database costs or storage by starting or playing games with
 
 | Question | Next step |
 |---|---|
-| /play still reads the practice puzzles from the repo, and sends the full image | Since #52 the practice pack has opaque ids and image names, and the seed script also puts it in the database. /play reading puzzles from the database (and then writing `game_rounds`) is a follow-up; per-level images (#57) stop sending the full image. Anonymous play for daily packs is still open. |
+| /play still reads the practice puzzles from the repo, and sends the full image | Since #52 the practice pack has opaque ids and image names, and the seed script also puts it in the database. /play reading puzzles from the database (and then writing `game_rounds`) is a follow-up; per-level images (#57) stop sending the full image. Image storage is settled (Postgres, #57). Anonymous play for daily packs is still open. |
 | Scoring values and wrong-guess rules (#21) | Playtest the three-image prototype (notes in `PLAYTEST.md`), then change the values in `src/game/scoring-config.ts` |
 | Number of reveal steps; typo tolerance | Decide after the playtest. The code already accepts a pluggable answer matcher. |
 | Image sourcing and licenses | The three sample photos are CC BY-SA, with credits in the data (#32) and shown after each round (#35). Open: where to source daily puzzles, and neutral file names so they don't give the answer away (#36) |

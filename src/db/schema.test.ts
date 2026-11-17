@@ -53,10 +53,12 @@ async function addPack(kind = "daily"): Promise<string> {
   return row!.id;
 }
 
-async function addPuzzle(): Promise<string> {
+/** `zoomLevels` is a Postgres array literal; the default is a valid list. */
+async function addPuzzle(zoomLevels = "{8,4,2,1}"): Promise<string> {
   const [row] = await rows<{ id: string }>(
     `INSERT INTO puzzles (answer, image_url, focus_x, focus_y, zoom_levels, credit_source, credit_license)
-     VALUES ('Answer', '/full.jpg', 0.5, 0.5, '{8,4,2,1}', 'Source', 'CC BY-SA 4.0') RETURNING id`,
+     VALUES ('Answer', '/full.jpg', 0.5, 0.5, $1, 'Source', 'CC BY-SA 4.0') RETURNING id`,
+    [zoomLevels],
   );
   return row!.id;
 }
@@ -93,6 +95,7 @@ describe("migrations", () => {
       "daily_schedule",
       "game_rounds",
       "games",
+      "image_files", // per-level image bytes (#57)
       "pack_puzzles",
       "packs",
       "puzzle_images",
@@ -247,6 +250,46 @@ describe("packs and puzzles", () => {
     await expect(pg.query("UPDATE puzzles SET ai_solved_level = 4 WHERE id = $1", [id])).rejects.toThrow(
       /puzzles_ai_solved_level_range/,
     );
+  });
+
+  it("accept zoom levels the loader accepts, ending at 1 (the full image)", async () => {
+    for (const levels of ["{8,4,2,1}", "{2,1}", "{3.5,1.5,1}"]) {
+      await expect(addPuzzle(levels)).resolves.toEqual(expect.any(String));
+    }
+  });
+
+  it("reject zoom levels the loader rejects, as far as a CHECK can tell", async () => {
+    const rejected = {
+      "no levels": "{}",
+      "a single level": "{1}",
+      "a last level other than 1": "{8,4,2}",
+      "a level below 1": "{4,0.5,1}",
+      "a zero or negative level": "{0,-2,1}",
+      "a NULL level": "{4,NULL,1}",
+      "an infinite level": "{Infinity,2,1}",
+      "a NaN level": "{NaN,2,1}",
+      "a two-dimensional list": "{{4,2},{2,1}}",
+      "a list not starting at index 1": "[0:1]={2,1}",
+    };
+    for (const [why, levels] of Object.entries(rejected)) {
+      await expect(addPuzzle(levels), why).rejects.toThrow(/puzzles_zoom_levels_valid/);
+    }
+    const id = await addPuzzle();
+    await expect(pg.query("UPDATE puzzles SET zoom_levels = '{1}' WHERE id = $1", [id])).rejects.toThrow(
+      /puzzles_zoom_levels_valid/,
+    );
+  });
+
+  it("leave level order to the loader: a CHECK can't loop over the list", async () => {
+    // parsePuzzles rejects this (each level must be smaller than the one before).
+    await expect(addPuzzle("{2,4,1}")).resolves.toEqual(expect.any(String));
+  });
+
+  it("reject a negative per-level image level (the upper bound is the seed script's job)", async () => {
+    const puzzleId = await addPuzzle();
+    await expect(
+      pg.query("INSERT INTO puzzle_images (puzzle_id, level, src) VALUES ($1, -1, 'a')", [puzzleId]),
+    ).rejects.toThrow(/puzzle_images_level_min/);
   });
 
   it("round-trip a pack and puzzle through the typed schema", async () => {
