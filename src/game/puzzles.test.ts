@@ -9,6 +9,7 @@ function valid(): Record<string, unknown> {
     acceptedAnswers: ["Giraffes"],
     reveal: { focus: { x: 0.4, y: 0.66 }, zoomLevels: [8, 4, 2, 1] },
     credit: { source: "Someone, via Wikimedia Commons", license: "CC BY-SA 4.0", url: "https://example.com" },
+    aiSolvedLevel: null,
   };
 }
 
@@ -45,6 +46,22 @@ describe("parsePuzzle", () => {
     expect(parsePuzzle(withField("acceptedAnswers", [])).acceptedAnswers).toEqual([]);
   });
 
+  it("treats a missing aiSolvedLevel as not solved (null)", () => {
+    expect(parsePuzzle(withField("aiSolvedLevel", undefined)).aiSolvedLevel).toBeNull();
+  });
+
+  it.each([0, 3])("accepts aiSolvedLevel %j, a level the puzzle has", (level) => {
+    expect(parsePuzzle(withField("aiSolvedLevel", level)).aiSolvedLevel).toBe(level);
+  });
+
+  it.each([-1, 4, 1.5, "2"])("rejects aiSolvedLevel %j", (level) => {
+    expect(errorPath(() => parsePuzzle(withField("aiSolvedLevel", level)))).toBe("puzzle.aiSolvedLevel");
+  });
+
+  it.each(["pz-7c1e9a40", "pk_3f9c2a7e51d84b06", "a1"])("accepts the opaque id %j", (value) => {
+    expect(parsePuzzle(withField("id", value)).id).toBe(value);
+  });
+
   it("drops unknown fields", () => {
     expect(parsePuzzle({ ...valid(), extra: true })).not.toHaveProperty("extra");
   });
@@ -53,6 +70,9 @@ describe("parsePuzzle", () => {
     ["id", ""],
     ["id", "Giraffe"],
     ["id", "two words"],
+    ["id", "double--hyphen"],
+    ["id", "-leading"],
+    ["id", "trailing_"],
     ["imageUrl", undefined],
     ["answer", "   "],
     ["acceptedAnswers", "Giraffes"],

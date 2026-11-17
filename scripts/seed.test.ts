@@ -1,0 +1,97 @@
+// Spec for the seed command (#52), run the way people run it (`node
+// scripts/seed.ts`), in --dry-run mode so no database is needed.
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
+
+const root = resolve(import.meta.dirname, "..");
+const cleanup: string[] = [];
+
+afterEach(() => {
+  for (const path of cleanup.splice(0)) rmSync(path, { recursive: true, force: true });
+});
+
+function seed(...args: string[]) {
+  const result = spawnSync(process.execPath, ["scripts/seed.ts", "--dry-run", ...args], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, DATABASE_URL_UNPOOLED: "" },
+  });
+  return { code: result.status, out: result.stdout + result.stderr };
+}
+
+function writeContent(dir: string, name: string, data: unknown): string {
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, name);
+  writeFileSync(file, JSON.stringify(data));
+  cleanup.push(file);
+  return file;
+}
+
+const FRUIT = {
+  puzzles: [
+    {
+      id: "pz-0a1b2c3d",
+      imageUrl: "https://images.example.com/pz-0a1b2c3d.jpg",
+      answer: "Strawberry",
+      acceptedAnswers: [],
+      reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [8, 4, 2, 1] },
+      credit: { source: "Someone", license: "CC0" },
+    },
+  ],
+  packs: [{ id: "pk-9f8e7d6c", kind: "daily", title: "Fruit", theme: "Fruit", puzzleIds: ["pz-0a1b2c3d"] }],
+  schedule: [{ date: "2026-11-20", packId: "pk-9f8e7d6c" }],
+};
+
+const outside = () => {
+  const dir = mkdtempSync(join(tmpdir(), "seed-test-"));
+  cleanup.push(dir);
+  return dir;
+};
+
+describe("npm run db:seed -- --dry-run", () => {
+  it("fails on a path that doesn't exist", () => {
+    const { code, out } = seed(join(outside(), "missing.json"));
+    expect(out).toContain("no such file or folder");
+    expect(code).toBe(1);
+  });
+
+  it("checks content kept outside the repo, plus the practice pack, without a database", () => {
+    const { code, out } = seed(writeContent(outside(), "fruit.json", FRUIT));
+    expect(out).toContain("Checked 1 content file(s) plus the practice pack: 4 puzzles, 2 packs");
+    expect(out).toContain("1 scheduled days");
+    expect(out).toContain("Dry run: no database touched.");
+    expect(code).toBe(0);
+  });
+
+  it("reads every .json file in a folder", () => {
+    const dir = outside();
+    writeContent(dir, "a.json", { puzzles: FRUIT.puzzles });
+    writeContent(dir, "b.json", { packs: FRUIT.packs, schedule: FRUIT.schedule });
+    writeContent(dir, "notes.txt", "not content");
+    const { code, out } = seed(dir);
+    expect(out).toContain("Checked 2 content file(s)");
+    expect(code).toBe(0);
+  });
+
+  it("accepts content in the git-ignored content/ folder", () => {
+    const { code } = seed(writeContent(join(root, "content"), `.seed-test-${process.pid}.json`, FRUIT));
+    expect(code).toBe(0);
+  });
+
+  it("refuses private content anywhere in the repo that git would commit", () => {
+    const { code, out } = seed(writeContent(join(root, "src/puzzles"), `seed-test-${process.pid}.json`, FRUIT));
+    expect(out).toContain("private content can't live in the repo unless it's git-ignored");
+    expect(code).toBe(1);
+  });
+
+  it("names the file and field when content is wrong", () => {
+    const leaky = { ...FRUIT, puzzles: [{ ...FRUIT.puzzles[0], imageUrl: "/img/strawberry.jpg" }] };
+    const { code, out } = seed(writeContent(outside(), "leaky.json", leaky));
+    expect(out).toContain('puzzle pz-0a1b2c3d: imageUrl: "/img/strawberry.jpg" gives away the answer "Strawberry"');
+    expect(code).toBe(1);
+  });
+});

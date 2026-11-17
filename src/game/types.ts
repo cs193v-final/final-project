@@ -5,9 +5,17 @@
 // copied here unchanged so the guessing and round logic can compile; their
 // owners make the final call.
 
-/** Owner: Joseph. Finalized in #17 unchanged from the brief; validated by `parsePuzzle` in `puzzles.ts`. */
+/**
+ * Owner: Joseph. Finalized in #17; validated by `parsePuzzle` in `puzzles.ts`.
+ * Server-only once games run on the server (#54): it holds the answer.
+ *
+ * #52: `id` is opaque (never contains the answer, checked by `findAnswerLeaks`
+ * in `packs.ts`), and `aiSolvedLevel` was added for Beat the AI (#56).
+ * How `imageUrl` works once each zoom level is its own image is #57 (Darian);
+ * until then it's the full image.
+ */
 export type Puzzle = {
-  id: string;
+  id: string; // opaque, e.g. "pz-7c1e9a40"; lowercase letters, digits, "-" and "_"
   imageUrl: string; // file in the app's static assets, or a URL
   answer: string; // canonical answer, shown after the round
   acceptedAnswers: string[]; // alternates, compared after normalization
@@ -16,6 +24,7 @@ export type Puzzle = {
     zoomLevels: number[]; // e.g. [8, 4, 2, 1]: index 0 = tightest crop, last = full image
   };
   credit: { source: string; license: string; url?: string }; // image source + usage permission
+  aiSolvedLevel: RevealLevel | null; // first reveal level the AI solved it at (#56); null = never, or not run yet
 };
 
 /**
@@ -71,24 +80,24 @@ export type RoundResult = {
 // ---------------------------------------------------------------------------
 // Week 9 plan (#46): PROPOSALs for the server-side game, packs, accounts and
 // leaderboards. Types only. The owner of each type makes the final call; change
-// one only through a PR that its owner reviews. `Puzzle` changes (opaque `id`,
-// `aiSolvedLevel`, per-level images) are planned in #52 and not made here yet.
+// one only through a PR that its owner reviews. `PackKind`, `Pack` and
+// `DailyEntry` are settled in #52 and validated by `parseContent` (`packs.ts`).
 // ---------------------------------------------------------------------------
 
-/** Owner: Joseph. PROPOSAL (#52). Which mode a pack belongs to. */
+/** Owner: Joseph. Settled (#52). Which mode a pack belongs to. */
 export type PackKind = "practice" | "daily" | "stanford" | "lobby";
 
-/** Owner: Joseph. PROPOSAL (#52). A set of puzzles played together, in order. */
+/** Owner: Joseph. Settled (#52). A set of puzzles played together, in order. */
 export type Pack = {
   id: string; // opaque; never derived from the theme or the answers
   kind: PackKind;
   title: string; // e.g. "Landmarks"
   theme: string; // shown before play (open decision: hide it for a bonus?)
   puzzleIds: string[]; // play order; usually 5
-  scoring?: ScoringConfig; // per-pack override (type: Ethan; storage: Jacky, #64); default when absent
+  scoring?: ScoringConfig; // per-pack override (type: Ethan; storage: Jacky, #64); default when absent. The seed script doesn't load it yet.
 };
 
-/** Owner: Joseph. PROPOSAL (#52, #58). Which pack is a given day's daily challenge. */
+/** Owner: Joseph. Settled (#52); the reset time zone is still open (#58). Which pack is a given day's daily challenge. */
 export type DailyEntry = {
   date: string; // "YYYY-MM-DD" in the reset time zone (open decision; default America/Los_Angeles)
   packId: string;
