@@ -4,7 +4,7 @@
 import { fileURLToPath } from "node:url";
 
 import { PGlite } from "@electric-sql/pglite";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -169,5 +169,17 @@ describe("getLevelSrcs", () => {
     expect(srcs.get("pz-0a1b2c3d")).toEqual(a.map((s) => s.src));
     expect(srcs.has("pz-9f8e7d6c")).toBe(false);
     expect(await getLevelSrcs(db, [])).toEqual(new Map());
+  });
+
+  it("skips a puzzle with a gap in its levels, so every list it returns is complete", async () => {
+    await saveLevelImages(db, "pz-0a1b2c3d", levels(3));
+    const b = await saveLevelImages(db, "pz-9f8e7d6c", levels(3));
+    // A cut that stopped partway, or a row removed by hand: level 1 is missing.
+    await db
+      .delete(schema.puzzleImages)
+      .where(and(eq(schema.puzzleImages.puzzleId, "pz-0a1b2c3d"), eq(schema.puzzleImages.level, 1)));
+    const srcs = await getLevelSrcs(db, ["pz-0a1b2c3d", "pz-9f8e7d6c"]);
+    expect(srcs.has("pz-0a1b2c3d")).toBe(false);
+    expect(srcs.get("pz-9f8e7d6c")).toEqual(b.map((s) => s.src));
   });
 });

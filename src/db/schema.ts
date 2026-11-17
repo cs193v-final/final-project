@@ -267,7 +267,7 @@ export const packPuzzles = pgTable(
 export const dailySchedule = pgTable(
   "daily_schedule",
   {
-    // The day in the reset time zone (open decision). `mode: "string"` keeps
+    // The day in the reset time zone (midnight Pacific, #58). `mode: "string"` keeps
     // it as "YYYY-MM-DD", with no time-zone conversion in JavaScript.
     date: date("date", { mode: "string" }).primaryKey(),
     packId: text("pack_id")

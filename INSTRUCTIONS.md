@@ -1,6 +1,6 @@
 # CS193V Final Project — Instructions & Summary
 
-> **Summary as of Nov 6, 2026.** Check the course pages for anything newer.
+> **Summary as of Nov 6, 2026; Checkpoint 2 added Nov 16, 2026.** Check the course pages for anything newer.
 > The miniproject requirements still apply, because they set up the codebase.
 
 ## Source links
@@ -10,6 +10,7 @@
 | Final Project Logistics | https://web.stanford.edu/class/archive/cs/cs193v/cs193v.1272/project/ |
 | Miniproject | https://web.stanford.edu/class/archive/cs/cs193v/cs193v.1272/project/miniproject/ |
 | Checkpoint 1 | https://web.stanford.edu/class/archive/cs/cs193v/cs193v.1272/project/checkpoint-1/ |
+| Checkpoint 2 | https://web.stanford.edu/class/archive/cs/cs193v/cs193v.1272/project/checkpoint-2/ |
 | Repo Setup (includes the repo-URL form) | https://web.stanford.edu/class/archive/cs/cs193v/cs193v.1272/project/repo-setup/ |
 
 Related pages (not summarized here): [Project Proposal](https://web.stanford.edu/class/archive/cs/cs193v/cs193v.1272/project/project-proposal/) · [Dev Environment](https://web.stanford.edu/class/archive/cs/cs193v/cs193v.1272/cs193v-dev/)
@@ -28,7 +29,7 @@ Related pages (not summarized here): [Project Proposal](https://web.stanford.edu
 | Thu Wk 6, 1PM | Team roster |
 | Thu Wk 7, 1PM | Miniproject + Project Proposal |
 | Wk 8 (W/Th/F) | **Check-in 1**: deliverables due 24 hrs before the meeting |
-| Wk 9 (W/Th/F) | Check-in 2: deliverables due 24 hrs before the meeting |
+| Wk 9 (W/Th/F) | **Check-in 2**: deliverables due 24 hrs before the meeting (for us, 9 am PST Tue Nov 17). The last meeting before the final presentations, which come after the break. |
 | Wk 10 (W/Th/F) | Final project due 24 hrs before the final presentation (public) |
 
 All members attend both check-ins and the final presentation **in person**.
@@ -112,3 +113,53 @@ Keep these brief and bulleted, in our own words. AI polishing is OK.
 - [ ] All three `.md` files and all code are on `main`
 - [ ] Course staff can access every linked resource
 - [ ] Issue tracker is up to date
+
+---
+
+## 4. Checkpoint 2
+
+**Due 24 hours before our checkpoint meeting** (for us: **9 am PST, Tue Nov 17**). It's the last meeting before the final presentations, which come after the break. Staff expect **substantial progress and a clear path to the final version**. All team members attend in person; exceptions need prior approval. We track it in the checklist issue #97.
+
+- Follow appropriate engineering and design principles.
+- We can divide the work however we like, but staff advise **each person owning the requirements in their own area**.
+
+### Frontend
+- [ ] **Functionality:**
+  - every frontend feature is fully functional
+  - major bugs that visibly interfere with the experience are fixed
+  - a person can complete each feature's task from start to finish (the data behind it can be simple)
+  - any sample or placeholder data is clearly labeled
+- [ ] **Usability:** follow Nielsen Norman Group's 10 usability heuristics, e.g. a clear primary action on each screen and visible feedback after actions. Keep similar controls **consistent across features**, which may mean standardizing design elements.
+- [ ] **Accessibility:** meet **WCAG 2.2 AA**. Also check manually: at minimum, that fonts have enough contrast with their backgrounds and are sized appropriately.
+- [ ] **External user testing:** every frontend feature gets a user test with someone **outside our group**, and we improve the software based on the tests. Follow the Assignment 5 procedure:
+  - have everything set up before the tester arrives
+  - give the task and nothing else: no guidance, hints, explanations or pointing. If they ask what to do, tell them to do whatever they'd try if we weren't there
+  - take detailed notes: whether they finished, the path they took, and where they paused, clicked the wrong thing or backed up, plus every urge we had to explain
+  - run a short exit interview
+- [ ] Save the notes in the repo, in `user-tests/`, **one file per feature**. A photo of handwritten notes is fine.
+- [ ] File issues for anything that came up
+- [ ] Be ready to discuss **at least two changes** we made based on the tests
+- Start finding testers early.
+
+### Backend (these should stay true for the rest of the project)
+- [ ] **Secret stewardship:** follow best practices, checked both automatically and manually. At minimum:
+  - gitleaks hooks on **every checkout** of the repo
+  - **different secrets** for development, preview and production
+  - **backup copies of secrets**, stored securely somewhere our coding agents and web servers can't reach
+- [ ] **`SECRETS.md`:** a list of every secret, how each is stored safely, and how we'd rotate each one if it were compromised.
+- [ ] **Encryption:**
+  - **all information from users is stored encrypted**
+  - with a single key, any server code that reads the database can read everything, so **strongly consider per-user encryption**; per-field encryption is also worth a look
+  - anything sent between users is encrypted in transit
+  - Neon's built-in at-rest encryption doesn't remove the need for our own encryption
+- [ ] **`ENCRYPTION.md`:** how our encryption is set up.
+- [ ] **Cost controls:** make sure users can't, by enthusiasm or malice, run up API bills, exhaust database storage or exceed rate limits. Examples: per-user rate limits, capping tokens per LLM call, per-IP rate limits.
+- [ ] **`COST-CONTROLS.md`:** which APIs and services we use, their costs and limits, and what we did to keep users from using too much.
+- [ ] **Security audit:** have an AI do a detailed security audit of our code, and file the findings as GitHub issues assigned to the right team members. The AI writes **`SECURITY-AUDIT.md`** with its findings.
+
+### Who writes the writeups
+- **`SECRETS.md`:** we write it, **with no AI writing or formatting**. We can ask AI to confirm we have the right steps.
+- **`ENCRYPTION.md`** and **`COST-CONTROLS.md`:** **our own writing**. We can consult AI for technical details.
+- Coding agents never create, draft or edit these three files (`AGENTS.md`).
+- **`SECURITY-AUDIT.md`:** written by the AI that does the audit.
+- **User-test notes:** in `user-tests/`, one file per feature.

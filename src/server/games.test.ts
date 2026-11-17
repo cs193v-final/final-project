@@ -58,16 +58,36 @@ describe("startPracticeGame / actOnGame / loadGame", () => {
   it("starts a practice game for a new anonymous owner and plays it", async () => {
     const view = await started();
     expect(view.round).toMatchObject({ position: 1, state: "playing" });
-    expect(await actOnGame(view.gameId, { type: "reveal" })).toMatchObject({ ok: true, view: { round: { revealLevel: 1 } } });
+    expect(await actOnGame(view.gameId, { type: "reveal" }, view.revision)).toMatchObject({ ok: true, view: { round: { revealLevel: 1 } } });
     expect(await loadGame(view.gameId)).toMatchObject({ ok: true, view: { round: { revealLevel: 1 } } });
   });
 
   it("rejects a malformed action as `invalid` and changes nothing", async () => {
     const view = await started();
     for (const bad of [null, "skip", { type: "score", points: 1000 }, { type: "guess", guess: 42 }]) {
-      expect(await actOnGame(view.gameId, bad)).toEqual({ ok: false, error: "invalid" });
+      expect(await actOnGame(view.gameId, bad, view.revision)).toEqual({ ok: false, error: "invalid" });
     }
     expect(await loadGame(view.gameId)).toEqual({ ok: true, view });
+  });
+
+  it("rejects a missing or malformed revision as `invalid` and changes nothing (#107)", async () => {
+    const view = await started();
+    for (const bad of [undefined, null, "0", -1, 0.5, Number.NaN]) {
+      expect(await actOnGame(view.gameId, { type: "skip" }, bad), String(bad)).toEqual({ ok: false, error: "invalid" });
+    }
+    expect(await loadGame(view.gameId)).toEqual({ ok: true, view });
+  });
+
+  it("gives `conflict` for an action from a stale tab, and doesn't apply it (#107)", async () => {
+    const tabA = await started();
+    // Tab B, on the same game, moves it on: a reveal, then a skip to round 2.
+    const afterReveal = await actOnGame(tabA.gameId, { type: "reveal" }, tabA.revision);
+    if (!afterReveal.ok) throw new Error(afterReveal.error);
+    const afterSkip = await actOnGame(tabA.gameId, { type: "skip" }, afterReveal.view.revision);
+    if (!afterSkip.ok) throw new Error(afterSkip.error);
+    // Tab A still shows round 1 and presses Skip: it must not skip round 2.
+    expect(await actOnGame(tabA.gameId, { type: "skip" }, tabA.revision)).toEqual({ ok: false, error: "conflict" });
+    expect(await loadGame(tabA.gameId)).toEqual({ ok: true, view: afterSkip.view });
   });
 
   it("gives `not-found` for someone else's game, a missing game, a bad id, and no cookie at all", async () => {
@@ -76,11 +96,11 @@ describe("startPracticeGame / actOnGame / loadGame", () => {
 
     state.jar.clear();
     expect(await loadGame(view.gameId)).toEqual({ ok: false, error: "not-found" });
-    expect(await actOnGame(view.gameId, { type: "skip" })).toEqual({ ok: false, error: "not-found" });
+    expect(await actOnGame(view.gameId, { type: "skip" }, view.revision)).toEqual({ ok: false, error: "not-found" });
 
     await started(); // a second visitor, with their own cookie
     expect(await loadGame(view.gameId)).toEqual({ ok: false, error: "not-found" });
-    expect(await actOnGame(view.gameId, { type: "skip" })).toEqual({ ok: false, error: "not-found" });
+    expect(await actOnGame(view.gameId, { type: "skip" }, view.revision)).toEqual({ ok: false, error: "not-found" });
 
     state.jar = mine;
     expect(await loadGame("00000000-0000-4000-8000-000000000000")).toEqual({ ok: false, error: "not-found" });
@@ -112,6 +132,6 @@ describe("one practice pack (#52)", () => {
 
     // And games keep working on the seeded pack.
     expect((await startPracticeGame()).ok).toBe(true);
-    expect(await actOnGame(view.gameId, { type: "skip" })).toMatchObject({ ok: true });
+    expect(await actOnGame(view.gameId, { type: "skip" }, view.revision)).toMatchObject({ ok: true });
   });
 });

@@ -10,7 +10,8 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { CONTRACT_PUZZLES, describeGameStoreContract } from "@/game/game-store-contract";
-import { act, GameConflictError, GameNotFoundError, puzzleSourceFrom, startGame, type GameDeps, type GameOwner, type GameState } from "@/game/server-game";
+import { act, GameConflictError, GameNotFoundError, getGame, puzzleSourceFrom, startGame, type GameDeps, type GameOwner, type GameState } from "@/game/server-game";
+import type { GameAction } from "@/game/types";
 import type { Pack, ScoringConfig } from "@/game/types";
 
 import { Vault } from "@/crypto/vault";
@@ -20,6 +21,13 @@ import type { Db } from "./index";
 import * as schema from "./schema";
 
 const vault = new Vault(Buffer.alloc(32, 7));
+
+/** Plays a move on the game as it is now (reads its current revision first), for tests about other things than stale tabs. */
+async function playNow(deps: GameDeps, gameId: string, owner: GameOwner, action: GameAction) {
+  const { revision } = await getGame(deps, gameId, owner);
+  return act(deps, gameId, owner, action, revision);
+}
+
 
 const migrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url));
 
@@ -128,9 +136,9 @@ describe("PgGameStore columns", () => {
     const id = view.gameId;
     expect(await columns(id)).toMatchObject({ revision: 0, total: 0, finished_at: null });
 
-    view = await act(d, id, alice, { type: "reveal" });
-    view = await act(d, id, alice, { type: "guess", guess: "zzz wrong" });
-    view = await act(d, id, alice, { type: "guess", guess: CONTRACT_PUZZLES[0]!.answer });
+    view = await playNow(d, id, alice, { type: "reveal" });
+    view = await playNow(d, id, alice, { type: "guess", guess: "zzz wrong" });
+    view = await playNow(d, id, alice, { type: "guess", guess: CONTRACT_PUZZLES[0]!.answer });
     expect(view.total).toBe(70);
     expect(await columns(id)).toMatchObject({ revision: 3, total: 70, finished_at: null });
     expect(await roundRows(id)).toEqual([
@@ -148,11 +156,11 @@ describe("PgGameStore columns", () => {
     ]);
 
     for (let i = 1; i < CONTRACT_PUZZLES.length; i++) {
-      await act(d, id, alice, { type: "next" });
-      view = await act(d, id, alice, { type: "skip" });
+      await playNow(d, id, alice, { type: "next" });
+      view = await playNow(d, id, alice, { type: "skip" });
     }
     expect(await columns(id)).toMatchObject({ total: 70, finished_at: null });
-    view = await act(d, id, alice, { type: "next" });
+    view = await playNow(d, id, alice, { type: "next" });
     expect(view.finished).toBe(true);
 
     const finished = await columns(id);
@@ -168,7 +176,7 @@ describe("PgGameStore columns", () => {
     const store = new PgGameStore(db, vault, { recordRounds: false });
     const d = deps(store);
     const { gameId } = await startGame(d, PACK, bob, CONFIG);
-    const view = await act(d, gameId, bob, { type: "skip" });
+    const view = await playNow(d, gameId, bob, { type: "skip" });
     expect(view.results).toHaveLength(1);
     expect(await roundRows(gameId)).toEqual([]);
     expect(await columns(gameId)).toMatchObject({ revision: 1, total: 0 });
@@ -178,7 +186,7 @@ describe("PgGameStore columns", () => {
     const store = new PgGameStore(db, vault);
     const d = deps(store);
     const { gameId } = await startGame(d, PACK, alice, CONFIG);
-    await act(d, gameId, alice, { type: "guess", guess: "zzz wrong" });
+    await playNow(d, gameId, alice, { type: "guess", guess: "zzz wrong" });
     const { rows } = await pg.query<{ row: string }>("SELECT row_to_json(g)::text AS row FROM games g WHERE id = $1", [gameId]);
     const json = rows[0]!.row.toLowerCase();
     for (const p of CONTRACT_PUZZLES) {
@@ -197,7 +205,7 @@ describe("PgGameStore encryption (#84)", () => {
     const d = deps(store);
     const { gameId } = await startGame(d, PACK, alice, CONFIG);
     expect(await stateColumns(gameId)).toMatchObject({ state: null, state_encrypted: expect.stringMatching(/^v1\./) });
-    await act(d, gameId, alice, { type: "guess", guess: "zzz wrong" });
+    await playNow(d, gameId, alice, { type: "guess", guess: "zzz wrong" });
     const cols = await stateColumns(gameId);
     expect(cols.state).toBeNull();
     // What the player did (a wrong guess on the first puzzle) is only in the encrypted copy.
@@ -275,7 +283,7 @@ describe("PgGameStore encryption (#84)", () => {
     await pg.query("UPDATE games SET state = $1::jsonb, state_encrypted = NULL WHERE id = $2", [JSON.stringify(plain), gameId]);
     expect((await store.get(gameId))!.state).toEqual(plain);
 
-    await act(d, gameId, alice, { type: "skip" });
+    await playNow(d, gameId, alice, { type: "skip" });
     expect(await stateColumns(gameId)).toMatchObject({ state: null, state_encrypted: expect.stringMatching(/^v1\./) });
     expect((await store.get(gameId))!.state.events).toHaveLength(plain.events.length + 1);
   });

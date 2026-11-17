@@ -11,20 +11,21 @@ import { POP, POP_TIMING, useAnimateOn } from "./motion";
 import { feedbackFor, finalScoreLabels, learnAnswer, NO_FEEDBACK, type Feedback, type KnownAnswers } from "./practice";
 import { RoundValue, ScoreHeader } from "./LiveScore";
 import { ZoomOutButton } from "./ZoomOutButton";
+import { Button } from "../ui/controls";
 
 export type PracticeGameProps = {
   /** The game from the URL (`/play?game=<id>`), loaded on the server; null starts a new one. */
   initial: GameResult | null;
   /** Server Actions (src/app/play/actions.ts). Props, so tests can pass in-memory ones. */
   start: () => Promise<GameResult>;
-  act: (gameId: string, action: GameAction) => Promise<GameResult>;
+  act: (gameId: string, action: GameAction, revision: number) => Promise<GameResult>;
   get: (gameId: string) => Promise<GameResult>;
 };
 
 const PROBLEMS: Record<GameError, string> = {
   "not-found": "We couldn't find that game. It may have been started in another browser.",
   invalid: "That didn't work. Please try again.",
-  conflict: "This game changed in another tab, so it was reloaded here.",
+  conflict: "This game was updated since you last saw it, so it was reloaded.",
   unavailable: "Couldn't reach the server. Check your connection and try again, or reload the page.",
 };
 
@@ -37,6 +38,11 @@ const PROBLEMS: Record<GameError, string> = {
  */
 export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
   const [view, setView] = useState<GameView | null>(initial?.ok ? initial.view : null);
+  // The latest view, updated as soon as a result arrives. `send` reads the
+  // game id and revision from here rather than from `view`, which only
+  // updates on the next render: a click in between would otherwise send the
+  // old revision and get a false conflict (#107).
+  const latest = useRef<GameView | null>(initial?.ok ? initial.view : null);
   const [problem, setProblem] = useState<GameError | null>(initial && !initial.ok ? initial.error : null);
   const [feedback, setFeedback] = useState<Feedback>(() =>
     initial?.ok ? feedbackFor(null, initial.view, NO_FEEDBACK) : NO_FEEDBACK,
@@ -47,7 +53,7 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
   // tick (before React re-renders); `pending` marks the controls as disabled.
   const inFlight = useRef(false);
   const [pending, setPending] = useState(false);
-  // False once the player has left /play (e.g. "Back to start" while a game is
+  // False once the player has left /play (e.g. "← Home" while a game is
   // starting). Results that arrive after that are ignored, so they can't
   // rewrite the URL of the page the player is on now.
   const mounted = useRef(false);
@@ -83,6 +89,7 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
     }
     setProblem(null);
     setJustSolved(action?.type === "guess" && result.view.round?.state === "correct");
+    latest.current = result.view;
     setView(result.view);
     setFeedback((previous) => feedbackFor(action, result.view, previous));
     setAnswers((known) => learnAnswer(known, result.view));
@@ -108,12 +115,14 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       setFeedback({ kind: "empty" });
       return Promise.resolve();
     }
-    const { gameId } = view;
     return exclusive(async () => {
-      const result = await act(gameId, action);
+      const current = latest.current;
+      if (current === null) return;
+      const { gameId, revision } = current;
+      const result = await act(gameId, action, revision);
       if (!mounted.current) return;
       if (!result.ok && result.error === "conflict") {
-        // Another tab changed the game first, so this action wasn't applied.
+        // The game changed since this view (another tab, or a lost response), so this action wasn't applied.
         // Show the game as it is now and let the player decide again.
         const fresh = await get(gameId);
         if (!mounted.current) return;
@@ -157,13 +166,11 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       </p>
       {problem === "unavailable" ? (
         // After a redeploy only a reload fixes "Failed to find Server Action".
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="text-sm font-medium underline underline-offset-2"
-        >
+        // Always underlined: it sits next to the message, and on a touch screen
+        // there's no hover to show it can be pressed.
+        <Button variant="quiet" onClick={() => window.location.reload()} className="text-sm underline">
           Reload the page
-        </button>
+        </Button>
       ) : null}
     </div>
   ) : null;
@@ -175,14 +182,9 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
     return (
       <div className="flex flex-col items-center gap-3 text-center">
         <p role="alert">{PROBLEMS[problem]}</p>
-        <button
-          type="button"
-          onClick={() => void newGame()}
-          aria-disabled={pending}
-          className="rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 aria-disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-        >
+        <Button disabled={pending} onClick={() => void newGame()}>
           {problem === "not-found" ? "Start a new game" : "Try again"}
-        </button>
+        </Button>
       </div>
     );
   }

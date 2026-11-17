@@ -17,20 +17,25 @@ describe("ScoreHeader", () => {
 });
 
 describe("RoundValue while playing", () => {
-  it("shows what the image is worth now and after a zoom-out", () => {
-    expect(text(<RoundValue round={playing(0)} config={CONFIG} />)).toBe("Worth 100 points now · 80 if you zoom out");
+  // Zoom and wrong-guess costs are explained once in How to play, not on every round (#146, from user test #90).
+  it("shows only what the image is worth now", () => {
+    expect(text(<RoundValue round={playing(0)} config={CONFIG} />)).toBe("Worth 100 points now");
   });
 
-  it("includes wrong-guess penalties", () => {
-    expect(text(<RoundValue round={playing(1, 2)} config={CONFIG} />)).toBe("Worth 60 points now · 40 if you zoom out");
+  it("includes zoom-out and wrong-guess penalties", () => {
+    expect(text(<RoundValue round={playing(1, 2)} config={CONFIG} />)).toBe("Worth 60 points now");
   });
 
-  it("drops the zoom hint at the full image", () => {
-    expect(text(<RoundValue round={playing(3)} config={CONFIG} />)).toBe("Worth 40 points now");
-  });
-
-  it("drops the zoom hint when the floor means zooming costs nothing", () => {
+  it("never goes below the floor", () => {
     expect(text(<RoundValue round={playing(2, 9)} config={CONFIG} />)).toBe("Worth 10 points now");
+  });
+
+  it("uses the server's value when given", () => {
+    expect(text(<RoundValue round={playing(0)} config={CONFIG} pointsNow={70} />)).toBe("Worth 70 points now");
+  });
+
+  it("no longer previews what a zoom-out would cost", () => {
+    expect(text(<RoundValue round={playing(0)} config={CONFIG} />)).not.toMatch(/zoom out/iu);
   });
 });
 

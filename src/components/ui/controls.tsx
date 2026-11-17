@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
-import { buttonClass, FOCUS_RING, joinClasses, type ButtonVariant } from "./styles";
+import { buttonClass, FOCUS_RING, joinClasses, TEXT_INPUT, type ButtonVariant } from "./styles";
 
 /**
  * Shared controls (#89), so similar controls look and behave the same on every
@@ -10,6 +10,7 @@ import { buttonClass, FOCUS_RING, joinClasses, type ButtonVariant } from "./styl
  *   (one per screen), `secondary` a normal one, `quiet` a minor one (e.g. Skip).
  * - `ButtonLink`: navigation that looks like a button, e.g. "Start practice".
  * - `TextLink`: a standalone text link, e.g. "← Home".
+ * - `TextInput`: a text box, e.g. the guess box or a username field. Give it a `<label>`.
  * - `SectionHeading`: the small heading above a group ("Choose a mode").
  * - `PrototypeNotice`: labels placeholder or sample data, as the course asks.
  *
@@ -37,6 +38,14 @@ export function TextLink({ className, ...rest }: ComponentProps<typeof Link>) {
       )}
     />
   );
+}
+
+/**
+ * A text box. It's an `<input>`: pass `id` and pair it with a `<label htmlFor>`.
+ * Defaults to `type="text"`. Takes a `ref`, like `Button`, e.g. to focus it on an error.
+ */
+export function TextInput({ className, type = "text", ...rest }: ComponentProps<"input">) {
+  return <input {...rest} type={type} className={joinClasses(TEXT_INPUT, className)} />;
 }
 
 /** A section's small heading. Give the section `aria-labelledby={id}` so screen readers name it. */
