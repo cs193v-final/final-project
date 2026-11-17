@@ -296,7 +296,15 @@ export const games = pgTable(
     anonOwnerHash: text("anon_owner_hash"),
     // Full serialized server-side game state, so #54 can resume a game across
     // requests. Its shape is owned by #54; the browser never sees it.
-    state: jsonb("state").notNull(),
+    // Encrypted since #84: new and saved games write only `stateEncrypted`
+    // and set this to NULL. It's kept for games written before then, until
+    // `npm run db:encrypt-games` has run on every tier; a later migration
+    // drops it.
+    state: jsonb("state"),
+    // The state, encrypted (#84): AES-256-GCM with a key for this owner and
+    // this game (src/crypto/vault.ts), so it can't be read or moved to
+    // another game without DATA_ENCRYPTION_KEY.
+    stateEncrypted: text("state_encrypted"),
     // Optimistic concurrency for #54: a save is `UPDATE ... WHERE id = $1 AND
     // revision = $2` and bumps it, so two fast requests can't both apply.
     // Works without interactive transactions (the Neon HTTP driver has none).
@@ -317,6 +325,8 @@ export const games = pgTable(
       .on(t.packId, t.total)
       .where(sql`${t.finishedAt} IS NOT NULL`),
     check("games_single_owner", sql`${t.userId} IS NULL OR ${t.anonOwnerHash} IS NULL`),
+    // Exactly one copy of the state: plain (written before #84) or encrypted.
+    check("games_one_state", sql`(${t.state} IS NULL) <> (${t.stateEncrypted} IS NULL)`),
   ],
 );
 

@@ -13,9 +13,13 @@ import { CONTRACT_PUZZLES, describeGameStoreContract } from "@/game/game-store-c
 import { act, puzzleSourceFrom, startGame, type GameDeps, type GameOwner } from "@/game/server-game";
 import type { Pack, ScoringConfig } from "@/game/types";
 
-import { ensurePackRow, PgGameStore } from "./games";
+import { Vault } from "@/crypto/vault";
+
+import { ensurePackRow, PgGameStore, STATE_FIELD, stateKeyId } from "./games";
 import type { Db } from "./index";
 import * as schema from "./schema";
+
+const vault = new Vault(Buffer.alloc(32, 7));
 
 const migrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url));
 
@@ -60,7 +64,7 @@ afterAll(async () => {
 });
 
 describeGameStoreContract("PgGameStore (PGlite)", async () => ({
-  store: new PgGameStore(db),
+  store: new PgGameStore(db, vault),
   alice,
   bob,
   packId: PACK.id,
@@ -101,7 +105,7 @@ function deps(store: PgGameStore): GameDeps {
 
 describe("PgGameStore columns", () => {
   it("maps a user owner to user_id and an anonymous owner to anon_owner_hash", async () => {
-    const store = new PgGameStore(db);
+    const store = new PgGameStore(db, vault);
     const mine = await startGame(deps(store), PACK, alice, CONFIG);
     const theirs = await startGame(deps(store), PACK, bob, CONFIG);
     expect(await columns(mine.gameId)).toMatchObject({ user_id: "userId" in alice && alice.userId, anon_owner_hash: null });
@@ -112,13 +116,13 @@ describe("PgGameStore columns", () => {
   });
 
   it("refuses an anonymous id that isn't a SHA-256 hex digest, so a raw cookie token is never stored", async () => {
-    const store = new PgGameStore(db);
+    const store = new PgGameStore(db, vault);
     await expect(startGame(deps(store), PACK, { anonId: "raw-cookie-token" }, CONFIG)).rejects.toThrow(/SHA-256/);
     await expect(startGame(deps(store), PACK, { userId: "alice" }, CONFIG)).rejects.toThrow(/uuid/);
   });
 
   it("keeps total and finished_at in sync with the state, and writes each finished round once", async () => {
-    const store = new PgGameStore(db);
+    const store = new PgGameStore(db, vault);
     const d = deps(store);
     let view = await startGame(d, PACK, alice, CONFIG);
     const id = view.gameId;
@@ -161,7 +165,7 @@ describe("PgGameStore columns", () => {
   });
 
   it("writes no game_rounds rows when recordRounds is off (puzzles not in the database yet, #52)", async () => {
-    const store = new PgGameStore(db, { recordRounds: false });
+    const store = new PgGameStore(db, vault, { recordRounds: false });
     const d = deps(store);
     const { gameId } = await startGame(d, PACK, bob, CONFIG);
     const view = await act(d, gameId, bob, { type: "skip" });
@@ -171,7 +175,7 @@ describe("PgGameStore columns", () => {
   });
 
   it("stores no answers in the games table", async () => {
-    const store = new PgGameStore(db);
+    const store = new PgGameStore(db, vault);
     const d = deps(store);
     const { gameId } = await startGame(d, PACK, alice, CONFIG);
     await act(d, gameId, alice, { type: "guess", guess: "zzz wrong" });
@@ -180,6 +184,64 @@ describe("PgGameStore columns", () => {
     for (const p of CONTRACT_PUZZLES) {
       for (const answer of [p.answer, ...p.acceptedAnswers]) expect(json).not.toContain(answer.toLowerCase());
     }
+  });
+});
+
+describe("PgGameStore encryption (#84)", () => {
+  type StateColumns = { state: unknown; state_encrypted: string | null };
+  const stateColumns = async (id: string) =>
+    (await pg.query<StateColumns>("SELECT state, state_encrypted FROM games WHERE id = $1", [id])).rows[0]!;
+
+  it("stores the state only encrypted: no plain state, and no guess anywhere in the row", async () => {
+    const store = new PgGameStore(db, vault);
+    const d = deps(store);
+    const { gameId } = await startGame(d, PACK, alice, CONFIG);
+    expect(await stateColumns(gameId)).toMatchObject({ state: null, state_encrypted: expect.stringMatching(/^v1\./) });
+    await act(d, gameId, alice, { type: "guess", guess: "zzz wrong" });
+    const cols = await stateColumns(gameId);
+    expect(cols.state).toBeNull();
+    // What the player did (a wrong guess on the first puzzle) is only in the encrypted copy.
+    const { rows } = await pg.query<{ row: string }>("SELECT row_to_json(g)::text AS row FROM games g WHERE id = $1", [gameId]);
+    for (const leak of ["wrongGuess", "events", CONTRACT_PUZZLES[0]!.id]) expect(rows[0]!.row).not.toContain(leak);
+    const state = vault.decryptJson<{ events: unknown[] }>(stateKeyId(alice, gameId), STATE_FIELD, cols.state_encrypted!);
+    expect(JSON.stringify(state.events)).toContain("wrongGuess");
+  });
+
+  it("can't be read with another key", async () => {
+    const { gameId } = await startGame(deps(new PgGameStore(db, vault)), PACK, bob, CONFIG);
+    const other = new PgGameStore(db, new Vault(Buffer.alloc(32, 8)));
+    await expect(other.get(gameId)).rejects.toThrow();
+  });
+
+  it("can't be moved to another game or another owner", async () => {
+    const store = new PgGameStore(db, vault);
+    const a = await startGame(deps(store), PACK, bob, CONFIG);
+    const b = await startGame(deps(store), PACK, bob, CONFIG);
+    await pg.query("UPDATE games SET state_encrypted = (SELECT state_encrypted FROM games WHERE id = $1) WHERE id = $2", [
+      a.gameId,
+      b.gameId,
+    ]);
+    await expect(store.get(b.gameId)).rejects.toThrow();
+  });
+
+  it("still reads a game stored before encryption, and encrypts it on the next save", async () => {
+    const store = new PgGameStore(db, vault);
+    const d = deps(store);
+    const { gameId } = await startGame(d, PACK, alice, CONFIG);
+    // Turn it back into a pre-#84 row: plain jsonb state, nothing encrypted.
+    const plain = (await store.get(gameId))!.state;
+    await pg.query("UPDATE games SET state = $1::jsonb, state_encrypted = NULL WHERE id = $2", [JSON.stringify(plain), gameId]);
+    expect((await store.get(gameId))!.state).toEqual(plain);
+
+    await act(d, gameId, alice, { type: "skip" });
+    expect(await stateColumns(gameId)).toMatchObject({ state: null, state_encrypted: expect.stringMatching(/^v1\./) });
+    expect((await store.get(gameId))!.state.events).toHaveLength(plain.events.length + 1);
+  });
+
+  it("refuses a row with both or neither copy of the state", async () => {
+    const { gameId } = await startGame(deps(new PgGameStore(db, vault)), PACK, alice, CONFIG);
+    await expect(pg.query("UPDATE games SET state = '{}'::jsonb WHERE id = $1", [gameId])).rejects.toThrow(/games_one_state/);
+    await expect(pg.query("UPDATE games SET state_encrypted = NULL WHERE id = $1", [gameId])).rejects.toThrow(/games_one_state/);
   });
 });
 

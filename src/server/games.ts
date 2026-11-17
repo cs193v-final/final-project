@@ -7,6 +7,7 @@
 // server-game.ts (rules, scoring, answer hiding) → PgGameStore → Postgres
 import "server-only";
 
+import { getVault } from "@/crypto/vault";
 import { getDb, type Db } from "@/db";
 import { ensurePackRow, PgGameStore } from "@/db/games";
 import { runGameCall, type GameResult } from "@/game/game-result";
@@ -37,7 +38,7 @@ function deps(db: Db): GameDeps {
   return {
     // No game_rounds rows yet: they reference `puzzles`, which only the seed
     // script fills in.
-    games: new PgGameStore(db, { recordRounds: false }),
+    games: new PgGameStore(db, getVault(), { recordRounds: false }),
     // TODO(follow-up to #52): getPuzzles(db, ids) from src/db/content.ts.
     puzzles: puzzleSourceFrom(SAMPLE_PUZZLES),
   };

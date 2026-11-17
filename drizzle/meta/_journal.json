@@ -36,6 +36,13 @@
       "when": 1794896292949,
       "tag": "0004_encrypt_usernames",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794901276690,
+      "tag": "0005_encrypt_game_state",
+      "breakpoints": true
     }
   ]
 }
