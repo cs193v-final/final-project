@@ -14,9 +14,11 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 
 import { getDb } from "@/db";
-import { deleteSession, findSessionUser } from "@/db/accounts";
+import { deleteSession } from "@/db/accounts";
+import { getVault } from "@/crypto/vault";
 import type { PublicUser } from "@/game/types";
 
+import { sessionUser } from "./accounts";
 import { sha256Hex } from "./crypto";
 
 export const SESSION_COOKIE = "zo_session";
@@ -25,11 +27,11 @@ export const SESSION_COOKIE = "zo_session";
 export async function getCurrentUser(): Promise<PublicUser | null> {
   const token = await requestSessionToken();
   if (!token) return null;
-  return findSessionUser(getDb(), sha256Hex(token), new Date());
+  return sessionUser(getDb(), getVault(), sha256Hex(token), new Date());
 }
 
 /**
- * Like `getCurrentUser`, but a database error counts as logged out (and is
+ * Like `getCurrentUser`, but a database or decryption error counts as logged out (and is
  * logged). For the header, which is on every page, including ones that don't
  * need the database. Only the database lookup is caught: Next's own
  * request-time signals from `cookies()` and `connection()` must reach Next.
@@ -38,7 +40,7 @@ export async function getCurrentUserOrLoggedOut(): Promise<PublicUser | null> {
   const token = await requestSessionToken();
   if (!token) return null;
   try {
-    return await findSessionUser(getDb(), sha256Hex(token), new Date());
+    return await sessionUser(getDb(), getVault(), sha256Hex(token), new Date());
   } catch (error) {
     console.error("Couldn't check the session; showing the user as logged out", error);
     return null;

@@ -45,7 +45,7 @@ How a turn works today: **player clicks or types → the React page sends an act
 
 | Table | Holds | Keys and rules |
 |---|---|---|
-| `users` | username, `password_hash` | UUID id. Username unique ignoring case. No email column. |
+| `users` | `username_encrypted`, `username_index`, `password_hash` | UUID id. Username encrypted, unique ignoring case through its keyed hash (#84). No email column. |
 | `sessions` | `token_hash`, `user_id`, `expires_at` | The cookie token is stored only as a hash (primary key). Deleted with the user. |
 | `packs` | `kind` (practice / daily / stanford / lobby), title, theme, `scoring` (per-pack override, #64; NULL = default) | Opaque text id |
 | `puzzles` | answer, accepted answers, full image, focus and zoom levels, credit, `ai_solved_level` (#56) | Opaque text id. Server-only. |
@@ -135,15 +135,15 @@ The writes are separate statements, not one transaction. If a run stops partway,
 
 ### What we store about users
 
-Accounts (#53) write `users`, `sessions` and `rate_limits`; games are written once server-side games (#54) land. This is what the schema (`src/db/schema.ts`) will hold, and how each item is protected. No email, real name or other personal detail is stored. IP addresses are only stored hashed, for rate limiting (below).
+Accounts (#53) write `users`, `sessions` and `rate_limits`; games are written once server-side games (#54) land. This is what the schema (`src/db/schema.ts`) will hold, and how each item is protected. No email, real name or other personal detail is stored. IP addresses are only stored as keyed hashes, for rate limiting (below). Application-level encryption (#84) is in `src/crypto/vault.ts`; how and why it's set up is in `ENCRYPTION.md`.
 
 | Data | Column(s) | How it's protected | Who can read it |
 |---|---|---|---|
-| Username | `users.username` | Stored as typed, not hashed or encrypted (the app needs to display it). Unique ignoring case. Whether other players see it (e.g. on leaderboards, #62) is not decided. | The server and the user; others only if a feature decides to show it |
+| Username | `users.username_encrypted`, `users.username_index` | **Encrypted (#84):** AES-256-GCM with a key derived for this user and this column from `DATA_ENCRYPTION_KEY` (HKDF-SHA256), bound to the user id so it can't be moved to another row. Login and the unique check use `username_index`, a keyed hash (HMAC-SHA256) of the lowercased name. Never stored in plain text. Whether other players see it (e.g. on leaderboards, #62) is not decided. | The server and the user; others only if a feature decides to show it |
 | Password | `users.password_hash` | Only a salted hash is stored, never the password: **argon2id** (Node's built-in `crypto.argon2`, no dependency) with OWASP's minimum parameters (19 MiB, 2 passes, 1 lane) and a random 16-byte salt, in PHC format so the parameters can be raised later (`src/auth/crypto.ts`). Login with an unknown username still runs one hash, so timing doesn't reveal which usernames exist. | The server only, to check a login. Never sent to a browser. |
 | Session | `sessions.token_hash`, `user_id`, `created_at`, `expires_at` | The `zo_session` cookie holds 32 random bytes; the database holds only their SHA-256, so a database leak doesn't hand out live sessions. The cookie is `HttpOnly`, `Secure` and `SameSite=Lax`. Sessions last 30 days; every request checks the row, so logout (which deletes it) and expiry apply at once (`src/auth/session.ts`). | The server only |
 | Games and rounds | `games.*` (owner, `state`, `total`, timestamps), `game_rounds.*` (outcome, points, wrong guesses, reveal level, `finished_at`) | `state` is server-only and never sent to the browser. **PLANNED (#54):** every read or write checks that the game belongs to the requesting user or anonymous owner. What leaderboards (#62) show is not decided. | The server and, once #54 lands, the game's owner only |
-| Rate limits | `rate_limits.key`, `window_start`, `count` | Keys are `login:user:<lowercased username>`, `login:ip:<SHA-256 of the IP>` and `register:ip:<SHA-256 of the IP>`. Never a raw IP address. A row only matters for its window (15 minutes for login, 1 hour for sign-up). Limits: 10 login attempts per username, 30 per address, 5 sign-ups per address. A successful login clears its username's count. | The server only |
+| Rate limits | `rate_limits.key`, `window_start`, `count` | Keys are `login:user:<HMAC of the lowercased username>`, `login:ip:<HMAC of the IP>` and `register:ip:<HMAC of the IP>` (#84), each with its own key, so neither a username nor an IP can be read or recomputed without `DATA_ENCRYPTION_KEY` (a plain SHA-256 of an IP can be reversed by hashing all 4 billion IPv4 addresses). Never a raw IP address or username. A row only matters for its window (15 minutes for login, 1 hour for sign-up). Limits: 10 login attempts per username, 30 per address, 5 sign-ups per address. A successful login clears its username's count. | The server only |
 | Anonymous owner | `games.anon_owner_hash` | Only a hash of an anonymous-player cookie, never the cookie value. Whether anonymous play exists at all is open (#54/#62). | The server only |
 | Timestamps | `created_at` on users, sessions and games; `updated_at` on games; `finished_at` on games and rounds; `expires_at` on sessions | Same as the row they belong to | Same as the row |
 
@@ -155,7 +155,7 @@ Protection that applies to all of it, **in place now**:
 - **Deleted with the account:** deleting a `users` row deletes its sessions, games and their rounds (`ON DELETE CASCADE`, tested in `src/db/schema.test.ts`). **PLANNED (#53):** a way for a user to delete their account.
 - **Who holds the keys:** connection strings are in the dev `.env.local` files and, for preview and production, only in Vercel (sensitive) and the Neon console, set by Jacky as the deploy owner (see above).
 
-**Not done yet** (needs #53 and #54 code): per-user access tests for games and sessions, and checks that no response or page source contains answers while a round is playing, or another user's data. We don't encrypt individual columns in the app: passwords and tokens are hashed instead (they never need to be read back), and the rest (usernames, game results) has to be read back by the app, so it relies on server-only access, TLS and Neon's encryption at rest.
+**Not done yet** (needs #53 and #54 code): per-user access tests for games and sessions, and checks that no response or page source contains answers while a round is playing, or another user's data. Passwords and tokens are hashed (they never need to be read back). Usernames are encrypted in the app (#84). **PLANNED (#84, with #54):** encrypting `games.state` and the per-round results with the same vault (`encryptJson`) once server-side games (#77) merge.
 
 ## 5. Open questions
 

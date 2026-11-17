@@ -1,17 +1,46 @@
 // Register and log in (#53): the rules, hashing and rate limits, given a
 // database client. Cookies live in `./session.ts`; this file never touches the
 // request, so it's tested directly against PGlite.
+//
+// Encryption (#84): usernames are stored encrypted with the user's own key,
+// and looked up by a keyed hash. Rate-limit keys use keyed hashes too, so the
+// database never holds a username or an IP address in a form anyone without
+// the key can read or recompute. See src/crypto/vault.ts.
+import { randomUUID } from "node:crypto";
+
 import type { PublicUser } from "../game/types.ts";
 import {
   clearRateLimit,
   findLoginRow,
+  findSessionUser,
   hitRateLimit,
   insertSession,
   insertUser,
   type PgDb,
+  type StoredUser,
 } from "../db/accounts.ts";
+import { getVault, resolveVault, type Vault, type VaultSource } from "../crypto/vault.ts";
 import { getDummyPasswordHash, hashPassword, newSessionToken, sha256Hex, verifyPassword } from "./crypto.ts";
 import { checkNewPassword, checkUsername, usernameKey } from "./rules.ts";
+
+/** Field and keyed-hash purposes, as passed to the vault. Changing one makes existing values unreadable. */
+export const USERNAME_FIELD = "users.username";
+const PURPOSE = { username: "users.username", loginUser: "rate-limit.login-user", ip: "rate-limit.ip" } as const;
+
+/** The keyed hash that login looks up and that keeps usernames unique, ignoring case. */
+export const usernameIndex = (vault: Vault, username: string) => vault.blindIndex(PURPOSE.username, usernameKey(username));
+
+/** A stored user as the app sees it: the username decrypted. */
+export const toPublicUser = (vault: Vault, row: StoredUser): PublicUser => ({
+  id: row.id,
+  username: vault.decrypt(row.id, USERNAME_FIELD, row.usernameEncrypted),
+});
+
+/** The session's user, decrypted, if the session exists and hasn't expired at `now`. */
+export async function sessionUser(db: PgDb, vault: Vault, tokenHash: string, now: Date): Promise<PublicUser | null> {
+  const row = await findSessionUser(db, tokenHash, now);
+  return row ? toPublicUser(vault, row) : null;
+}
 
 export const SESSION_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -48,8 +77,10 @@ export type AuthResult =
   | { ok: false; reason: "wrong-credentials"; message: string }
   | { ok: false; reason: "rate-limited"; message: string };
 
-const ipKey = (prefix: string, ip: string | null) => `${prefix}:ip:${ip ? sha256Hex(ip) : "unknown"}`;
-const loginUserKey = (username: string) => `login:user:${usernameKey(username)}`;
+export const ipKey = (vault: Vault, prefix: string, ip: string | null) =>
+  `${prefix}:ip:${ip ? vault.blindIndex(PURPOSE.ip, ip) : "unknown"}`;
+export const loginUserKey = (vault: Vault, username: string) =>
+  `login:user:${vault.blindIndex(PURPOSE.loginUser, usernameKey(username))}`;
 
 const RATE_LIMITED = "Too many attempts. Wait a few minutes and try again.";
 const WRONG_CREDENTIALS = "That username and password don't match.";
@@ -65,6 +96,7 @@ export async function register(
   source: DbSource,
   input: { username: unknown; password: unknown },
   req: RequestInfo,
+  vaultSource: VaultSource = getVault,
 ): Promise<AuthResult> {
   const username = checkUsername(input.username);
   const password = checkNewPassword(input.password);
@@ -80,13 +112,21 @@ export async function register(
   }
 
   const db = resolve(source);
+  const vault = resolveVault(vaultSource);
   const { max, windowMs } = RATE_LIMITS.registerPerIp;
-  if ((await hitRateLimit(db, ipKey("register", req.ip), windowMs, req.now)) > max) {
+  if ((await hitRateLimit(db, ipKey(vault, "register", req.ip), windowMs, req.now)) > max) {
     return { ok: false, reason: "rate-limited", message: RATE_LIMITED };
   }
 
-  const user = await insertUser(db, username.value, await hashPassword(password.value));
-  if (!user) return { ok: false, reason: "taken", errors: { username: "That username is taken." } };
+  // The id is chosen here, because the username is encrypted with a key derived from it.
+  const user: PublicUser = { id: randomUUID(), username: username.value };
+  const inserted = await insertUser(db, {
+    id: user.id,
+    usernameEncrypted: vault.encrypt(user.id, USERNAME_FIELD, user.username),
+    usernameIndex: usernameIndex(vault, user.username),
+    passwordHash: await hashPassword(password.value),
+  });
+  if (!inserted) return { ok: false, reason: "taken", errors: { username: "That username is taken." } };
   return startSession(db, user, req.now);
 }
 
@@ -94,6 +134,7 @@ export async function login(
   source: DbSource,
   input: { username: unknown; password: unknown },
   req: RequestInfo,
+  vaultSource: VaultSource = getVault,
 ): Promise<AuthResult> {
   // Don't apply the new-account rules here (an old account may predate a rule
   // change); just require something in both fields.
@@ -111,19 +152,20 @@ export async function login(
   }
 
   const db = resolve(source);
+  const vault = resolveVault(vaultSource);
   // Count the attempt against both limits before checking the password, so a
   // blocked client learns nothing about whether its guess was right.
-  const userHits = await hitRateLimit(db, loginUserKey(username), RATE_LIMITS.loginPerUser.windowMs, req.now);
-  const ipHits = await hitRateLimit(db, ipKey("login", req.ip), RATE_LIMITS.loginPerIp.windowMs, req.now);
+  const userHits = await hitRateLimit(db, loginUserKey(vault, username), RATE_LIMITS.loginPerUser.windowMs, req.now);
+  const ipHits = await hitRateLimit(db, ipKey(vault, "login", req.ip), RATE_LIMITS.loginPerIp.windowMs, req.now);
   if (userHits > RATE_LIMITS.loginPerUser.max || ipHits > RATE_LIMITS.loginPerIp.max) {
     return { ok: false, reason: "rate-limited", message: RATE_LIMITED };
   }
 
-  const row = await findLoginRow(db, username);
+  const row = await findLoginRow(db, usernameIndex(vault, username));
   // Unknown username: still run one hash, so timing doesn't reveal which usernames exist.
   const matches = await verifyPassword(password.slice(0, 1024), row?.passwordHash ?? (await getDummyPasswordHash()));
   if (!row || !matches) return { ok: false, reason: "wrong-credentials", message: WRONG_CREDENTIALS };
 
-  await clearRateLimit(db, loginUserKey(username));
-  return startSession(db, { id: row.id, username: row.username }, req.now);
+  await clearRateLimit(db, loginUserKey(vault, username));
+  return startSession(db, toPublicUser(vault, row), req.now);
 }
