@@ -71,9 +71,25 @@ describe("GET /img/<id>.webp", () => {
     const [level] = await storedLevels();
     const response = await get(level!.src.replace("/img/", ""));
     expect(response.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+    // Vercel's CDN caches on CDN-Cache-Control (or s-maxage), not max-age alone.
+    expect(response.headers.get("CDN-Cache-Control")).toBe("max-age=31536000");
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(response.headers.get("Cross-Origin-Resource-Policy")).toBe("same-origin");
     expect(response.headers.get("X-Robots-Tag")).toBe("noindex");
+  });
+
+  it("is a 404 for any query string, without touching the database, so ?n=1, ?n=2 … can't skip the cache", async () => {
+    const [level] = await storedLevels();
+    const file = level!.src.replace("/img/", "");
+    const select = vi.spyOn(db, "select");
+    for (const query of ["?n=1", "?n=2", "?v=0#x"]) {
+      const response = await GET(new Request(`http://localhost/img/${file}${query}`), { params: Promise.resolve({ file }) });
+      expect(response.status, query).toBe(404);
+      expect(response.headers.get("Cache-Control"), query).toBe("no-store");
+    }
+    expect(select).not.toHaveBeenCalled();
+    // The same file without a query string is still served.
+    expect((await get(file)).status).toBe(200);
   });
 
   it("is a 404 that isn't cached for an id that doesn't exist", async () => {
