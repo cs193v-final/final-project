@@ -11,6 +11,7 @@ import { POP, POP_TIMING, useAnimateOn } from "./motion";
 import { feedbackFor, finalScoreLabels, learnAnswer, NO_FEEDBACK, type Feedback, type KnownAnswers } from "./practice";
 import { RoundValue, ScoreHeader } from "./LiveScore";
 import { ZoomOutButton } from "./ZoomOutButton";
+import { Button } from "../ui/controls";
 
 export type PracticeGameProps = {
   /** The game from the URL (`/play?game=<id>`), loaded on the server; null starts a new one. */
@@ -157,13 +158,11 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       </p>
       {problem === "unavailable" ? (
         // After a redeploy only a reload fixes "Failed to find Server Action".
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="text-sm font-medium underline underline-offset-2"
-        >
+        // Always underlined: it sits next to the message, and on a touch screen
+        // there's no hover to show it can be pressed.
+        <Button variant="quiet" onClick={() => window.location.reload()} className="text-sm underline">
           Reload the page
-        </button>
+        </Button>
       ) : null}
     </div>
   ) : null;
@@ -175,14 +174,9 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
     return (
       <div className="flex flex-col items-center gap-3 text-center">
         <p role="alert">{PROBLEMS[problem]}</p>
-        <button
-          type="button"
-          onClick={() => void newGame()}
-          aria-disabled={pending}
-          className="rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 aria-disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-        >
+        <Button disabled={pending} onClick={() => void newGame()}>
           {problem === "not-found" ? "Start a new game" : "Try again"}
-        </button>
+        </Button>
       </div>
     );
   }

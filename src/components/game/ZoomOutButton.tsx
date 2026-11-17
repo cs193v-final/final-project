@@ -2,6 +2,7 @@
 
 import { useId, type MouseEvent } from "react";
 import type { Round } from "../../game/round";
+import { Button } from "../ui/controls";
 
 export type ZoomOutButtonProps = {
   /** The current round. The button reads its level; the round logic owns it. */
@@ -54,15 +55,15 @@ export function ZoomOutButton({ round, onZoomOut, pending = false }: ZoomOutButt
 
   return (
     <div className="flex items-center justify-center gap-3">
-      <button
-        type="button"
-        onClick={(event) => (pending ? event.preventDefault() : handleZoomOutClick(round, onZoomOut, event))}
-        aria-disabled={!enabled}
+      {/* The shared secondary button (#89): `disabled` keeps it focusable at the full image. */}
+      <Button
+        variant="secondary"
+        disabled={!enabled}
+        onClick={(event) => handleZoomOutClick(round, onZoomOut, event)}
         aria-describedby={hintId}
-        className="rounded-lg border border-zinc-300 bg-white px-4 py-2 font-medium text-zinc-900 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-white dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:focus-visible:outline-zinc-100 dark:aria-disabled:hover:bg-zinc-900"
       >
         Zoom out
-      </button>
+      </Button>
       <span id={hintId} className="text-sm text-zinc-600 dark:text-zinc-400">
         {hint(round)}
       </span>
