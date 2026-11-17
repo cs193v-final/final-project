@@ -12,12 +12,16 @@
  * How to use these:
  * - The daily challenge (#58) should call dailyDateFor(new Date()) to pick
  *   today's pack.
- * - Streaks (the rest of #63) should NOT recompute played days from
- *   timestamps. Take each played day from the daily date stored on the game
- *   when it starts (DailyEntry.date), so a game started at 23:59 and finished
- *   at 00:01 counts for the challenge actually played, and changing the reset
- *   time later doesn't rewrite past days or break existing streaks. Use
- *   dailyDateFor only for "today".
+ * - Streaks (the rest of #63), PLANNED: the played day should be the
+ *   challenge's date, stored on the game when it starts, not recomputed from
+ *   timestamps. Then a game started at 23:59 and finished at 00:01 counts for
+ *   the challenge actually played, and changing the reset time later doesn't
+ *   rewrite past days or break existing streaks. That needs a
+ *   `games.daily_date` column with a unique index per owner (follow-up B in
+ *   the #74 review, planned with #58); `games` has no such column yet. Until
+ *   it exists, don't derive played days by joining games.pack_id to
+ *   daily_schedule.pack_id: a pack scheduled on more than one day would
+ *   inflate streaks.
  */
 
 export type DailyResetConfig = {
@@ -31,17 +35,22 @@ export type DailyResetConfig = {
  * Placeholder: midnight in Los Angeles. The daily reset time is an OPEN
  * decision ("Daily reset time" under "Open decisions" in PROJECT_BRIEF.md), so
  * pass a different config instead of changing this logic once it's settled.
+ * Frozen, because it is also dailyDateFor's default for every caller.
  */
-export const DEFAULT_DAILY_RESET: DailyResetConfig = {
+export const DEFAULT_DAILY_RESET: Readonly<DailyResetConfig> = Object.freeze({
   timeZone: "America/Los_Angeles",
   resetHour: 0,
-};
+});
 
 const MS_PER_DAY = 86_400_000;
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/u;
+// toDayNumber rejects years 0000-0099 (see below), so outputs stay in the
+// range it accepts: every date this module returns is a valid input again.
+const MIN_YEAR = 100;
+const MAX_YEAR = 9999;
 
 /** Days since 1970-01-01 for a "YYYY-MM-DD" string. Throws on invalid input. */
-export function toDayNumber(date: string): number {
+function toDayNumber(date: string): number {
   const match = DATE_PATTERN.exec(date);
   if (match === null) {
     throw new RangeError(`Invalid daily date "${date}": expected YYYY-MM-DD`);
@@ -59,7 +68,13 @@ export function toDayNumber(date: string): number {
 }
 
 function fromDayNumber(day: number): string {
-  return new Date(day * MS_PER_DAY).toISOString().slice(0, 10);
+  const date = new Date(day * MS_PER_DAY);
+  const year = date.getUTCFullYear();
+  // Outside this range toISOString gives "+010000-01-01" or "-000001-...".
+  if (!(year >= MIN_YEAR && year <= MAX_YEAR)) {
+    throw new RangeError(`Daily date out of range: years ${MIN_YEAR}-${MAX_YEAR} only`);
+  }
+  return date.toISOString().slice(0, 10);
 }
 
 /** The daily date `days` days after `date` (negative goes back). */
@@ -68,40 +83,43 @@ export function addDays(date: string, days: number): string {
   return fromDayNumber(toDayNumber(date) + days);
 }
 
+/**
+ * Whole days from `from` to `to`: positive if `to` is later, 0 for the same
+ * day. Throws a RangeError unless both are valid daily dates.
+ */
+export function daysBetween(from: string, to: string): number {
+  return toDayNumber(to) - toDayNumber(from);
+}
+
 /** Throws a RangeError unless `date` is a real calendar date as "YYYY-MM-DD". */
 export function assertDailyDate(date: string): void {
   toDayNumber(date);
 }
 
 /**
- * One formatter per time zone, built on first use. Building an
- * Intl.DateTimeFormat is slow compared to using one, and it throws a
- * RangeError for an unknown time zone (so nothing is cached for one).
+ * Checks `config` and returns the formatter for its time zone. The config may
+ * come from JSON or the database, so its types are checked at runtime too: a
+ * missing time zone would otherwise silently fall back to the host's zone.
+ *
+ * No cache: dailyDateFor is called about once per request (for "today"), and
+ * building one formatter takes a fraction of a millisecond.
  */
-const formatters = new Map<string, Intl.DateTimeFormat>();
-
-function formatterFor(timeZone: string): Intl.DateTimeFormat {
-  let formatter = formatters.get(timeZone);
-  if (formatter === undefined) {
-    formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      hourCycle: "h23",
-    });
-    formatters.set(timeZone, formatter);
-  }
-  return formatter;
-}
-
-function validateConfig({ timeZone, resetHour }: DailyResetConfig): void {
+function formatterFor({ timeZone, resetHour }: DailyResetConfig): Intl.DateTimeFormat {
   if (!Number.isInteger(resetHour) || resetHour < 0 || resetHour > 23) {
     throw new RangeError(`resetHour must be a whole hour from 0 to 23, got ${resetHour}`);
   }
+  if (typeof timeZone !== "string" || timeZone === "") {
+    throw new RangeError(`timeZone must be a non-empty IANA time zone name, got ${JSON.stringify(timeZone)}`);
+  }
   // Throws a RangeError for an unknown time zone.
-  formatterFor(timeZone);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  });
 }
 
 /**
@@ -114,11 +132,9 @@ function validateConfig({ timeZone, resetHour }: DailyResetConfig): void {
  * hour is skipped by a spring-forward change, the new day starts at the first
  * local time after it.
  */
-export function dailyDateFor(instant: Date, config: DailyResetConfig = DEFAULT_DAILY_RESET): string {
+export function dailyDateFor(instant: Date, config: Readonly<DailyResetConfig> = DEFAULT_DAILY_RESET): string {
   if (Number.isNaN(instant.getTime())) throw new RangeError("dailyDateFor needs a valid Date");
-  validateConfig(config);
-
-  const parts = formatterFor(config.timeZone).formatToParts(instant);
+  const parts = formatterFor(config).formatToParts(instant);
   const part = (type: Intl.DateTimeFormatPartTypes): number => {
     const found = parts.find((p) => p.type === type);
     if (found === undefined) throw new Error(`Intl.DateTimeFormat gave no ${type}`);

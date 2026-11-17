@@ -2,16 +2,21 @@
  * Play streaks (#63).
  *
  * Streaks are counted over daily dates ("YYYY-MM-DD", see ./daily-date.ts).
- * Take each played day from the game's stored daily date (DailyEntry.date),
- * not from timestamps, so a later change to the reset time doesn't rewrite
- * history.
+ * PLANNED: the played days should come from the challenge date stored on each
+ * game when it starts (a `games.daily_date` column, not there yet), not from
+ * timestamps or a join on pack_id. See the comment at the top of
+ * ./daily-date.ts.
  */
 
-import { toDayNumber } from "./daily-date.ts";
+import { daysBetween } from "./daily-date.ts";
 
+/** Any fixed date works: only differences between day numbers matter. */
+const EPOCH = "1970-01-01";
+
+/** Each distinct played day as whole days since EPOCH. Validates every entry. */
 function uniqueDayNumbers(playedDays: Iterable<string>): Set<number> {
   const days = new Set<number>();
-  for (const date of playedDays) days.add(toDayNumber(date));
+  for (const date of playedDays) days.add(daysBetween(EPOCH, date));
   return days;
 }
 
@@ -24,7 +29,7 @@ function uniqueDayNumbers(playedDays: Iterable<string>): Set<number> {
  * valid "YYYY-MM-DD" date, or this throws a RangeError.
  */
 export function currentStreak(playedDays: Iterable<string>, today: string): number {
-  const todayNumber = toDayNumber(today);
+  const todayNumber = daysBetween(EPOCH, today);
   const days = uniqueDayNumbers(playedDays);
 
   let day = days.has(todayNumber) ? todayNumber : todayNumber - 1;

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_DAILY_RESET, addDays, assertDailyDate, dailyDateFor } from "./daily-date.ts";
+import {
+  DEFAULT_DAILY_RESET,
+  type DailyResetConfig,
+  addDays,
+  assertDailyDate,
+  dailyDateFor,
+  daysBetween,
+} from "./daily-date.ts";
 
 const LA = DEFAULT_DAILY_RESET;
 const at = (iso: string) => new Date(iso);
@@ -7,6 +14,16 @@ const at = (iso: string) => new Date(iso);
 describe("DEFAULT_DAILY_RESET", () => {
   it("is midnight in Los Angeles until the open decision is settled", () => {
     expect(DEFAULT_DAILY_RESET).toEqual({ timeZone: "America/Los_Angeles", resetHour: 0 });
+  });
+
+  it("can't be changed, so no caller can move everyone's reset", () => {
+    expect(Object.isFrozen(DEFAULT_DAILY_RESET)).toBe(true);
+    // ES modules are strict mode, so writing to a frozen object throws.
+    expect(() => {
+      (DEFAULT_DAILY_RESET as DailyResetConfig).resetHour = 23;
+    }).toThrow(TypeError);
+    expect(DEFAULT_DAILY_RESET.resetHour).toBe(0);
+    expect(dailyDateFor(at("2026-11-16T12:00:00Z"))).toBe("2026-11-16");
   });
 });
 
@@ -123,6 +140,37 @@ describe("addDays", () => {
   it("rejects a fractional number of days", () => {
     expect(() => addDays("2026-11-16", 0.5)).toThrow(RangeError);
   });
+
+  it("rejects results outside years 0100-9999 instead of returning a malformed date", () => {
+    expect(addDays("9999-12-30", 1)).toBe("9999-12-31");
+    expect(() => addDays("9999-12-31", 1)).toThrow(RangeError);
+    expect(addDays("0100-01-02", -1)).toBe("0100-01-01");
+    expect(() => addDays("0100-01-01", -1)).toThrow(RangeError);
+  });
+});
+
+describe("daysBetween", () => {
+  it("counts whole days, signed, across month, leap-day and DST boundaries", () => {
+    expect(daysBetween("2026-11-16", "2026-11-16")).toBe(0);
+    expect(daysBetween("2026-11-15", "2026-11-16")).toBe(1);
+    expect(daysBetween("2026-11-16", "2026-11-15")).toBe(-1);
+    expect(daysBetween("2028-02-28", "2028-03-01")).toBe(2);
+    expect(daysBetween("2027-02-28", "2027-03-01")).toBe(1);
+    expect(daysBetween("2026-03-08", "2026-03-09")).toBe(1);
+    expect(daysBetween("2026-11-01", "2026-11-02")).toBe(1);
+    expect(daysBetween("2026-12-31", "2027-12-31")).toBe(365);
+  });
+
+  it("agrees with addDays", () => {
+    for (const days of [-400, -1, 0, 1, 59, 366]) {
+      expect(daysBetween("2026-11-16", addDays("2026-11-16", days))).toBe(days);
+    }
+  });
+
+  it("rejects invalid dates on either side", () => {
+    expect(() => daysBetween("2026-02-30", "2026-11-16")).toThrow(RangeError);
+    expect(() => daysBetween("2026-11-16", "2026-11-16T00:00:00Z")).toThrow(RangeError);
+  });
 });
 
 describe("assertDailyDate", () => {
@@ -147,24 +195,26 @@ describe("assertDailyDate", () => {
   });
 });
 
-describe("dailyDateFor formatter cache", () => {
-  it("stays correct when called many times, alternating between two time zones", () => {
-    const tokyo = { timeZone: "Asia/Tokyo", resetHour: 0 };
-    for (let i = 0; i < 500; i += 1) {
-      // 2026-11-15T15:30Z is 07:30 on the 15th in Los Angeles and 00:30 on the 16th in Tokyo.
-      expect(dailyDateFor(at("2026-11-15T15:30:00Z"), LA)).toBe("2026-11-15");
-      expect(dailyDateFor(at("2026-11-15T15:30:00Z"), tokyo)).toBe("2026-11-16");
-      // Moving across each zone's reset still switches days.
-      expect(dailyDateFor(at("2026-11-16T07:59:59Z"), LA)).toBe("2026-11-15");
-      expect(dailyDateFor(at("2026-11-16T08:00:00Z"), LA)).toBe("2026-11-16");
-      expect(dailyDateFor(at("2026-11-15T14:59:59Z"), tokyo)).toBe("2026-11-15");
-      expect(dailyDateFor(at("2026-11-15T15:00:00Z"), tokyo)).toBe("2026-11-16");
+describe("dailyDateFor time zone names", () => {
+  it("treats aliases and case variants of a zone like the canonical name", () => {
+    const instants = ["2026-11-16T07:59:59Z", "2026-11-16T08:00:00Z", "2026-07-04T06:59:59Z", "2026-07-04T07:00:00Z"];
+    for (const timeZone of ["US/Pacific", "america/los_angeles"]) {
+      for (const iso of instants) {
+        expect(dailyDateFor(at(iso), { timeZone, resetHour: 0 })).toBe(dailyDateFor(at(iso), LA));
+      }
     }
   });
 
-  it("still rejects an unknown time zone after it has been tried before", () => {
-    const mars = { timeZone: "Mars/Olympus", resetHour: 0 };
-    expect(() => dailyDateFor(at("2026-11-16T12:00:00Z"), mars)).toThrow(RangeError);
-    expect(() => dailyDateFor(at("2026-11-16T12:00:00Z"), mars)).toThrow(RangeError);
+  it("rejects a missing, non-string or empty time zone instead of using the host's zone", () => {
+    const instant = at("2026-11-16T12:00:00Z");
+    const configs = [
+      { resetHour: 0 },
+      { timeZone: 42, resetHour: 0 },
+      { timeZone: null, resetHour: 0 },
+      { timeZone: "", resetHour: 0 },
+    ];
+    for (const config of configs) {
+      expect(() => dailyDateFor(instant, config as unknown as DailyResetConfig)).toThrow(RangeError);
+    }
   });
 });
