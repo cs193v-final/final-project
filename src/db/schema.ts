@@ -19,6 +19,7 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  customType,
   date,
   doublePrecision,
   index,
@@ -39,6 +40,20 @@ import type { ScoringConfig } from "../game/types";
 
 const createdAt = () =>
   timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+
+/**
+ * Raw bytes (Postgres `bytea`); Drizzle has no built-in column for it. Handed
+ * to the driver as a Buffer, which all three of ours take: node-postgres
+ * natively, PGlite as a Uint8Array, and Neon HTTP turns it into `\x…` hex itself
+ * (`encodeBuffersAsBytea`). Read back as a Uint8Array; a `\x…` string is also
+ * understood, in case a driver returns bytea as text.
+ */
+const bytea = customType<{ data: Uint8Array; driverData: Buffer | Uint8Array | string }>({
+  dataType: () => "bytea",
+  toDriver: (value) => Buffer.from(value.buffer, value.byteOffset, value.byteLength),
+  fromDriver: (value) =>
+    typeof value === "string" ? new Uint8Array(Buffer.from(value.replace(/^\\x/, ""), "hex")) : new Uint8Array(value),
+});
 
 /** Opaque text id for packs and puzzles; the seed script may supply its own. */
 const opaqueId = () =>
@@ -138,8 +153,8 @@ export const puzzles = pgTable(
 
 /**
  * One pre-cut image per reveal level (#57), so the server can hand out only the
- * current level's image. `src` is a URL or storage key; where the files live
- * (Vercel Blob or Postgres) is still open in #57.
+ * current level's image. `src` is the URL the browser loads: for images cut
+ * into `image_files`, `/img/<id>.webp`.
  */
 export const puzzleImages = pgTable(
   "puzzle_images",
@@ -155,6 +170,36 @@ export const puzzleImages = pgTable(
   (t) => [
     primaryKey({ columns: [t.puzzleId, t.level] }),
     check("puzzle_images_level_min", sql`${t.level} >= 0`),
+  ],
+);
+
+/**
+ * The bytes of each cut level image (#57), served by `GET /img/<id>.webp`.
+ *
+ * The id is 32 random hex characters (128 bits) and is the only thing that
+ * protects an image: the server sends a level's URL only once the player has
+ * reached it, and one level's id says nothing about another's. So ids are
+ * never derived from the puzzle, the level or the answer.
+ */
+export const imageFiles = pgTable(
+  "image_files",
+  {
+    id: text("id").primaryKey(),
+    // Whose image this is, so re-cutting a puzzle can drop its old files, and
+    // deleting a puzzle deletes them. Never sent to the browser.
+    puzzleId: text("puzzle_id")
+      .notNull()
+      .references(() => puzzles.id, { onDelete: "cascade" }),
+    contentType: text("content_type").notNull(),
+    bytes: bytea("bytes").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("image_files_puzzle_id_idx").on(t.puzzleId),
+    check("image_files_id_format", sql`${t.id} ~ '^[0-9a-f]{32}$'`),
+    check("image_files_content_type", sql`${t.contentType} IN ('image/webp')`),
   ],
 );
 
