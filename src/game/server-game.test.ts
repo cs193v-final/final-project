@@ -391,16 +391,38 @@ describe("per-level images (#57)", () => {
     await expect(startGame(deps, pack, ALICE, CONFIG)).rejects.toThrow(/p1 has no cut level images/);
   });
 
-  it("treats a puzzle with a missing level as not cut", async () => {
+  it("treats a puzzle with fewer levels than zoom levels as not cut", async () => {
+    // A gap in the levels never gets here: getLevelSrcs leaves such a puzzle out (src/db/images.test.ts).
     const daily = OPAQUE_SAMPLES.map((p) => ({ ...p, imageUrl: `images/${p.id}.jpg` }));
     const srcs = levelSrcs(daily);
-    const gap = [...srcs.get("p1")!];
-    delete gap[1];
-    srcs.set("p1", gap);
+    srcs.set("p1", srcs.get("p1")!.slice(0, 1));
     const { deps, pack } = withLevels(daily, srcs);
     await expect(startGame(deps, pack, ALICE, CONFIG)).rejects.toThrow(/p1 has no cut level images/);
-    srcs.set("p1", srcs.get("p1")!.slice(0, 1)); // too few levels
+  });
+
+  it("stores no game when its first puzzle can't be shown", async () => {
+    const daily = OPAQUE_SAMPLES.map((p) => ({ ...p, imageUrl: `images/${p.id}.jpg` }));
+    const { deps, pack, store } = withLevels(daily, new Map());
     await expect(startGame(deps, pack, ALICE, CONFIG)).rejects.toThrow(/p1 has no cut level images/);
+    // The store hands out game-1, game-2, ...: the failed start used none.
+    expect(store.raw("game-1")).toBeUndefined();
+  });
+
+  it("doesn't move a game on to a puzzle it can't show, so the game stays playable", async () => {
+    const daily = OPAQUE_SAMPLES.map((p) => ({ ...p, imageUrl: `images/${p.id}.jpg` }));
+    const srcs = levelSrcs(daily);
+    srcs.delete("p2"); // p1 is cut, p2 isn't
+    const { deps, pack, store } = withLevels(daily, srcs);
+    const { gameId } = await startGame(deps, pack, ALICE, CONFIG);
+    await act(deps, gameId, ALICE, { type: "skip" });
+    const before = store.raw(gameId);
+
+    await expect(act(deps, gameId, ALICE, { type: "next" })).rejects.toThrow(/p2 has no cut level images/);
+    expect(store.raw(gameId)).toBe(before);
+    // Still on p1's finished round, so a reload works instead of failing every time.
+    const view = await getGame(deps, gameId, ALICE);
+    expect(view.round?.position).toBe(1);
+    expect(view.round?.state).toBe("skipped");
   });
 });
 

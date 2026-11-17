@@ -140,8 +140,12 @@ export async function getImageFile(
 
 /**
  * Each puzzle's level URLs, index = reveal level. Server-only: the game sends
- * only `srcs[revealLevel]` to the browser (`PublicRound.imageSrc`). A puzzle
- * with no cut images isn't in the map.
+ * only `srcs[revealLevel]` to the browser (`PublicRound.imageSrc`).
+ *
+ * Every list is complete from level 0 with no gaps, so `srcs[level]` is a URL
+ * for every level below `srcs.length`. A puzzle with no cut images, or with a
+ * gap in its levels (e.g. a cut that stopped partway), isn't in the map.
+ * Callers still compare `srcs.length` with the puzzle's number of zoom levels.
  */
 export async function getLevelSrcs(db: AnyDb, puzzleIds: readonly string[]): Promise<Map<string, string[]>> {
   const srcs = new Map<string, string[]>();
@@ -151,10 +155,14 @@ export async function getLevelSrcs(db: AnyDb, puzzleIds: readonly string[]): Pro
     .from(puzzleImages)
     .where(inArray(puzzleImages.puzzleId, [...puzzleIds]))
     .orderBy(asc(puzzleImages.puzzleId), asc(puzzleImages.level));
+  const gaps = new Set<string>();
   for (const row of rows) {
     const list = srcs.get(row.puzzleId) ?? [];
-    list[row.level] = row.src;
+    // Rows come in level order, so a level other than the next index is a gap.
+    if (row.level !== list.length) gaps.add(row.puzzleId);
+    list.push(row.src);
     srcs.set(row.puzzleId, list);
   }
+  for (const id of gaps) srcs.delete(id);
   return srcs;
 }

@@ -119,6 +119,13 @@ describe("originalPath", () => {
     expect(() => originalPath({ id: "pz-1", imageUrl: "https://images.example.com/x.jpg" }, dir, repoRoot)).toThrow(
       /puzzle pz-1: imageUrl "https:\/\/images.example.com\/x.jpg" is a remote URL/u,
     );
+    // Protocol-relative URLs are remote too, not a path under public/.
+    expect(() => originalPath({ id: "pz-1", imageUrl: "//cdn.example.com/x.jpg" }, dir, repoRoot)).toThrow(/is a remote URL/u);
+  });
+
+  it("treats a Windows drive path as a local file, not a URL", () => {
+    // On Linux it's just a missing file; what matters is that it isn't called remote.
+    expect(() => originalPath({ id: "pz-1", imageUrl: "C:\\photos\\fig.jpg" }, dir, repoRoot)).toThrow(/no original image at /u);
   });
 
   it("names the puzzle when its original is missing", () => {

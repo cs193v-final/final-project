@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ImageViewer } from "./ImageViewer";
 
@@ -37,7 +37,7 @@ describe("ImageViewer with one image per level", () => {
     expect(screen.getByRole("img")).toHaveClass("opacity-100");
   });
 
-  it("keeps the last level on screen until the next one has loaded, then shows only the new one", () => {
+  it("keeps the last level on screen until the next one has loaded and faded in, then shows only the new one", () => {
     const { rerender } = render(viewer("/img/level-0.webp", 0));
     fireEvent.load(screen.getByRole("img"));
 
@@ -48,10 +48,44 @@ describe("ImageViewer with one image per level", () => {
     expect(screen.getByRole("img")).toHaveAttribute("src", "/img/level-1.webp");
     expect(screen.getByRole("img")).toHaveClass("opacity-0");
 
+    // Loaded: it starts fading in, with the last level still under it, so the
+    // empty frame never shows through the fade.
     fireEvent.load(screen.getByRole("img"));
+    expect(screen.getByRole("img")).toHaveClass("opacity-100");
+    expect(document.querySelector("[data-previous-level]")).toHaveAttribute("src", "/img/level-0.webp");
+
+    // Faded in: only the new level is left.
+    fireEvent.transitionEnd(screen.getByRole("img"));
     expect(document.querySelector("[data-previous-level]")).not.toBeInTheDocument();
     expect(document.querySelectorAll("img")).toHaveLength(1);
-    expect(screen.getByRole("img")).toHaveClass("opacity-100");
+  });
+
+  it("removes the kept level after the fade's length even when no transition runs (reduced motion)", () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(viewer("/img/level-0.webp", 0));
+      fireEvent.load(screen.getByRole("img"));
+      rerender(viewer("/img/level-1.webp", 1));
+      fireEvent.load(screen.getByRole("img"));
+      // No transitionend: with reduced motion there's no transition.
+      act(() => vi.advanceTimersByTime(400));
+      expect(document.querySelector("[data-previous-level]")).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(300));
+      expect(document.querySelector("[data-previous-level]")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("zooming out twice before a level loads keeps the last level that was on screen", () => {
+    const { rerender } = render(viewer("/img/level-0.webp", 0));
+    fireEvent.load(screen.getByRole("img"));
+    rerender(viewer("/img/level-1.webp", 1));
+    // Level 1 never loads before the player zooms out again.
+    rerender(viewer("/img/level-2.webp", 2));
+    expect(document.querySelector("[data-previous-level]")).toHaveAttribute("src", "/img/level-0.webp");
+    expect(screen.getByRole("img")).toHaveAttribute("src", "/img/level-2.webp");
+    expect(screen.getByRole("img")).toHaveClass("opacity-0");
   });
 
   it("gives screen readers one image, the level being loaded, with its level in the name", () => {

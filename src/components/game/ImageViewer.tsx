@@ -14,6 +14,9 @@ export type ImageViewerProps = {
 
 type LoadState = "loading" | "loaded" | "error";
 
+/** How long a new level takes to fade in. Matches `duration-500` on the image. */
+const FADE_MS = 500;
+
 /**
  * Shows a puzzle's image cropped around `puzzle.reveal.focus` at the zoom for
  * `revealLevel` (#10). It only displays: it doesn't track score or change the
@@ -21,8 +24,8 @@ type LoadState = "loading" | "loaded" | "error";
  *
  * With per-level images (#57) each zoom level is its own `imageUrl`. While the
  * next level loads, the last one that loaded stays on screen, at its own shape,
- * and the new one fades in on top once it's ready, so zooming out never shows
- * an empty frame. Give each puzzle its own `key` (PracticeGame uses the round
+ * and the new one fades in on top once it's ready. The old one is removed only
+ * after that fade has finished, so zooming out never shows an empty frame. Give each puzzle its own `key` (PracticeGame uses the round
  * position), so a new puzzle starts fresh instead of over the last one.
  */
 export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageViewerProps) {
@@ -39,12 +42,31 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
     load: "loading",
     aspect: 4 / 3,
   });
-  // The last image that finished loading: shown under a new one until that loads.
+  // The last image that finished loading.
   const [shown, setShown] = useState<{ url: string; aspect: number } | null>(null);
+  // The image kept under a new one: from when the URL changes until the new
+  // one has loaded AND faded in, so the empty frame never shows through.
+  const [under, setUnder] = useState<{ url: string; aspect: number } | null>(null);
+  const [underFor, setUnderFor] = useState(imageUrl);
+  if (underFor !== imageUrl) {
+    // A new level: keep whatever was last on screen under it.
+    setUnderFor(imageUrl);
+    setUnder(shown !== null && shown.url !== imageUrl ? shown : null);
+  }
   const current = result.url === imageUrl ? result : { load: "loading" as const, aspect: shown?.aspect ?? 4 / 3 };
   const { load, aspect } = current;
   const img = useRef<HTMLImageElement>(null);
-  const previous = shown !== null && shown.url !== imageUrl && load === "loading" ? shown : null;
+  const previous = under !== null && under.url !== imageUrl ? under : null;
+
+  // Drop the kept image once the new one has faded in: on its transitionend,
+  // or after the fade's length when no transition runs (reduced motion, a
+  // background tab), so it never lingers.
+  const fadingIn = load === "loaded" && previous !== null;
+  useEffect(() => {
+    if (!fadingIn) return;
+    const timer = setTimeout(() => setUnder(null), FADE_MS + 100);
+    return () => clearTimeout(timer);
+  }, [fadingIn]);
 
   function measure(el: HTMLImageElement, url: string) {
     if (el.naturalWidth > 0 && el.naturalHeight > 0) {
@@ -106,9 +128,13 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
               onLoad={(e) => measure(e.currentTarget, imageUrl)}
               onError={() => setResult({ url: imageUrl, load: "error", aspect: 4 / 3 })}
               onContextMenu={(e) => e.preventDefault()}
+              // Its fade-in is done, so the kept image under it can go.
+              onTransitionEnd={() => {
+                if (load === "loaded") setUnder(null);
+              }}
               // While a later level loads over the last one, it stays invisible,
-              // then fades in (instantly with reduced motion).
-              className={`absolute inset-0 h-full w-full origin-top-left select-none transition-[transform,opacity] duration-500 ease-out motion-reduce:transition-none ${previous ? "opacity-0" : "opacity-100"}`}
+              // then fades in over it (instantly with reduced motion).
+              className={`absolute inset-0 h-full w-full origin-top-left select-none transition-[transform,opacity] duration-500 ease-out motion-reduce:transition-none ${previous && load !== "loaded" ? "opacity-0" : "opacity-100"}`}
               style={{ transform }}
             />
           </>

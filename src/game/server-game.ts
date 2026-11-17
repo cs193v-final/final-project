@@ -123,7 +123,11 @@ export interface PuzzleSource {
  * the URL of the level the player has reached.
  */
 export interface LevelImageSource {
-  /** Each of these puzzles that has been cut, mapped to its level URLs in order. Puzzles not cut yet are left out. */
+  /**
+   * Each of these puzzles that has been cut, mapped to its level URLs in order:
+   * a complete list from level 0, with no gaps. Puzzles not cut yet, or only
+   * partly, are left out.
+   */
   getLevelSrcs(puzzleIds: readonly string[]): Promise<ReadonlyMap<string, readonly string[]>>;
 }
 
@@ -225,10 +229,8 @@ function roundImage(
   levelSrcs: ReadonlyMap<string, readonly string[]> | undefined,
 ): Pick<PublicRound, "imageSrc" | "reveal"> {
   const srcs = levelSrcs?.get(puzzle.id);
-  // Every level must be there (spreading turns a gap in the list into undefined).
-  const complete =
-    srcs !== undefined && srcs.length === round.maxRevealLevel + 1 && [...srcs].every((src) => typeof src === "string");
-  if (complete) {
+  // `getLevelSrcs` only returns lists with no gaps, so the length says whether every level is cut.
+  if (srcs !== undefined && srcs.length === round.maxRevealLevel + 1) {
     const level = round.state === "playing" ? round.revealLevel : round.maxRevealLevel;
     return { imageSrc: srcs[level]! };
   }
@@ -358,8 +360,10 @@ export async function startGame(
     lastOutcome: null,
   };
   checkPuzzlesMatch(state, puzzles);
+  // Before creating the row, so a game that can't be shown is never stored.
+  const levelSrcs = await levelsFor(deps, state, puzzles);
   const stored = await deps.games.create({ owner, packId: pack.id, state });
-  return viewOf(deps, stored, puzzles);
+  return toGameView(stored, puzzles, levelSrcs);
 }
 
 /** The owner's game, as it is now. Use it to resume after a page refresh. */
@@ -401,21 +405,35 @@ export async function act(
       lastOutcome: result.outcome ?? null,
     },
   };
+  // Before saving, so the game never moves on to a puzzle it can't show.
+  const levelSrcs = await levelsFor(deps, next.state, puzzles);
   const saved = await deps.games.save(next);
-  return viewOf(deps, saved, puzzles);
+  return toGameView(saved, puzzles, levelSrcs);
+}
+
+/** `toGameView`, with the current puzzle's level images from `deps.levels` (#57). */
+async function viewOf(deps: GameDeps, game: StoredGame, puzzles: readonly Puzzle[]): Promise<GameView> {
+  return toGameView(game, puzzles, await levelsFor(deps, game.state, puzzles));
 }
 
 /**
- * `toGameView`, with the current puzzle's level images from `deps.levels`
- * (#57). Only the current puzzle's URLs are looked up, and `toGameView` sends
- * only the one for the level reached.
+ * The level images `toGameView` needs for `state` (#57): only the current
+ * puzzle's URLs are looked up, and `toGameView` sends only the one for the
+ * level reached. Throws if the current puzzle can't be shown (a private puzzle
+ * that isn't cut), so call it **before** storing `state`: otherwise the game
+ * would be saved at a puzzle that fails on every later load.
  */
-async function viewOf(deps: GameDeps, game: StoredGame, puzzles: readonly Puzzle[]): Promise<GameView> {
-  if (deps.levels === undefined) return toGameView(game, puzzles);
-  const { state } = game;
-  const current = state.finished ? [] : [state.puzzleIds[state.index]!];
-  const levelSrcs = current.length === 0 ? new Map<string, string[]>() : await deps.levels.getLevelSrcs(current);
-  return toGameView(game, puzzles, levelSrcs);
+async function levelsFor(
+  deps: GameDeps,
+  state: GameState,
+  puzzles: readonly Puzzle[],
+): Promise<ReadonlyMap<string, readonly string[]> | undefined> {
+  if (deps.levels === undefined) return undefined;
+  const puzzle = state.finished ? undefined : puzzles[state.index];
+  if (puzzle === undefined) return new Map();
+  const levelSrcs = await deps.levels.getLevelSrcs([puzzle.id]);
+  roundImage(puzzle, state.round, levelSrcs); // throws if it can't be shown
+  return levelSrcs;
 }
 
 async function load(

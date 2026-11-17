@@ -124,6 +124,23 @@ async function main() {
     `Checked ${files.length} content file(s) plus the practice pack: ${content.puzzles.length} puzzles, ` +
       `${content.packs.length} packs (${kinds}), ${content.schedule.length} scheduled days.`,
   );
+
+  const cutImages = !values["no-images"];
+  // Find every original before touching the database (and in a dry run too), so
+  // a missing or misnamed photo stops the seed cleanly. A content puzzle's photo
+  // is private like its content file, so it mustn't be committable either.
+  const originals = new Map(
+    cutImages
+      ? content.puzzles.map((p) => {
+          const contentDir = contentDirOf.get(p.id) ?? null;
+          const file = originalPath(p, contentDir, root);
+          if (contentDir !== null) assertNotCommittable(file);
+          return [p.id, file] as const;
+        })
+      : [],
+  );
+  if (cutImages) console.log(`Found the original photo of all ${originals.size} puzzles.`);
+
   if (dryRun) {
     console.log("Dry run: no database touched.");
     return;
@@ -138,12 +155,6 @@ async function main() {
   if (!url) throw new Error("DATABASE_URL_UNPOOLED is not set (see TECHNICAL.md → Content).");
   // Same TLS rule as the app and drizzle.config.ts (#60): only a database on this machine may skip it.
   assertDatabaseUrlRequiresTls(url, "DATABASE_URL_UNPOOLED");
-
-  const cutImages = !values["no-images"];
-  // Find every original before touching the database, so a missing photo stops the seed cleanly.
-  const originals = new Map(
-    cutImages ? content.puzzles.map((p) => [p.id, originalPath(p, contentDirOf.get(p.id) ?? null, root)] as const) : [],
-  );
 
   const { db, close } = await connect(url);
   try {

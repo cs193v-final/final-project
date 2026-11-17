@@ -10,7 +10,7 @@
 // Runs directly in Node 24 (type stripping), so imports keep their `.ts`.
 
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { inArray } from "drizzle-orm";
 
@@ -59,11 +59,14 @@ export async function storedImageSettings(db: AnyDb, ids: readonly string[]): Pr
  */
 export function originalPath(puzzle: Pick<Puzzle, "id" | "imageUrl">, contentDir: string | null, repoRoot: string): string {
   const url = puzzle.imageUrl;
-  if (/^[a-z][a-z0-9+.-]*:/iu.test(url)) {
+  // A scheme of two or more letters (`https:`, `data:`) or a protocol-relative
+  // `//host/...`. One letter is a Windows drive (`C:\photos\fig.jpg`), a local path.
+  if (/^(?:[a-z][a-z0-9+.-]+:|\/\/)/iu.test(url)) {
     throw new Error(`puzzle ${puzzle.id}: imageUrl "${url}" is a remote URL; download the original into content/ and give its path instead`);
   }
+  // Both branches give an absolute path.
   const file = url.startsWith("/") ? join(repoRoot, "public", url) : resolve(contentDir ?? repoRoot, url);
-  if (!isAbsolute(file) || !existsSync(file)) {
+  if (!existsSync(file)) {
     throw new Error(`puzzle ${puzzle.id}: no original image at ${file} (imageUrl "${url}")`);
   }
   return file;
@@ -86,9 +89,8 @@ export async function cutPuzzleImages(
   const existing = await getLevelSrcs(db, puzzles.map((p) => p.id));
   const summary: CutSummary = { cut: 0, alreadyCut: 0 };
   for (const puzzle of puzzles) {
-    const srcs = existing.get(puzzle.id);
-    const complete =
-      srcs !== undefined && srcs.length === puzzle.reveal.zoomLevels.length && [...srcs].every((s) => typeof s === "string");
+    // getLevelSrcs only returns lists with no gaps, so the length says whether every level is cut.
+    const complete = existing.get(puzzle.id)?.length === puzzle.reveal.zoomLevels.length;
     const previous = before.get(puzzle.id);
     const unchanged = previous !== undefined && sameSettings(previous, settingsOf(puzzle));
     if (!recut && complete && unchanged) {
