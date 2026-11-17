@@ -39,7 +39,17 @@ The app is [Next.js](https://nextjs.org) (see `AGENTS.md` → Stack). With Node 
 npm ci
 npm run dev -- -H 127.0.0.1   # then open http://localhost:3000
 ```
-Checks (CI runs the same ones): `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`.
+`/play` keeps its games in the database (#54), so it needs `DATABASE_URL` and a migrated database: your dev database from `.env.local` works, or a Postgres on your own machine (see below).
+
+Checks (CI runs the same ones): `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and `npm run test:e2e`.
+
+**End-to-end tests** (`npm run test:e2e`, Playwright) start the app and play it in a headless browser, so they need a database too. Either run them with your `.env.local` (they then write test games to your dev database), or point them at a local Postgres; a variable set in the shell wins over `.env.local`:
+```bash
+DATABASE_URL_UNPOOLED=postgresql://postgres@127.0.0.1:5432/zoomout npm run db:migrate
+DATABASE_URL_UNPOOLED=postgresql://postgres@127.0.0.1:5432/zoomout npm run db:seed   # optional: /play works without it
+DATABASE_URL=postgresql://postgres@127.0.0.1:5432/zoomout npm run test:e2e
+```
+A database on localhost is reached with node-postgres and no TLS; anything else with Neon's driver (see [TECHNICAL.md → Database](TECHNICAL.md#database-47)). On your own computer, run `npx playwright install chromium` once first.
 
 ### 4. Deploying
 Deploys go through Jacky's Vercel account (free-tier limitation). See `INSTRUCTIONS.md`.
@@ -72,6 +82,7 @@ Every pull request and every push to `main` runs [`.github/workflows/ci.yml`](.g
 | Secret scan + hook tests (gitleaks) | On PRs, scans the PR's commits; on `main`, scans the **full** history. A backup for hooks that weren't installed or were skipped. Then `scripts/test-hooks.sh` checks that the hooks block fake credentials (also safe to run locally) |
 | Shell lint | `shellcheck` on the hook and setup scripts |
 | App checks | `npm run lint`, `typecheck`, `test` and `build` for the Next.js app |
+| End-to-end tests | Builds the app, starts a throwaway Postgres (service container), runs `npm run db:migrate` and `npm run db:seed`, then the Playwright tests on a desktop and a phone viewport |
 
 CI installs a pinned gitleaks (`GITLEAKS_VERSION` + `GITLEAKS_SHA256` in `ci.yml`); update both together.
 
