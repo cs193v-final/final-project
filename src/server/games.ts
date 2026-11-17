@@ -9,6 +9,7 @@ import "server-only";
 
 import { getDb, type Db } from "@/db";
 import { ensurePackRow, PgGameStore } from "@/db/games";
+import { getLevelSrcs } from "@/db/images";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import {
@@ -40,6 +41,9 @@ function deps(db: Db): GameDeps {
     games: new PgGameStore(db, { recordRounds: false }),
     // TODO(follow-up to #52): getPuzzles(db, ids) from src/db/content.ts.
     puzzles: puzzleSourceFrom(SAMPLE_PUZZLES),
+    // Per-level images (#57), cut by `npm run db:seed`. A practice puzzle that
+    // isn't cut yet is still shown whole and cropped in the browser.
+    levels: { getLevelSrcs: (puzzleIds) => getLevelSrcs(db, puzzleIds) },
   };
 }
 
@@ -66,17 +70,19 @@ export async function startPracticeGame(): Promise<GameResult> {
 }
 
 /**
- * Apply one action from the browser to the current owner's game. Both
+ * Apply one action from the browser to the current owner's game. All three
  * arguments are untrusted. A game that doesn't exist and one that belongs to
- * someone else both give `not-found`. `act` validates the action
- * (`parseGameAction`, the one validation path): a bad one gives `invalid`.
- * A conflict (another tab saved first) gives `conflict` and is not retried.
+ * someone else both give `not-found`, whatever the action or revision. `act`
+ * validates the action (`parseGameAction`) and the revision: a bad one gives
+ * `invalid`. A revision that's no longer the game's (another tab moved it on,
+ * or a response was lost) gives `conflict`, and the action is not retried.
  */
-export async function actOnGame(gameId: unknown, action: unknown): Promise<GameResult> {
+export async function actOnGame(gameId: unknown, action: unknown, revision: unknown): Promise<GameResult> {
   return runGameCall(async () => {
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();
-    return act(deps(getDb()), gameId, owner, action as GameAction);
+    // `act` checks the revision (after the owner), so a stale tab can't act on a round it never saw (#107).
+    return act(deps(getDb()), gameId, owner, action as GameAction, revision as number);
   });
 }
 
