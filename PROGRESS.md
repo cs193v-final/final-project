@@ -75,11 +75,19 @@ Owners match the GitHub issue assignees. In priority order:
 
 | Priority | Work | Owner | How we'll check it's done |
 |---|---|---|---|
-| Done | Merge the guessing screen (#25), then the integration PR that adds the viewer and real puzzles to `/play` (#35, part of #19) | Jacky (#25), Darian (#35) | Both merged Nov 10; CI green on `main`; `/play` shows real images |
-| Done | Live score and final score screen (#16, merged: #37) | Ethan | Component tests; full playthrough |
-| Done | Deploy the playable game from `main` (#19) | Jacky (deploy owner) | Live URL plays all three images end to end |
-| Medium | Puzzle follow-ups: neutral image file names (#36), start more zoomed in (#34). Image credits are already shown after each round (#35) | Joseph | Loader tests; the answer can't be read from file names or ids |
-| Medium | Normalize punctuation in guesses (#29) | Jacky | Unit tests for curly apostrophes, hyphens and periods |
+| High | Week 9 plan: issues, shared interfaces and brief (#46) | Darian | Issues #47–#68 exist with owners, priorities and milestones; types compile; brief updated |
+| High | Database schema and migrations (#47). Comes first: most other work depends on it | Jacky, Joseph | Migrations apply to the dev project; access approach in `TECHNICAL.md` |
+| High | Puzzle packs: data model, seed script, opaque ids (#52, absorbs #36) | Joseph | Loader tests; seed script loads the dev DB; no id or file name contains an answer |
+| High | Server-side games: answers never reach the browser (#54) | Jacky | Tests show no answer in any response while a round is playing; `/play` uses the server |
+| High | Serve each zoom level as its own image (#57) | Darian | Tests show a level beyond the one reached can't be fetched |
+| High | Accounts: username and password (#53) | Ethan | Tests for hashing, sessions, rate limiting and username rules; one test user each |
+| High | Daily themed challenge (#58) | Joseph | Date-boundary tests; same pack for every player |
+| High | Daily theme content: days 1–4 (#55) and days 5–7 (#59), not committed to the repo | Joseph (#55), Darian (#59) | Seed checks pass; every zoom level checked by eye; licenses and credits recorded |
+| High | Correct and wrong answer feedback (#48) | Darian | Component tests, including reduced motion; never color alone |
+| High | Data protection review (#60) | Jacky | One test per access rule; `TECHNICAL.md` updated |
+| Medium | Accessibility pass (#49) | Ethan | Colorblind simulator, WCAG AA contrast, keyboard playthrough, axe checks in Playwright |
+| Medium | Home screen and navigation (#50; back link #43 closes #42) | Darian; Ethan (#43) | Component tests; home/back on every screen |
+| Medium | End-to-end tests: practice flow (#44, PR #45), then the full flow (#61) | Ethan | Playwright in CI: log in → daily → final score → play again |
 | Medium | Playtest, then settle the open gameplay decisions (#21) | Everyone | Decisions recorded in `PROJECT_BRIEF.md` and `ScoringConfig` |
 
 ## 5. Feedback from the Checkpoint 1 check-in (Nov 11)
