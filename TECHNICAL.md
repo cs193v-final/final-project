@@ -141,7 +141,7 @@ The writes are separate statements, not one transaction. If a run stops partway,
 
 ## 4. Secrets and user information
 
-- **Secrets we have:** only the database connection strings (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`). No API keys.
+- **Secrets we have:** the database connection strings (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`) and, since #85, `RATE_LIMIT_HMAC_KEY` (the key for hashing IP addresses in game rate limits; see [Rate limits on the game server](#rate-limits-on-the-game-server-85)). No API keys.
   - **Dev:** in each person's `.env.local`, which is git-ignored and excluded from Vercel uploads (`.vercelignore`).
   - **Preview and production:** only in Vercel as **sensitive** environment variables. Never in files, chat or commits.
   - `.env.example` shows the variable names with placeholder values only.
@@ -167,7 +167,7 @@ Games are written since #54 (`/play`), and accounts (#53) write `users`, `sessio
 | Password | `users.password_hash` | Only a salted hash is stored, never the password: **argon2id** (Node's built-in `crypto.argon2`, no dependency) with OWASP's minimum parameters (19 MiB, 2 passes, 1 lane) and a random 16-byte salt, in PHC format so the parameters can be raised later (`src/auth/crypto.ts`). Login with an unknown username still runs one hash, so timing doesn't reveal which usernames exist. | The server only, to check a login. Never sent to a browser. |
 | Session | `sessions.token_hash`, `user_id`, `created_at`, `expires_at` | The `zo_session` cookie holds 32 random bytes; the database holds only their SHA-256, so a database leak doesn't hand out live sessions. The cookie is `HttpOnly`, `Secure` and `SameSite=Lax`. Sessions last 30 days; every request checks the row, so logout (which deletes it) and expiry apply at once (`src/auth/session.ts`). | The server only |
 | Games and rounds | `games.*` (owner, `state`, `total`, timestamps), `game_rounds.*` (outcome, points, wrong guesses, reveal level, `finished_at`) | `state` is server-only and never sent to the browser; the browser gets only a `GameView`. Every read or write checks that the game belongs to the requesting user or anonymous owner (#54; a stranger gets "not found", tested in unit and e2e tests). `game_rounds` isn't written for practice games yet. What leaderboards (#62) show is not decided. | The server, and the game's owner through `GameView` |
-| Rate limits | `rate_limits.key`, `window_start`, `count` | Keys are `login:user:<lowercased username>`, `login:ip:<SHA-256 of the IP>` and `register:ip:<SHA-256 of the IP>`. Never a raw IP address. A row only matters for its window (15 minutes for login, 1 hour for sign-up). Limits: 10 login attempts per username, 30 per address, 5 sign-ups per address. A successful login clears its username's count. | The server only |
+| Rate limits | `rate_limits.key`, `window_start`, `count` | Keys are `login:user:<lowercased username>`, `login:ip:<SHA-256 of the IP>` and `register:ip:<SHA-256 of the IP>`. Never a raw IP address. A row only matters for its window (15 minutes for login, 1 hour for sign-up). Limits: 10 login attempts per username, 30 per address, 5 sign-ups per address. A successful login clears its username's count. Game limits (#85) use `game:start:…` and `game:action:…` keys with the owner id or the **HMAC**-SHA-256 of the IP, never a username or plain hash (see [Rate limits on the game server](#rate-limits-on-the-game-server-85)). | The server only |
 | Anonymous owner | `games.anon_owner_hash` | The SHA-256 of the random token in the `zo_owner` cookie (#54), never the token; the store refuses anything that isn't a 64-character hex digest. The cookie is `HttpOnly`, `SameSite=Lax`, and `Secure` over https. Used for the practice pack; whether daily packs allow anonymous play is open (#54/#62). | The server only |
 | Timestamps | `created_at` on users, sessions and games; `updated_at` on games; `finished_at` on games and rounds; `expires_at` on sessions | Same as the row they belong to | Same as the row |
 
@@ -180,6 +180,25 @@ Protection that applies to all of it, **in place now**:
 - **Who holds the keys:** connection strings are in the dev `.env.local` files and, for preview and production, only in Vercel (sensitive) and the Neon console, set by Jacky as the deploy owner (see above).
 
 **Done for games (#54):** per-owner access tests, and unit and e2e checks that no Server Action response or page HTML contains the current puzzle's answer while it is being played. **Not done yet** (needs #53): the same for sessions and accounts. We don't encrypt individual columns in the app: passwords and tokens are hashed instead (they never need to be read back), and the rest (usernames, game results) has to be read back by the app, so it relies on server-only access, TLS and Neon's encryption at rest.
+
+### Rate limits on the game server (#85)
+
+So nobody can run up database costs or storage by starting or playing games without end. All values are constants in `src/server/limits.ts`; the tests (`src/server/limits.test.ts`, `src/server/games.test.ts`) check each one, including the first request over the limit and the window resetting.
+
+| What | Value | Key | Window |
+|---|---|---|---|
+| Starting a game (each visit to `/play` without a game, or Play again) per player | 30 | user id, or the anonymous owner hash (SHA-256 of the `zo_owner` cookie token) | 1 hour, fixed |
+| Starting a game per IP address | 300 | HMAC-SHA-256 of the client IP | 1 hour, fixed |
+| Game actions (zoom out, guess, skip, next) and game loads (`getGame`, e.g. a refresh) per player | 120 | user id, or the anonymous owner hash | 1 minute, fixed |
+| Game actions and loads per IP address | 600 | HMAC-SHA-256 of the client IP | 1 minute, fixed |
+| Unfinished games per player (all packs) | 10 | user id, or the anonymous owner hash | none (a cap, not a rate) |
+
+- **How it's counted:** `hitRateLimit()` from #53 (`src/db/accounts.ts`): one row per key in `rate_limits`, one atomic upsert per hit, so the limits hold across serverless instances. The IP limit is checked first and the owner limit only if that passed, so a client inventing owner cookies can't add `rate_limits` rows faster than its IP limit.
+- **Over a limit:** the Server Action returns `{ ok: false, error: "rate-limited" }` and nothing is created or changed. `PracticeGame` says to wait a few minutes and try again, keeping the game on screen (or offering **Try again** if no game started).
+- **Fewer rows:** starting practice reuses the player's newest unfinished practice game that hasn't been played yet (a refresh, a second **Start practice**), instead of inserting a row. At 10 unfinished games, starting practice resumes the player's most recently played unfinished practice game instead; only if there is none (all 10 are other packs') is the start refused as `rate-limited`. So the cap never leaves a player stuck, and a player never has more than 10 unfinished rows (two starts at the same instant could each insert one; the start limits bound that).
+- **Client IP:** the first entry of `x-forwarded-for`, else `x-real-ip`, read with `headers()`. On Vercel the edge sets both and overwrites a client-sent value. Off Vercel they can be forged, so the IP is used for rate limiting only. Without either header, every such request shares one `unknown` bucket.
+- **IP hashing key:** `RATE_LIMIT_HMAC_KEY`, at least 32 characters (`openssl rand -base64 32`), one per tier, set by Jacky in Vercel (Preview and Production, sensitive). It's required on Vercel preview and production: without it, starting and playing games returns `unavailable`. Locally (dev, e2e, CI) a random key is made per server process if it's unset, so restarting the server starts the IP counts over. Plain SHA-256 isn't used because all 2^32 IPv4 hashes can be computed (#84).
+- **Not covered:** an attacker with many IP addresses (each IPv6 address counts on its own, not per /64), and old `rate_limits` rows, which `deleteExpiredRateLimits` removes but nothing runs on a schedule yet. Vercel's own firewall and DDoS protection sit in front of all of this.
 
 ## 5. Open questions
 

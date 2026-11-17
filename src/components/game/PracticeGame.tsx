@@ -23,6 +23,7 @@ const PROBLEMS: Record<GameError, string> = {
   "not-found": "We couldn't find that game. It may have been started in another browser.",
   invalid: "That didn't work. Please try again.",
   conflict: "This game changed in another tab, so it was reloaded here.",
+  "rate-limited": "You're going faster than we allow right now. Please wait a few minutes, then try again.",
   unavailable: "Couldn't reach the server. Check your connection and try again, or reload the page.",
 };
 

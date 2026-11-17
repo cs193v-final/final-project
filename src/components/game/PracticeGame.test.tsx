@@ -246,6 +246,39 @@ describe("PracticeGame when a Server Action fails outright (offline, or a redepl
   });
 });
 
+describe("PracticeGame when a limit is hit (#85)", () => {
+  const LIMITED: GameResult = { ok: false, error: "rate-limited" };
+
+  it("says to wait and try again when starting is rate-limited, and Try again starts the game", async () => {
+    const user = userEvent.setup();
+    const server = backend();
+    const realStart = server.start.getMockImplementation()!;
+    server.start.mockResolvedValueOnce(LIMITED);
+    render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/wait a few minutes, then try again/);
+    expect(window.location.search).toBe("");
+    server.start.mockImplementation(realStart);
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
+  });
+
+  it("keeps the game on screen when a move is rate-limited, and the move works once allowed again", async () => {
+    const { user, server } = await setup();
+    server.act.mockResolvedValueOnce(LIMITED);
+    const zoom = screen.getByRole("button", { name: "Zoom out" });
+    await user.click(zoom);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/wait a few minutes, then try again/);
+    expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
+    expect(screen.getByText("Zoom level 1 of 3")).toBeInTheDocument();
+
+    await user.click(zoom);
+    expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
 describe("PracticeGame guessing", () => {
   it("submits with Enter, shows a wrong guess, counts it and clears the input", async () => {
     const { user, input, status } = await setup();

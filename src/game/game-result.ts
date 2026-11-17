@@ -18,10 +18,23 @@ export type GameError =
    * reloads the game with getGame and tells the player.
    */
   | "conflict"
+  /**
+   * Too many games or moves in a short time, or too many unfinished games
+   * (#85, limits in src/server/limits.ts). Nothing was changed. Like a 429.
+   */
+  | "rate-limited"
   /** Anything else (database down, ...). Logged on the server. */
   | "unavailable";
 
 export type GameResult = { ok: true; view: GameView } | { ok: false; error: GameError };
+
+/** A rate limit or cap was hit (#85). `runGameCall` turns it into `rate-limited`. */
+export class RateLimitedError extends Error {
+  constructor(readonly limit: string) {
+    super(`rate limited: ${limit}`);
+    this.name = "RateLimitedError";
+  }
+}
 
 /**
  * Run a game call and turn its errors into a `GameResult`.
@@ -41,6 +54,7 @@ export async function runGameCall(
     if (error instanceof GameConflictError) return { ok: false, error: "conflict" };
     if (error instanceof GameNotFoundError) return { ok: false, error: "not-found" };
     if (error instanceof InvalidGameActionError) return { ok: false, error: "invalid" };
+    if (error instanceof RateLimitedError) return { ok: false, error: "rate-limited" };
     log(error);
     return { ok: false, error: "unavailable" };
   }

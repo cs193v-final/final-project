@@ -195,3 +195,33 @@ export async function ensurePackRow(db: Db, pack: Pick<Pack, "id" | "kind" | "ti
     .values({ id: pack.id, kind: pack.kind, title: pack.title, theme: pack.theme })
     .onConflictDoNothing({ target: packs.id });
 }
+
+/** What `startPracticeGame` needs to apply the unfinished-games cap (#85). */
+export type UnfinishedGames = {
+  /** How many of the owner's games (any pack) aren't finished. */
+  count: number;
+  /** The owner's newest unfinished game of this pack that hasn't been played yet (revision 0), if any. */
+  untouchedId: string | null;
+  /** The owner's most recently played unfinished game of this pack, if any. */
+  latestId: string | null;
+};
+
+/** The owner's unfinished games, for the cap and for reuse (#85). One query. */
+export async function findUnfinishedGames(db: Db, owner: GameOwner, packId: string): Promise<UnfinishedGames> {
+  const { userId, anonOwnerHash } = ownerColumns(owner);
+  const mine = userId !== null ? sql`user_id = ${userId}::uuid` : sql`anon_owner_hash = ${anonOwnerHash}`;
+  const result = await db.execute(sql`
+    SELECT
+      (SELECT count(*) FROM games WHERE ${mine} AND finished_at IS NULL) AS "count",
+      (SELECT id FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL AND revision = 0
+        ORDER BY created_at DESC LIMIT 1) AS "untouchedId",
+      (SELECT id FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL
+        ORDER BY updated_at DESC LIMIT 1) AS "latestId"
+  `);
+  const [row] = rowsOf(result);
+  return {
+    count: Number(row?.count ?? 0),
+    untouchedId: (row?.untouchedId as string | null | undefined) ?? null,
+    latestId: (row?.latestId as string | null | undefined) ?? null,
+  };
+}

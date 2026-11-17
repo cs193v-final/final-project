@@ -7,9 +7,11 @@
 // server-game.ts (rules, scoring, answer hiding) → PgGameStore → Postgres
 import "server-only";
 
+import { headers } from "next/headers";
+
 import { getDb, type Db } from "@/db";
-import { ensurePackRow, PgGameStore } from "@/db/games";
-import { runGameCall, type GameResult } from "@/game/game-result";
+import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
+import { RateLimitedError, runGameCall, type GameResult } from "@/game/game-result";
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import {
   act,
@@ -22,6 +24,8 @@ import {
 import type { GameAction } from "@/game/types";
 import { PRACTICE_PACK, SAMPLE_PUZZLES } from "@/puzzles";
 
+import { hashIp, ipHmacKey } from "./ip-key";
+import { checkActionLimits, checkStartLimits, MAX_UNFINISHED_GAMES } from "./limits";
 import { currentOrNewOwner, currentOwner } from "./owner";
 
 /**
@@ -54,12 +58,38 @@ function ensurePracticePack(db: Db): Promise<void> {
   return practicePackRow;
 }
 
-/** Start a practice game for the current owner, creating the owner cookie if needed. */
+/**
+ * The client's IP address as a keyed hash (src/server/ip-key.ts), for rate
+ * limiting only. On Vercel, `x-forwarded-for` is set by Vercel's edge (a
+ * client-sent value is overwritten) and its first entry is the client;
+ * `x-real-ip` is the same address. Elsewhere these headers can be forged, so
+ * they're never used for anything but rate limits. No header: `"unknown"`.
+ */
+async function requestIpHash(): Promise<string> {
+  const h = await headers();
+  const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip")?.trim() || null;
+  return hashIp(ip, ipHmacKey());
+}
+
+/**
+ * Start a practice game for the current owner, creating the owner cookie if
+ * needed. Rate-limited per owner and per IP (#85). Reuses a game instead of
+ * creating a row when the owner has one nobody has played yet (a refresh of
+ * /play, a second "Start practice"), or already has `MAX_UNFINISHED_GAMES`
+ * unfinished games (then their latest unfinished practice game is resumed).
+ */
 export async function startPracticeGame(): Promise<GameResult> {
   return runGameCall(async () => {
     const owner = await currentOrNewOwner();
     const db = getDb();
+    await checkStartLimits(db, owner, await requestIpHash(), new Date());
     await ensurePracticePack(db);
+    const unfinished = await findUnfinishedGames(db, owner, PRACTICE_PACK.id);
+    const atCap = unfinished.count >= MAX_UNFINISHED_GAMES;
+    const reuse = unfinished.untouchedId ?? (atCap ? unfinished.latestId : null);
+    if (reuse !== null) return getGame(deps(db), reuse, owner);
+    // At the cap with no practice game to resume (only other packs' games).
+    if (atCap) throw new RateLimitedError("maxUnfinishedGames");
     // TODO(#64): getScoringConfig(PRACTICE_PACK.id) once it lands.
     return startGame(deps(db), PRACTICE_PACK, owner, SCORING_CONFIG);
   });
@@ -76,15 +106,19 @@ export async function actOnGame(gameId: unknown, action: unknown): Promise<GameR
   return runGameCall(async () => {
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();
-    return act(deps(getDb()), gameId, owner, action as GameAction);
+    const db = getDb();
+    await checkActionLimits(db, owner, await requestIpHash(), new Date());
+    return act(deps(db), gameId, owner, action as GameAction);
   });
 }
 
-/** The current owner's game as it is now (resume after a refresh). */
+/** The current owner's game as it is now (resume after a refresh). Counts toward the action limits (#85). */
 export async function loadGame(gameId: unknown): Promise<GameResult> {
   return runGameCall(async () => {
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();
-    return getGame(deps(getDb()), gameId, owner);
+    const db = getDb();
+    await checkActionLimits(db, owner, await requestIpHash(), new Date());
+    return getGame(deps(db), gameId, owner);
   });
 }

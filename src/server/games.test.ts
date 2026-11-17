@@ -6,13 +6,15 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as schema from "@/db/schema";
 
 const state = vi.hoisted(() => ({
   db: undefined as unknown,
   jar: new Map<string, string>(),
+  /** Request headers besides x-forwarded-proto, e.g. x-forwarded-for. */
+  headers: {} as Record<string, string>,
 }));
 
 vi.mock("@/db", () => ({ getDb: () => state.db }));
@@ -21,10 +23,11 @@ vi.mock("next/headers", () => ({
     get: (name: string) => (state.jar.has(name) ? { name, value: state.jar.get(name)! } : undefined),
     set: (name: string, value: string) => state.jar.set(name, value),
   }),
-  headers: async () => new Headers({ "x-forwarded-proto": "https" }),
+  headers: async () => new Headers({ "x-forwarded-proto": "https", ...state.headers }),
 }));
 
 const { actOnGame, loadGame, startPracticeGame } = await import("./games");
+const { GAME_LIMITS, MAX_UNFINISHED_GAMES } = await import("./limits");
 
 let pg: PGlite;
 
@@ -39,8 +42,10 @@ afterAll(async () => {
   await pg.close();
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   state.jar.clear();
+  state.headers = {};
+  await pg.exec("DELETE FROM rate_limits;");
 });
 
 async function started() {
@@ -108,5 +113,134 @@ describe("one practice pack (#52)", () => {
     // And games keep working on the seeded pack.
     expect((await startPracticeGame()).ok).toBe(true);
     expect(await actOnGame(view.gameId, { type: "skip" })).toMatchObject({ ok: true });
+  });
+});
+
+/** Games of the anonymous owner in the cookie jar. */
+async function ownGameCount(): Promise<number> {
+  const { hashOwnerToken, OWNER_COOKIE } = await import("./owner");
+  const { rows } = await pg.query<{ n: number }>("SELECT count(*)::int AS n FROM games WHERE anon_owner_hash = $1", [
+    hashOwnerToken(state.jar.get(OWNER_COOKIE)!),
+  ]);
+  return rows[0]!.n;
+}
+
+describe("reusing games and the unfinished-games cap (#85)", () => {
+  it("reuses the player's untouched practice game instead of creating a row, but not once it's been played", async () => {
+    const first = await started();
+    expect((await started()).gameId).toBe(first.gameId); // a refresh of /play, or Start practice again
+    expect(await ownGameCount()).toBe(1);
+
+    await actOnGame(first.gameId, { type: "reveal" });
+    const second = await started();
+    expect(second.gameId).not.toBe(first.gameId);
+    expect(second.round).toMatchObject({ position: 1, revealLevel: 0 });
+    expect(await ownGameCount()).toBe(2);
+  });
+
+  it(`never lets a player have more than ${MAX_UNFINISHED_GAMES} unfinished games: the next start resumes the latest`, async () => {
+    let latest = "";
+    for (let i = 0; i < MAX_UNFINISHED_GAMES; i++) {
+      latest = (await started()).gameId;
+      await actOnGame(latest, { type: "reveal" });
+    }
+    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES);
+
+    const resumed = await started();
+    expect(resumed.gameId).toBe(latest);
+    expect(resumed.round).toMatchObject({ revealLevel: 1 });
+    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES);
+  });
+
+  it("starts a new game after a finished one (Play again), even with other unfinished games", async () => {
+    const view = await started();
+    for (let i = 0; i < view.round!.puzzleCount; i++) {
+      await actOnGame(view.gameId, { type: "skip" });
+      await actOnGame(view.gameId, { type: "next" });
+    }
+    expect(await loadGame(view.gameId)).toMatchObject({ ok: true, view: { finished: true } });
+    const again = await started();
+    expect(again.gameId).not.toBe(view.gameId);
+    expect(again.finished).toBe(false);
+  });
+
+  it("refuses with `rate-limited` at the cap when there's no practice game to resume", async () => {
+    const view = await started();
+    const { rows } = await pg.query<{ anon_owner_hash: string; state: unknown }>(
+      "SELECT anon_owner_hash, state FROM games WHERE id = $1",
+      [view.gameId],
+    );
+    const own = rows[0]!;
+    await pg.query(
+      "INSERT INTO packs (id, kind, title, theme) VALUES ('pk_other_85', 'practice', 'Other', 'Mixed') ON CONFLICT DO NOTHING",
+    );
+    for (let i = 0; i < MAX_UNFINISHED_GAMES; i++) {
+      await pg.query("INSERT INTO games (pack_id, anon_owner_hash, state) VALUES ('pk_other_85', $1, $2)", [
+        own.anon_owner_hash,
+        JSON.stringify(own.state),
+      ]);
+    }
+    await pg.query("DELETE FROM games WHERE id = $1", [view.gameId]);
+    expect(await startPracticeGame()).toEqual({ ok: false, error: "rate-limited" });
+    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES);
+  });
+});
+
+describe("rate limits through the game server functions (#85)", () => {
+  const T0 = new Date("2026-11-17T12:00:00Z");
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"], now: T0 });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns `rate-limited` for the first start over the owner limit, and allows it again in the next window", async () => {
+    const view = await started();
+    for (let i = 1; i < GAME_LIMITS.startsPerOwner.max; i++) await started();
+    expect(await startPracticeGame()).toEqual({ ok: false, error: "rate-limited" });
+    expect(await ownGameCount()).toBe(1);
+
+    vi.setSystemTime(T0.getTime() + GAME_LIMITS.startsPerOwner.windowMs);
+    expect(await startPracticeGame()).toEqual({ ok: true, view });
+  });
+
+  it("returns `rate-limited` for the first move over the owner limit without applying it, then allows moves again", async () => {
+    const view = await started();
+    // Loads count too: they read the database like a move does.
+    for (let i = 0; i < GAME_LIMITS.actionsPerOwner.max; i++) expect((await loadGame(view.gameId)).ok).toBe(true);
+    expect(await actOnGame(view.gameId, { type: "reveal" })).toEqual({ ok: false, error: "rate-limited" });
+    expect(await loadGame(view.gameId)).toEqual({ ok: false, error: "rate-limited" });
+
+    vi.setSystemTime(T0.getTime() + GAME_LIMITS.actionsPerOwner.windowMs);
+    expect(await actOnGame(view.gameId, { type: "reveal" })).toMatchObject({ ok: true, view: { round: { revealLevel: 1 } } });
+  });
+
+  it("counts per IP from the first x-forwarded-for entry, across players, storing only keyed hashes", async () => {
+    state.headers = { "x-forwarded-for": "203.0.113.7, 10.0.0.1" };
+    for (let i = 0; i < GAME_LIMITS.startsPerIp.max; i++) {
+      state.jar.clear(); // a new anonymous player each time
+      await started();
+    }
+    state.jar.clear();
+    expect(await startPracticeGame()).toEqual({ ok: false, error: "rate-limited" });
+    // Another address behind the same proxy hop is counted on its own.
+    state.headers = { "x-forwarded-for": "198.51.100.20, 10.0.0.1" };
+    expect((await startPracticeGame()).ok).toBe(true);
+
+    const { rows } = await pg.query<{ key: string }>("SELECT key FROM rate_limits WHERE key LIKE 'game:start:ip:%'");
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.key).join(" ")).not.toMatch(/203\.0\.113\.7|198\.51\.100\.20|10\.0\.0\.1/);
+  }, 120_000);
+
+  it("uses x-real-ip when there's no x-forwarded-for, and one shared bucket with neither", async () => {
+    state.headers = { "x-real-ip": "192.0.2.44" };
+    await started();
+    state.headers = {};
+    await started();
+    const { rows } = await pg.query<{ key: string }>("SELECT key FROM rate_limits WHERE key LIKE 'game:start:ip:%'");
+    expect(rows.map((r) => r.key)).toContain("game:start:ip:unknown");
+    expect(rows).toHaveLength(2);
   });
 });
