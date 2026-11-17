@@ -1,5 +1,6 @@
 import { GAME_NAME } from "@/site";
 import { ModePicker } from "./ModePicker";
+import { PrototypeNotice, SectionHeading } from "./ui/controls";
 
 /** The how-to-play steps, in order. Kept free of point values until scoring (#15) is settled. */
 export const HOW_TO_PLAY = [
@@ -28,13 +29,11 @@ export function StartScreen() {
       <p className="-mt-4 text-sm text-zinc-600 dark:text-zinc-400">Coming soon: a daily leaderboard.</p>
 
       <section aria-labelledby="how-to-play" className="w-full max-w-md text-left">
-        <h2 id="how-to-play" className="mb-3 text-center text-sm font-semibold tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
-          How to play
-        </h2>
+        <SectionHeading id="how-to-play">How to play</SectionHeading>
         <ol className="flex flex-col gap-2">
           {HOW_TO_PLAY.map((step, i) => (
             <li key={step} className="flex gap-3 rounded-lg bg-zinc-100 px-4 py-3 dark:bg-zinc-900">
-              <span aria-hidden="true" className="font-semibold text-zinc-400">
+              <span aria-hidden="true" className="font-semibold text-zinc-600 dark:text-zinc-400">
                 {i + 1}
               </span>
               <span>{step}</span>
@@ -43,9 +42,7 @@ export function StartScreen() {
         </ol>
       </section>
 
-      <p className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
-        Prototype: 3 practice images. Daily puzzles aren&apos;t built yet.
-      </p>
+      <PrototypeNotice>Prototype: 3 practice images. Daily puzzles aren&apos;t built yet.</PrototypeNotice>
     </main>
   );
 }
