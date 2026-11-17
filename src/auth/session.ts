@@ -94,8 +94,9 @@ async function requestSessionToken(): Promise<string | null> {
 /**
  * The logged-in user; otherwise redirects to the login page, which comes back
  * to `next` (the page asking, e.g. "/account") after logging in (#134).
+ * Required, so a protected page can't forget it and send people home instead.
  */
-export async function requireUser(next?: string): Promise<PublicUser> {
+export async function requireUser(next: string): Promise<PublicUser> {
   const user = await getCurrentUser();
   if (!user) redirect(loginPath(next));
   return user;
@@ -134,6 +135,17 @@ export async function setSessionCookie(token: string, expiresAt: Date): Promise<
     });
   }
   jar.set(SESSION_COOKIE, token, sessionCookieOptions(expiresAt, (await headers()).get("x-forwarded-proto")));
+}
+
+/**
+ * Deletes a session that never reached the browser (setting its cookie
+ * failed), so it doesn't stay valid for 30 days. Best effort: a failure is
+ * logged without the query's values.
+ */
+export async function discardSession(token: string): Promise<void> {
+  await deleteSession(getDb(), sha256Hex(token)).catch((error: unknown) => {
+    console.error(`Couldn't discard an unused session: ${errorSummary(error)}`);
+  });
 }
 
 /** Ends the session on the server and removes the cookie. Only from a Server Action or Route Handler. */

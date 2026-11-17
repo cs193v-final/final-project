@@ -125,4 +125,37 @@ test.describe("with a database", () => {
     await expect(page.getByRole("heading", { name: "Your account" })).toBeVisible();
     await expect(page.getByRole("status").filter({ hasText: "Logged in" })).toHaveText(`Logged in as ${username}.`);
   });
+
+  test("the one-time ?welcome= flag doesn't come back on the next router update (#134)", async ({ page }) => {
+    const username = freshUsername();
+    await page.goto("/register");
+    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Create account" }).click();
+    const site = page.getByRole("navigation", { name: "Site" });
+    await expect(site.getByRole("link", { name: username })).toBeVisible();
+    await site.getByRole("button", { name: "Log out" }).click();
+    await expect(site.getByRole("link", { name: "Log in" })).toBeVisible();
+
+    // /account, not /play: the game rewrites the URL itself (`?game=`), which
+    // would hide the bug.
+    await page.goto("/login?next=%2Faccount");
+    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Log in" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Logged in" })).toHaveText(`Logged in as ${username}.`);
+    await expect(page).toHaveURL(/\/account$/);
+
+    // A router update (here router.refresh(); a Server Action that revalidates
+    // does the same) makes Next write its own idea of the URL back. If Next
+    // never learned the flag was removed, `?welcome=` comes back here.
+    const refreshed = page.waitForResponse((response) => response.request().headers()["rsc"] === "1");
+    await page.evaluate(() => (window as unknown as { next: { router: { refresh(): void } } }).next.router.refresh());
+    await refreshed;
+    await page.waitForLoadState("networkidle");
+    expect(new URL(page.url()).searchParams.has("welcome")).toBe(false);
+    await page.reload();
+    await expect(site.getByRole("link", { name: username })).toBeVisible();
+    await expect(page.getByText(/Logged in as/)).toHaveCount(0);
+  });
 });

@@ -106,7 +106,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       }
 
       await guess(page, "definitely not it");
-      await expect(page.getByRole("status")).not.toBeEmpty();
+      await expect(page.getByRole("main").getByRole("status")).not.toBeEmpty();
       await checkScreen(page, "game, after a wrong guess");
 
       await page.getByRole("button", { name: "Zoom out" }).click();
@@ -171,7 +171,8 @@ test("right and wrong are told apart by their words and a symbol, not only by co
   // colors themselves (that was checked by hand with a colorblind simulator, #49).
   await page.goto("/play");
   await waitForAccountLinks(page);
-  const status = page.getByRole("status");
+  // The game's own status; the header has one too (the login confirmation, #134).
+  const status = page.getByRole("main").getByRole("status");
 
   await guess(page, "definitely not it");
   await expect(status).toContainText("isn't it (1 wrong guess)");

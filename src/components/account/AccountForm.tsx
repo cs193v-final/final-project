@@ -2,10 +2,11 @@
 // The log-in and sign-up form (#53). The action runs on the server; this only
 // shows the fields and the errors it returns.
 import Link from "next/link";
-import { useActionState, useId } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useActionState, useId } from "react";
 
 import type { AccountFormState } from "@/app/account/actions";
-import { DEFAULT_NEXT } from "@/auth/next-path";
+import { DEFAULT_NEXT, safeNextPath } from "@/auth/next-path";
 import { PASSWORD_MAX, PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN } from "@/auth/rules";
 
 type Props = {
@@ -97,5 +98,24 @@ export function AccountForm({ mode, action, next = DEFAULT_NEXT }: Props) {
         </Link>
       </p>
     </form>
+  );
+}
+
+function AccountFormFromUrl(props: Omit<Props, "next">) {
+  return <AccountForm {...props} next={safeNextPath(useSearchParams().get("next"))} />;
+}
+
+/**
+ * The form for the login and sign-up pages, going back to the page's `?next=`
+ * afterwards (#134). `next` is read in the browser, so the pages stay
+ * prerendered: the shell has the same form without `next`, and the real one
+ * replaces it as soon as the page hydrates. The server action checks `next`
+ * again, since anyone can post any value.
+ */
+export function AccountPageForm(props: Omit<Props, "next">) {
+  return (
+    <Suspense fallback={<AccountForm {...props} />}>
+      <AccountFormFromUrl {...props} />
+    </Suspense>
   );
 }

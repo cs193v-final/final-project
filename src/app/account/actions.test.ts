@@ -5,11 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loginAction, registerAction } from "./actions";
 
-const { redirect, setSessionCookie, login, register } = vi.hoisted(() => ({
+const { redirect, setSessionCookie, discardSession, login, register } = vi.hoisted(() => ({
   redirect: vi.fn((url: string) => {
     throw Object.assign(new Error("NEXT_REDIRECT"), { url });
   }),
   setSessionCookie: vi.fn<(token: string, expiresAt: Date) => Promise<void>>(async () => {}),
+  discardSession: vi.fn<(token: string) => Promise<void>>(async () => {}),
   login: vi.fn(),
   register: vi.fn(),
 }));
@@ -21,6 +22,7 @@ vi.mock("@/db", () => ({ getDb: () => ({}) }));
 vi.mock("@/auth/session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/auth/session")>()),
   setSessionCookie,
+  discardSession,
   endSession: vi.fn(async () => {}),
   requestIp: async () => "203.0.113.7",
 }));
@@ -49,6 +51,7 @@ beforeEach(() => {
   redirect.mockClear();
   setSessionCookie.mockReset();
   setSessionCookie.mockImplementation(async () => {});
+  discardSession.mockClear();
   // A failed test can leave a mockResolvedValueOnce unused; don't let it leak.
   login.mockReset();
   register.mockReset();
@@ -147,5 +150,16 @@ describe("if the database fails", () => {
     const logged = consoleError.mock.calls.flat().map(String).join("\n");
     expect(logged).toContain("Failed query");
     expect(logged).not.toContain("secret-hash");
+    // The session was created but never reached the browser.
+    expect(discardSession).toHaveBeenCalledWith("t");
+  });
+
+  it("after a sign-up, says the account exists instead of 'try again' (which would say 'taken')", async () => {
+    register.mockResolvedValueOnce(OK);
+    setSessionCookie.mockRejectedValueOnce(queryError());
+    const state = await registerAction(undefined, form("ethan", "correct horse"));
+    expect(state).toEqual({ username: "ethan", errors: {}, message: expect.stringMatching(/account was created.*please log in/i) });
+    expect(redirect).not.toHaveBeenCalled();
+    expect(discardSession).toHaveBeenCalledWith("t");
   });
 });

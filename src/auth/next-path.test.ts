@@ -35,6 +35,8 @@ describe("safeNextPath", () => {
     ["dot segments that become //, deeper", "/a/../..//evil.com"],
     ["the login page", "/login?next=/account"],
     ["the sign-up page", "/register"],
+    ["the login page with a trailing slash", "/login/"],
+    ["the sign-up page with trailing slashes", "/register//?next=/account"],
     ["too long", `/${"a".repeat(600)}`],
   ])("goes home instead of %s", (_name, input) => {
     expect(safeNextPath(input)).toBe("/");

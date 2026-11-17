@@ -32,7 +32,9 @@ export function safeNextPath(value: unknown): string {
     return DEFAULT_NEXT;
   }
   if (url.origin !== BASE) return DEFAULT_NEXT;
-  if (url.pathname === "/login" || url.pathname === "/register") return DEFAULT_NEXT;
+  // `/login/` too: Next normalizes it to `/login`, so it would land on the form.
+  const bare = url.pathname.replace(/\/+$/, "");
+  if (bare === "/login" || bare === "/register") return DEFAULT_NEXT;
   const path = url.pathname + url.search + url.hash;
   // Resolving dot segments can make a new `//`: `/..//evil.com` is `//evil.com`.
   return path.startsWith("//") ? DEFAULT_NEXT : path;

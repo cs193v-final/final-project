@@ -26,7 +26,10 @@ describe("AccountStatusView", () => {
     ["/account", "/login?next=%2Faccount"],
     ["/play?game=abc123", "/login?next=%2Fplay%3Fgame%3Dabc123"],
     ["/register", "/login"],
-    ["/login?next=%2Faccount", "/login"],
+    // On the login and sign-up pages, Log in keeps where they were going.
+    ["/login?next=%2Faccount", "/login?next=%2Faccount"],
+    ["/register?next=%2Faccount", "/login?next=%2Faccount"],
+    ["/register?next=%2F%2Fevil.com", "/login"],
   ])("on %s, Log in comes back to the page afterwards: %s", (url, href) => {
     at(url);
     render(<AccountStatusView user={null} />);
@@ -50,6 +53,34 @@ describe("the one-time login confirmation (#134)", () => {
     render(<AccountStatusView user={{ id: "u1", username: "Ethan" }} />);
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(text));
     expect(window.location.pathname + window.location.search).toBe("/play?game=abc");
+  });
+
+  it("has the (empty) status region logged out too, so it exists before a login fills it in", () => {
+    render(<AccountStatusView user={null} />);
+    expect(screen.getByRole("status")).toHaveTextContent("");
+  });
+
+  it("keeps the same status element when the header switches to logged in", async () => {
+    const { rerender } = render(<AccountStatusView user={null} />);
+    const region = screen.getByRole("status");
+    at("/?welcome=login");
+    rerender(<AccountStatusView user={{ id: "u1", username: "Ethan" }} />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Logged in as Ethan."));
+    expect(screen.getByRole("status")).toBe(region);
+  });
+
+  it("doesn't show the message again after leaving the page and coming back", async () => {
+    at("/?welcome=signup");
+    const { rerender } = render(<AccountStatusView user={{ id: "u1", username: "Ethan" }} />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Account created."));
+    at("/play");
+    rerender(<AccountStatusView user={{ id: "u1", username: "Ethan" }} />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(""));
+    at("/");
+    rerender(<AccountStatusView user={{ id: "u1", username: "Ethan" }} />);
+    // Give the effects a chance to run before checking it stayed empty.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByRole("status")).toHaveTextContent("");
   });
 
   it("says nothing on an ordinary visit or for an unknown value", () => {
