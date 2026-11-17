@@ -8,6 +8,8 @@ export type ZoomOutButtonProps = {
   round: Pick<Round, "state" | "revealLevel" | "maxRevealLevel">;
   /** Ask the round logic for the next level, e.g. `dispatch({ type: "reveal" })`. */
   onZoomOut: () => void;
+  /** True while the last move is still on its way to the server: clicks are ignored. */
+  pending?: boolean;
 };
 
 /** True while the round is being played and there's more of the image to show. */
@@ -46,15 +48,15 @@ function hint(round: ZoomOutButtonProps["round"]): string {
  * `disabled`, so a keyboard user who just pressed it keeps focus on it
  * instead of being dropped back to the top of the page.
  */
-export function ZoomOutButton({ round, onZoomOut }: ZoomOutButtonProps) {
-  const enabled = canZoomOut(round);
+export function ZoomOutButton({ round, onZoomOut, pending = false }: ZoomOutButtonProps) {
+  const enabled = canZoomOut(round) && !pending;
   const hintId = useId();
 
   return (
     <div className="flex items-center justify-center gap-3">
       <button
         type="button"
-        onClick={(event) => handleZoomOutClick(round, onZoomOut, event)}
+        onClick={(event) => (pending ? event.preventDefault() : handleZoomOutClick(round, onZoomOut, event))}
         aria-disabled={!enabled}
         aria-describedby={hintId}
         className="rounded-lg border border-zinc-300 bg-white px-4 py-2 font-medium text-zinc-900 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-white dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:focus-visible:outline-zinc-100 dark:aria-disabled:hover:bg-zinc-900"

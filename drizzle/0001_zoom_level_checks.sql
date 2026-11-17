@@ -1,0 +1,2 @@
+ALTER TABLE "puzzles" DROP CONSTRAINT "puzzles_zoom_levels_not_empty";--> statement-breakpoint
+ALTER TABLE "puzzles" ADD CONSTRAINT "puzzles_zoom_levels_valid" CHECK (array_ndims("puzzles"."zoom_levels") = 1 AND array_lower("puzzles"."zoom_levels", 1) = 1 AND cardinality("puzzles"."zoom_levels") >= 2 AND "puzzles"."zoom_levels"[cardinality("puzzles"."zoom_levels")] = 1 AND array_position("puzzles"."zoom_levels", NULL) IS NULL AND 1 <= ALL("puzzles"."zoom_levels") AND 'Infinity'::double precision > ALL("puzzles"."zoom_levels"));

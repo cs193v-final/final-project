@@ -10,7 +10,7 @@
 |---|---|
 | Three-image practice game | **Done and live** (Week 8). Start screen, `/play` with the viewer, Zoom out, guessing, live score and final score screen. Everything runs in the browser, and the answers are sent to it. In review: a back link on `/play` (#43, closes #42) and Playwright e2e tests (#45, closes #44). |
 | Week 9 plan | **This update** (#46). Issues #47–#68, milestones "Checkpoint 2" and "Final presentation", new `PROPOSAL` types in `src/game/types.ts`. |
-| Foundation: schema, packs, server-side games, per-level images | **Not started.** #47, #52, #54, #57 (Checkpoint 2) |
+| Foundation: schema, packs, server-side games, per-level images | **In review:** schema (#47, PR #74) and server-side games (#54, draft PR; `/play` now runs on the server with an anonymous owner cookie). **Not started:** #52, #57 (Checkpoint 2) |
 | Accounts | **Not started.** #53 (Checkpoint 2) |
 | Daily themes | **Not started.** #58, content #55 and #59 (Checkpoint 2) |
 | Data protection, game feel, accessibility, navigation, e2e tests | **Not started.** #60, #48, #49, #50, #61 (Checkpoint 2) |
@@ -227,6 +227,7 @@ The values in use are in `src/game/scoring-config.ts`, and that's the only place
 | Accounts | Username and password. No password reset for now, so we don't store emails (#53). |
 | Custom lobbies | Share a code and play any time, not live multiplayer (#67) |
 | Where puzzles and progress live | Puzzles, games, results and sessions in Neon; answers only on the server (#47, #54) |
+| Image storage | Postgres. Each zoom level is cut ahead of time into its own WebP in `image_files`, served at `/img/<random id>.webp`; the server only sends the current level's URL. Not Vercel Blob, whose store and token only the Vercel owner could manage (#57; details in `TECHNICAL.md`) |
 
 ### Still open (NOT settled)
 
@@ -238,7 +239,6 @@ Don't treat these as decided. Ask the owner, or keep them configurable.
 | Theme shown or hidden | Shown before play, or hidden for a bonus? | #58 |
 | Anonymous play | Default proposal: anyone can play daily; only logged-in players get leaderboard entries and streaks | #54, #62 |
 | Where non-public puzzle content lives | **Proposal (#52):** each of us keeps it in the git-ignored `content/` folder, and the seed script refuses committable content. Still to decide: how we share the files with each other (e.g. a private repo or a shared drive). | #52 |
-| Image storage | Vercel Blob or Postgres | #57 |
 | Scoring values and wrong-guess rules | Placeholders in `src/game/scoring-config.ts`; flat or increasing penalties; a guess limit? | #21, #64 |
 | Number of reveal steps; typo tolerance | Fixed or per puzzle; edit distance or none | #21 |
 | Stanford mode | A fixed pack, or its own daily rotation | #65 |
