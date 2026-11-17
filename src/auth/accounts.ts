@@ -14,6 +14,10 @@ import { getDummyPasswordHash, hashPassword, newSessionToken, sha256Hex, verifyP
 import { checkNewPassword, checkUsername, usernameKey } from "./rules.ts";
 
 export const SESSION_DAYS = 30;
+
+// Compute the dummy hash when the server starts, not on the first login with
+// an unknown username, so that first login isn't slower than the rest.
+getDummyPasswordHash().catch(() => {});
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -48,8 +52,12 @@ export type AuthResult =
   | { ok: false; reason: "wrong-credentials"; message: string }
   | { ok: false; reason: "rate-limited"; message: string };
 
-const ipKey = (prefix: string, ip: string | null) => `${prefix}:ip:${ip ? sha256Hex(ip) : "unknown"}`;
-const loginUserKey = (username: string) => `login:user:${usernameKey(username)}`;
+export const ipKey = (prefix: string, ip: string | null) => `${prefix}:ip:${ip ? sha256Hex(ip) : "unknown"}`;
+/**
+ * Hashed, never the typed name: people type emails, or their password, into
+ * the username box, and this row is written before we know the user exists.
+ */
+export const loginUserKey = (username: string) => `login:user:${sha256Hex(usernameKey(username))}`;
 
 const RATE_LIMITED = "Too many attempts. Wait a few minutes and try again.";
 const WRONG_CREDENTIALS = "That username and password don't match.";
@@ -95,8 +103,7 @@ export async function login(
   input: { username: unknown; password: unknown },
   req: RequestInfo,
 ): Promise<AuthResult> {
-  // Don't apply the new-account rules here (an old account may predate a rule
-  // change); just require something in both fields.
+  // Just require something in both fields; "invalid" is only for empty ones.
   const username = typeof input.username === "string" ? input.username.normalize("NFKC").trim() : "";
   const password = typeof input.password === "string" ? input.password : "";
   if (username === "" || password === "") {
@@ -110,14 +117,21 @@ export async function login(
     };
   }
 
+  // No account can have a name that breaks the username rules (they've been
+  // the same since accounts started), so that's a wrong login, decided
+  // without the database. This also keeps very long input out of the
+  // rate-limit table, where a key over Postgres's index limit was an error.
+  if (!checkUsername(username).ok) return { ok: false, reason: "wrong-credentials", message: WRONG_CREDENTIALS };
+
   const db = resolve(source);
-  // Count the attempt against both limits before checking the password, so a
-  // blocked client learns nothing about whether its guess was right.
-  const userHits = await hitRateLimit(db, loginUserKey(username), RATE_LIMITS.loginPerUser.windowMs, req.now);
+  // Count the attempt before checking the password, so a blocked client learns
+  // nothing about whether its guess was right. The address first: a client
+  // that's over its own limit stops here, without adding to the username's
+  // count, so it can't keep locking someone else's account.
   const ipHits = await hitRateLimit(db, ipKey("login", req.ip), RATE_LIMITS.loginPerIp.windowMs, req.now);
-  if (userHits > RATE_LIMITS.loginPerUser.max || ipHits > RATE_LIMITS.loginPerIp.max) {
-    return { ok: false, reason: "rate-limited", message: RATE_LIMITED };
-  }
+  if (ipHits > RATE_LIMITS.loginPerIp.max) return { ok: false, reason: "rate-limited", message: RATE_LIMITED };
+  const userHits = await hitRateLimit(db, loginUserKey(username), RATE_LIMITS.loginPerUser.windowMs, req.now);
+  if (userHits > RATE_LIMITS.loginPerUser.max) return { ok: false, reason: "rate-limited", message: RATE_LIMITED };
 
   const row = await findLoginRow(db, username);
   // Unknown username: still run one hash, so timing doesn't reveal which usernames exist.
