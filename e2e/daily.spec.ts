@@ -13,6 +13,7 @@ import { dailyDateFor } from "@/game/daily-date";
 // Fruit day)? Then the test is skipped rather than replacing it.
 
 import practicePack from "@/puzzles/practice-pack.json" with { type: "json" };
+import sample from "@/puzzles/sample.json" with { type: "json" };
 
 const THEME = "Practice mix (e2e)";
 const puzzleIds: string[] = practicePack.packs[0]!.puzzleIds;
@@ -75,6 +76,22 @@ test("plays today's daily from the home screen to the result, once", async ({ pa
   await expect(page.getByText("That's today's challenge.", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Play again" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/daily$/u);
+
+  // The result panel: countdown, Share, Home, and per-image stats.
+  await expect(page.getByText("The next one starts in", { exact: false })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+  const stats = page.getByRole("region", { name: "How you did on each image" });
+  // Another run of this test (the other browser project) may have finished first.
+  await expect(stats.getByText(/You're the first to finish today|Overall you did better than \d+% of the \d+ other/u)).toBeVisible();
+
+  // Share copies a spoiler-free text: squares and a score, no answers.
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.evaluate(() => Object.defineProperty(navigator, "share", { value: undefined })); // use the clipboard path
+  await page.getByRole("button", { name: "Share result" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Copied to the clipboard" })).toBeVisible();
+  const shared = await page.evaluate(() => navigator.clipboard.readText());
+  expect(shared).toMatch(new RegExp(`daily · \\w+ \\d+ · ${THEME.replace(/[()]/gu, "\\$&")}\\n[⬛🟩🟨🟧🟥]{${puzzleIds.length}} 0/\\d+`, "u"));
+  for (const puzzle of sample) expect(shared.toLowerCase()).not.toContain(puzzle.answer.toLowerCase());
 
   // Coming back the same day shows the same result, not the intro or a new game.
   await page.reload();

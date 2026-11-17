@@ -5,6 +5,7 @@ import { cacheLife } from "next/cache";
 
 import { getDb } from "@/db";
 import { getDailyIntro, getDailyPack, todaysDate } from "@/db/daily";
+import { getDailyStats, type DailyStats } from "@/db/daily-stats";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { DEFAULT_DAILY_RESET } from "@/game/daily-date";
 import type { DailyIntro } from "@/game/daily";
@@ -68,4 +69,18 @@ export async function loadTodaysDailyGame(now = new Date()): Promise<GameResult 
   const game = await d.games.findDaily(owner, date);
   if (game === null) return null;
   return runGameCall(async () => toGameView(game, await d.puzzles.getPuzzles(game.state.puzzleIds)));
+}
+
+/**
+ * Per-image stats for the current player's *finished* daily today, or `null`
+ * (not started, still playing, or no owner cookie). Takes no game id: the
+ * player can only ever see stats for their own game. Aggregates only.
+ */
+export async function loadTodaysDailyStats(now = new Date()): Promise<DailyStats | null> {
+  const owner = await currentOwner();
+  if (owner === null) return null;
+  const db = getDb();
+  const game = await deps(db).games.findDaily(owner, todaysDate(now, DEFAULT_DAILY_RESET));
+  if (game === null || !game.state.finished) return null;
+  return getDailyStats(db, game.id);
 }

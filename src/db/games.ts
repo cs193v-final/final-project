@@ -24,7 +24,7 @@ export type PgGameStoreOptions = {
    * (foreign key), so it's off for the practice pack, whose puzzles are still
    * in code (`SAMPLE_PUZZLES`) until packs land (#52). Default: true.
    */
-  recordRounds?: boolean;
+  recordRounds?: boolean | ((state: GameState) => boolean);
 };
 
 /** The columns that say who owns a game. Exactly one is set. */
@@ -115,13 +115,14 @@ function rowsOf(result: unknown): Record<string, unknown>[] {
  * - Owner: `{ userId }` → `user_id`; `{ anonId }` → `anon_owner_hash`.
  */
 export class PgGameStore implements GameStore {
-  private readonly recordRounds: boolean;
+  private readonly recordRounds: (state: GameState) => boolean;
 
   constructor(
     private readonly db: Db,
     options: PgGameStoreOptions = {},
   ) {
-    this.recordRounds = options.recordRounds ?? true;
+    const record = options.recordRounds ?? true;
+    this.recordRounds = typeof record === "function" ? record : () => record;
   }
 
   async get(id: string): Promise<StoredGame | null> {
@@ -169,7 +170,7 @@ export class PgGameStore implements GameStore {
     const { rounds, total } = scoreGame(state.events, state.scoring);
     // Rounds are scored in play order, so position = index + 1. Every save
     // sends all finished rounds; ON CONFLICT skips the ones already written.
-    const roundRows = this.recordRounds
+    const roundRows = this.recordRounds(state)
       ? rounds.map((r, i) => ({
           position: i + 1,
           puzzle_id: r.puzzleId,
