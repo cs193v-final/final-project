@@ -12,7 +12,7 @@ An LLM security audit of the code, as the Checkpoint 2 backend requirements ask.
 | Accounts, PR #103 | `c6c8991` | audit fixes added (`f2bbcab`, `a84d3ad`), merged (`2b6236c`) |
 | Daily challenge part 1, PR #100 | `167bec1` | audit fixes added (`e01be62`), still in review (`8e638ce`) |
 
-**Method.** Four independent reviews, one per area: accounts; server-side games; per-level images; `main` with the daily intro, secrets, CI and dependencies. Each read the changed code in full and probed it in a throwaway copy: a production build (`next build` and `next start`) against a local Postgres or PGlite with the real migrations, Server Actions called over raw HTTP like an attacker's script, gitleaks run on fake secrets, and `npm audit`. **Verified** means confirmed in the code or by a probe; **suspected** means it depends on something we couldn't check offline (mostly Vercel's edge). The main findings were then re-checked in the code.
+**Method.** Four independent reviews, one per area: accounts; server-side games; per-level images; `main` with the daily intro, secrets, CI and dependencies. Each read the changed code in full and probed it in a throwaway copy: a production build (`next build` and `next start`) against a local Postgres or PGlite with the real migrations, Server Actions called over raw HTTP like an attacker's script, gitleaks run on fake secrets, and `npm audit`. **Verified** means confirmed in the code or by a probe; **suspected** means it depends on something we couldn't check offline (mostly Vercel's edge). The main findings were then re-checked in the code. **Locations** (`file:line`) are from the audited commits in the table above; on `main` the code has moved since (for example, login is now around `src/auth/accounts.ts:140-153`).
 
 **Re-check.** For each PR, the code that changed between the audited commit and the merge was checked against its findings (the **Status** of each finding below). A fifth review then audited the security-relevant code that merged after the first audit: per-level images in the game (#126), the stale-tab check (#127), the security headers (#137) and #103's final commits. Its findings are under [Follow-up audit](#follow-up-audit-code-merged-after-the-first-audit).
 
@@ -20,13 +20,14 @@ An LLM security audit of the code, as the Checkpoint 2 backend requirements ask.
 
 No critical or high findings. Answers don't reach the browser while a round is playing, a player can't reach anyone else's game, passwords and session tokens are handled well, there's no SQL injection, no secret was ever committed, and production dependencies have no known vulnerabilities.
 
-Of the first audit's 24 findings, **13 are fixed on `main`**, **6 have an open PR**, and **5 are filed and still open**. The main gaps left are **cost and abuse controls** (rate limits and caps, #85, PR #104) and **app-level encryption of user data** (#84, PR #129). The follow-up audit found 2 more low findings and 3 info notes.
+Of the first audit's 24 findings, **10 are fixed on `main`**, **4 are partly fixed**, **6 have an open PR**, and **4 are filed and still open**. The main gaps left are **cost and abuse controls** (rate limits and caps, #85, PR #104; expired rows are never deleted, #154), **app-level encryption of user data** (#84, PRs #129 and #138), and the account lockout that's still possible from a single address (M1, #151). The follow-up audit found 2 more low findings and 3 info notes.
 
 | Status at the re-check | Findings |
 |---|---|
-| Fixed on `main` | M1 (what's left is #151), M3, M5, M6, M7, L2, L3, L4, L5, L7, L8, L9, L13 |
-| Fixed in an open PR | M4 (#104), M8 (#100), M9 (#129), M10 (#123), L6 (#125), L14 (#124) |
-| Filed, still open | M2 (#85), L1 (#150), L10 (#88), L11 (#109), L12 (#110) |
+| Fixed on `main` | M5, M6, M7, L2, L3, L5, L7, L8, L9, L13 |
+| Partly fixed on `main` | M1 (rest: #151), M2 (rest: #154), M3 (rest: #129), L4 (rest: #156) |
+| Fixed in an open PR | M4 (#104), M8 (#100), M9 (#129, #138), M10 (#123), L6 (#125), L14 (#124) |
+| Filed, still open | L1 (#150), L10 (#88), L11 (#109), L12 (#110) |
 
 | Severity | Count |
 |---|---|
@@ -42,19 +43,19 @@ Of the first audit's 24 findings, **13 are fixed on `main`**, **6 have an open P
 - **Where:** `src/auth/accounts.ts:116-119` (#103). **Verified** (probe).
 - **What happens:** login bumps the per-username counter before the per-IP check, and both block before the password is checked. Eleven bad logins on a username in 15 minutes make the owner's *correct* password return "rate-limited", and the attacker's own IP being over its limit doesn't stop it. Usernames will be public on leaderboards.
 - **Fix:** check the IP limit first and return before touching the username counter; count only failed attempts per username; consider a delay rather than a hard block.
-- **Owner:** Ethan. **Status:** fixed in #103 (`f2bbcab`): the address limit is checked first, and usernames that break the rules are refused before the database. What's left, failed logins from several addresses still blocking the right password, is #151.
+- **Owner:** Ethan. **Status:** **partly fixed** in #103 (`f2bbcab`): the address limit is checked first, so a client that's over its own limit no longer adds to the username's count, and usernames that break the rules are refused before the database. But the per-username limit (10) is lower than the per-address limit (30), and both run before the password check, so **a single address can still send 11 bad logins and lock anyone out**, right password included, and keep about two accounts locked at once (more with IPv6, L1). Still medium: #151.
 
 ### M2. Login rate-limit rows grow without limit, and a very long username causes a 500
-- **Where:** `src/auth/accounts.ts:100,116`, `src/db/accounts.ts:75-98`, `drizzle/0001_rate_limits.sql` (#103). **Verified** (probe).
+- **Where:** `src/auth/accounts.ts:100,116`, `src/db/accounts.ts:75-98`, `drizzle/0003_rate_limits.sql` on `main` (#103). **Verified** (probe).
 - **What happens:** login never length-checks the username and stores it in a `rate_limits` key, even when the IP is blocked. Nothing calls `deleteExpiredRateLimits` or `deleteExpiredSessions`. One client can insert endless ~2.5 KB rows toward Neon's free 0.5 GB. A 4,000-character username exceeds the btree index limit and throws an unhandled error.
 - **Fix:** reject usernames that fail the username rules before any database call; run both sweepers on a schedule (e.g. a Vercel cron).
-- **Owner:** Ethan. **Status:** partly fixed in #103: usernames that break the rules are refused before the database, so long keys and the 500 are gone. Old rows are still never deleted (`deleteExpiredRateLimits` isn't scheduled): #85, PR #104.
+- **Owner:** Ethan. **Status:** **partly fixed** in #103: usernames that break the rules are refused before the database, so long keys and the 500 are gone. But expired rows are never deleted: neither `deleteExpiredRateLimits` nor `deleteExpiredSessions` runs on a schedule, there's no cron in `vercel.json`, and #104 says so too. #154.
 
 ### M3. What people type as a login username is stored in plain text, including emails and passwords
 - **Where:** `src/auth/accounts.ts:52` (#103). **Verified** (probe: the table held `login:user:alice@stanford.edu` and `login:user:mysecretpassw0rd!`).
 - **What happens:** people often type an email, or their password, into the username box. Those values stay in `rate_limits` indefinitely (see M2). That contradicts TECHNICAL.md's "no email is stored" and the course rule that user data is stored encrypted.
 - **Fix:** key the row on an HMAC or SHA-256 of the normalized username, as IPs already are; reject invalid usernames before storing anything.
-- **Owner:** Ethan. **Status:** fixed in #103: the key is now a SHA-256 of the normalized username, like the IP keys.
+- **Owner:** Ethan. **Status:** **partly fixed** on `main`: the key is now a plain SHA-256 of the normalized username, like the IP keys (`sha256Hex`, `src/auth/accounts.ts:71,76`). A plain hash can be reversed by guessing when the input is short or structured: an IPv4 address, or a password typed into the username box that happens to pass the username rules. The keyed HMAC is in #129. See M9.
 
 ### M4. Game state and game creation are unbounded
 - **Where:** `src/game/server-game.ts:347`, `src/game/round.ts:131-136`, `src/server/games.ts:58-66` (#77). **Verified** (probe).
@@ -87,10 +88,10 @@ Of the first audit's 24 findings, **13 are fixed on `main`**, **6 have an open P
 - **Owner:** Joseph. **Status:** fixed in #100 (`e01be62`): the intro is cached for a few minutes, and a scheduled pack with no puzzles is an error rather than an empty day. #100 isn't merged yet. (related: #85, #86)
 
 ### M9. User data isn't encrypted beyond Neon's at-rest encryption
-- **Where:** `TECHNICAL.md:157` says so on purpose; `users.username` and `games.state` (which holds players' guesses) are plain columns in `src/db/schema.ts`. **Verified.**
+- **Where:** `TECHNICAL.md:157` says so on purpose; `users.username` and `games.state` (which holds players' guesses) are plain columns in `src/db/schema.ts`, and `rate_limits.key` is only a plain SHA-256 (M3). **Verified.**
 - **What happens:** this misses the Checkpoint 2 requirement that information from users is stored encrypted, beyond Neon's built-in encryption. M3 adds to what needs covering.
 - **Fix:** decide on per-field (or per-user) encryption, e.g. AES-GCM with a key per environment held in Vercel, then document it in `ENCRYPTION.md` (written by a person).
-- **Owner:** Ethan. **Issue:** #84, PR #129 open.
+- **Owner:** Ethan. **Issue:** #84, in two open PRs: #129 (usernames and keyed lookups, including `rate_limits.key`, M3) and #138 (game states; stacked on #129, closes #84).
 
 ### M10. gitleaks misses a bare Neon password
 - **Where:** `.gitleaks.toml:7-25` (`main`). **Verified** (gitleaks 8.30.1 on fake values).
@@ -105,9 +106,9 @@ Of the first audit's 24 findings, **13 are fixed on `main`**, **6 have an open P
 | L1 | Per-IP login and sign-up limits treat every IPv6 address separately, so rotating within a /64 gets around them | `src/auth/accounts.ts:51`, `src/auth/session.ts:88-92` (#103) | verified in code | Ethan | open: #150 |
 | L2 | `x-forwarded-for` is trusted as-is. Safe behind Vercel's edge; spoofable on any other host. Prefer `x-vercel-forwarded-for` | `src/auth/session.ts:88-92` (#103) | suspected | Ethan | fixed in #103 (prefers `x-vercel-forwarded-for`) |
 | L3 | Database errors log query parameters, including a username and password hash on a failed `insertUser` | `src/auth/session.ts:43`, account actions (#103) | verified (probe) | Ethan | fixed in #103 (errors are logged by type and code only) |
-| L4 | Logging in while logged in leaves the old session valid for 30 days; no limit on sessions per user | `src/auth/accounts.ts:127-128`, `src/app/account/actions.ts:16` (#103) | verified in code | Ethan | fixed in #103 (logging in ends the previous session) |
+| L4 | Logging in while logged in leaves the old session valid for 30 days; no limit on sessions per user | `src/auth/accounts.ts:127-128`, `src/app/account/actions.ts:16` (#103) | verified in code | Ethan | partly fixed in #103: logging in again ends that browser's previous session; there's still no limit on sessions per user: #156 |
 | L5 | An action from a stale tab is applied to a round that tab never saw; `conflict` only fires on overlapping requests. Send the revision with each action | `src/app/play/actions.ts:23`, `src/game/server-game.ts:326-352` (#77) | verified in code | Jacky | fixed: #107, PR #127 |
-| L6 | The owner cookie's `Secure` flag follows the request's `X-Forwarded-Proto`, so any unknown value means no Secure. Force Secure on Vercel; consider a `__Host-` name | `src/server/owner.ts:48-51,84-85` (#77) | verified | Jacky | #108, PR #125 open (the session cookie too: F1) |
+| L6 | The owner cookie's `Secure` flag follows the request's `X-Forwarded-Proto`, so any unknown value means no Secure. Force Secure on Vercel; consider a `__Host-` name | `src/server/owner.ts:48-51,84-85` (#77) | verified | Jacky | #108, PR #125 open (owner cookie only; the session cookie is F1, #155) |
 | L7 | Image height isn't capped: a 1200×12000 original gave a 9.3 MB level, likely over Vercel's 4.5 MB response limit. Cap pixels and add a size CHECK | `src/game/levels.ts:69-74`, `drizzle/0002_image_files.sql` (#83) | verified (probe) | Darian | fixed in #83 (`1bc32f0`) |
 | L8 | The preview script writes inside the repo when the folder name starts with `..` (same bug fixed in the seed script) | `scripts/preview-levels.ts:58-59` (#83) | verified (probe) | Darian | fixed in #83 (`1bc32f0`) |
 | L9 | `cutLevels` accepts any format sharp reads (SVG too) and decodes the original once per level at the same time. Allow only JPEG/PNG/WebP/HEIF, set `limitInputPixels`, cut levels one at a time | `src/images/cut.ts:34-61` (#83) | verified | Darian | fixed in #83 (`1bc32f0`) |
@@ -130,7 +131,7 @@ Audited `main` at `a3a2208`: #126 (`df0fe92`), #127 (`44c47a9`), #137 (`2654e24`
 
 | # | Finding | Where | Verified? | Owner | Issue |
 |---|---|---|---|---|---|
-| F1 (low) | The account session cookie's `Secure` flag also follows `X-Forwarded-Proto` (since #103 `f2bbcab`), the same weakness as L6; PR #125 fixes only the owner cookie. Putting the Vercel rule inside `isHttpsRequest` covers both | `src/auth/session.ts:101-108`, `src/server/https.ts:11-14` | verified | Jacky | #108 (noted there and on #125) |
+| F1 (low) | The account session cookie's `Secure` flag also follows `X-Forwarded-Proto` (since #103 `f2bbcab`), the same weakness as L6; PR #125 fixes only the owner cookie. Putting the Vercel rule inside `isHttpsRequest` covers both | `src/auth/session.ts:101-108`, `src/server/https.ts:11-14` | verified | Jacky, Ethan | #155 (#108 covers only the owner cookie) |
 | F2 (low) | Production's CSP allows inline scripts (`script-src 'self' 'unsafe-inline'`), Next's policy without nonces, so it doesn't stop an injected script. No injection point exists today | `src/server/security-headers.ts` (#137) | verified | Ethan | #152 |
 
 - **F3 (info).** A content puzzle's image path can point anywhere the person running the seed can read (`scripts/seed-images.ts:60-73`). The content is written by the team, sharp rejects anything that isn't an image, and a private photo inside the repo that isn't git-ignored still stops the seed. Optionally refuse paths that leave the content folder.
@@ -151,7 +152,7 @@ Audited `main` at `a3a2208`: #126 (`df0fe92`), #127 (`44c47a9`), #137 (`2654e24`
 - **Input validation** (#77): `parseGameAction` rejects non-objects, a non-string guess and guesses over 200 characters, drops unknown fields, and isn't fooled by `__proto__` payloads. Scores are recomputed on the server; no action takes a score.
 - **Concurrency** (#77): 20 simultaneous actions gave 1 success and 19 conflicts, with nothing applied twice.
 - **CSRF:** Server Actions reject a cross-origin `Origin`; cookies are `SameSite=Lax`; logout is a POST form.
-- **Passwords and sessions** (#103): argon2id with a random salt and timing-safe comparison; an unknown username still runs a hash, so timing doesn't reveal accounts; 32-byte session tokens stored only as SHA-256; `HttpOnly`, `Secure`, `SameSite=Lax` cookies; a new token on every login; logout deletes the session on the server; huge passwords are capped.
+- **Passwords and sessions** (#103): argon2id with a random salt and timing-safe comparison; an unknown username still runs a hash, so timing doesn't reveal accounts; 32-byte session tokens stored only as SHA-256; `HttpOnly` and `SameSite=Lax` cookies (`Secure` follows the request's protocol, not always on: F1, #155); a new token on every login; logout deletes the session on the server; huge passwords are capped.
 - **Usernames** (#103): 3–20 ASCII letters, digits, `_` and `-` after NFKC, so they can't be emails or lookalike characters; unique regardless of case.
 - **SQL:** every value is a bound parameter. The only `sql.raw` (`src/db/content.ts:56-59`) takes schema column names, not input.
 - **TLS** (`main`, #77): every connection requires TLS except loopback. Fuzzed with about 20 tricky URLs (`host=` overrides, encoded hosts, multiple hosts); no remote host was ever exempted.
@@ -162,7 +163,7 @@ Audited `main` at `a3a2208`: #126 (`df0fe92`), #127 (`44c47a9`), #137 (`2654e24`
 
 ## Course requirements this audit touches
 
-- **Encryption** of user data beyond Neon at rest: not on `main` yet (M9; #84, PR #129). M3 is fixed (login keys are hashed). `ENCRYPTION.md` is written by a person.
-- **Cost controls:** rate limits and caps are in PR #104 (#85), including game creation and wrong guesses (M4); old login rows are still never deleted (M2). Image requests with a query string no longer reach the database (M5, merged), and `/daily` is cached (M8, in #100). `COST-CONTROLS.md` is written by a person (#86).
+- **Encryption** of user data beyond Neon at rest: not on `main` yet (M9; #84, PRs #129 for usernames and keyed lookups and #138 for game states). M3 is only partly fixed (login keys are a plain SHA-256 until #129). `ENCRYPTION.md` is written by a person.
+- **Cost controls:** rate limits and caps are in PR #104 (#85), including game creation and wrong guesses (M4); expired login rows and sessions are never deleted (M2, #154). Image requests with a query string no longer reach the database (M5, merged), and `/daily` is cached (M8, in #100). `COST-CONTROLS.md` is written by a person (#86).
 - **Secret stewardship:** hooks and CI scanning work, with two gaps (M10, PR #123; L10, #88). `SECRETS.md` is written by a person (#87).
 - **Encryption in transit:** TLS to the database is enforced, and the app now sends HSTS (#137). Nothing is sent between users yet (lobbies, #67).
