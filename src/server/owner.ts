@@ -36,14 +36,16 @@ export const hashOwnerToken = sha256Hex;
 export const isOwnerToken = isToken;
 
 /**
- * Cookie options for the owner cookie. `Secure` whenever the request came in
- * over https; on plain http (local dev, e2e, testing from a phone on the LAN)
- * a Secure cookie would be dropped by the browser, so it's left off there.
+ * Cookie options for the owner cookie. Always `Secure` on Vercel, whatever the
+ * request headers say (#108, #155). Elsewhere, `Secure` unless the request came
+ * in over plain http (local dev, e2e, testing from a phone on the LAN), where
+ * the browser would drop a Secure cookie. The rule is `isHttpsRequest`
+ * (./https.ts), shared with the session cookie.
  */
-export function ownerCookieOptions(forwardedProto: string | null) {
+export function ownerCookieOptions(forwardedProto: string | null, onVercel = Boolean(process.env.VERCEL)) {
   return {
     httpOnly: true,
-    secure: isHttpsRequest(forwardedProto),
+    secure: isHttpsRequest(forwardedProto, onVercel),
     sameSite: "lax" as const,
     path: "/",
     maxAge: MAX_AGE_SECONDS,

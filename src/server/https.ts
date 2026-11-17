@@ -9,10 +9,12 @@
  * say (#155). Elsewhere from `X-Forwarded-Proto`: Next sets that header from
  * the connection when a proxy hasn't, so plain `next dev` / `next start`
  * report "http" and a phone on the LAN still gets its cookies. With a proxy
- * chain the first value is the client's. Unknown means https, the safe default.
+ * chain the first value is the client's. Only an explicit `http` counts as
+ * plain http; anything else (missing, empty, unknown) means https, the safe
+ * default (#108).
  */
 export function isHttpsRequest(forwardedProto: string | null, onVercel = Boolean(process.env.VERCEL)): boolean {
   if (onVercel) return true;
   const first = forwardedProto?.split(",")[0]?.trim().toLowerCase();
-  return first === undefined || first === "" ? true : first === "https";
+  return first !== "http";
 }
