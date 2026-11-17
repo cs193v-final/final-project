@@ -43,22 +43,29 @@ export function isOwnerToken(value: string | undefined): value is string {
  * Whether the request reached us over https, from `X-Forwarded-Proto`. Next
  * sets that header from the connection when a proxy (e.g. Vercel) hasn't, so
  * plain `next dev` / `next start` report "http". With a proxy chain the
- * first value is the client's. Unknown means https, the safe default.
+ * first value is the client's. Only an explicit `http` counts as plain http;
+ * anything else (missing, empty, unknown) means https, the safe default (#108).
  */
 export function isHttpsRequest(forwardedProto: string | null): boolean {
   const first = forwardedProto?.split(",")[0]?.trim().toLowerCase();
-  return first === undefined || first === "" ? true : first === "https";
+  return first !== "http";
+}
+
+/** Whether we're running on Vercel (preview or production), which serves only https. */
+export function isOnVercel(env: Record<string, string | undefined> = process.env): boolean {
+  return env.VERCEL === "1";
 }
 
 /**
- * Cookie options for the owner cookie. `Secure` whenever the request came in
- * over https; on plain http (local dev, e2e, testing from a phone on the LAN)
- * a Secure cookie would be dropped by the browser, so it's left off there.
+ * Cookie options for the owner cookie. Always `Secure` on Vercel, whatever the
+ * request headers say (#108). Elsewhere, `Secure` unless the request came in
+ * over plain http (local dev, e2e, testing from a phone on the LAN), where the
+ * browser would drop a Secure cookie.
  */
-export function ownerCookieOptions(forwardedProto: string | null) {
+export function ownerCookieOptions(forwardedProto: string | null, onVercel = isOnVercel()) {
   return {
     httpOnly: true,
-    secure: isHttpsRequest(forwardedProto),
+    secure: onVercel || isHttpsRequest(forwardedProto),
     sameSite: "lax" as const,
     path: "/",
     maxAge: MAX_AGE_SECONDS,
