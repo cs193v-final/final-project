@@ -117,15 +117,19 @@ If a migration fails partway, don't edit it; fix forward with a new migration, o
 
 A puzzle is the same `Puzzle` format as `sample.json`, plus an optional `aiSolvedLevel` (#56). Use random ids (`pz-` + `openssl rand -hex 4`): **no id or image URL may contain an answer or accepted answer**, and the checks reject one that does (#36). They also catch single words of 3+ letters (`ben-01.jpg` for "Big Ben"), singulars (`cherry.jpg` for "Cherries") and URL-encoded names. **Strip photo metadata** before using an image: phone photos carry GPS, which gives a landmark away. Only daily packs can be scheduled, each on one day. Per-pack `scoring` isn't loaded yet (#64).
 
+**`imageUrl` is the original photo** (#57): for a content puzzle, a path relative to its content file (e.g. `images/fig.jpg` next to `content/fruit.json`); for the practice pack, `/puzzles/…` in `public/`. The seed cuts it into one image per zoom level, and only those level images ever reach a browser, so the path itself is never sent. A remote URL can't be cut: download the photo first.
+
 **Where private content lives:** in `content/` at the repo root, or anywhere outside the repo. `content/` is in `.gitignore` and in `.vercelignore` (a `vercel deploy` uploads from disk). It may be a symlink to a shared folder. The seed script refuses a content file inside the repo that git would commit.
 
 **Running it.**
 
 | Command | What it does |
 |---|---|
-| `npm run db:seed -- --dry-run [paths]` | Checks the content and prints a summary. No database needed. Run this while writing content. (`npm run db:seed --dry-run`, without `--`, is a dry run too.) |
+| `npm run db:seed -- --dry-run [paths]` | Checks the content and that every puzzle's original photo exists (and, for private content, isn't somewhere git would commit), then prints a summary. No database needed. Run this while writing content. (`npm run db:seed --dry-run`, without `--`, is a dry run too.) |
 | `npm run db:seed` | Loads the practice pack and every `.json` file in `content/` into the database in `DATABASE_URL_UNPOOLED` (dev, from `.env.local`, by default). |
 | `npm run db:seed -- a.json more/` | The same, for these files and folders instead of `content/`. |
+| `npm run db:seed -- --recut` | Also cuts every puzzle's level images again (new URLs). Normally only new or changed puzzles are cut. |
+| `npm run db:seed -- --no-images` | Seeds without cutting images. Puzzles that aren't cut can't be played, except the practice pack (shown whole and cropped in the browser, as before #57). |
 
 Credentials work like migrations: dev from `.env.local`; preview and production typed at a hidden prompt for one command (see the migrations table above). A Postgres on this machine (`localhost`, `127.x`, `::1`, e.g. CI's e2e database) is reached with `pg` (from #54); Neon with its HTTP driver. Seed preview and production only after their migrations.
 
@@ -151,7 +155,11 @@ The browser used to get each puzzle's full image and crop it with CSS, so anyone
 - **Serving.** `GET /img/<id>.webp` (`src/app/img/[file]/route.ts`, `src/server/images.ts`). The response is cached for a year by browsers (`Cache-Control: … immutable`) and by Vercel's CDN (`CDN-Cache-Control`; still to confirm on a preview deploy with `x-vercel-cache: HIT`), so most loads never reach the database. A missing image is a 404 that isn't cached. Anything but 32 hex characters plus `.webp`, and any URL with a query string (which the CDN would cache separately), is a 404 without a query. Once an image is cached it can only be taken back with a Vercel cache purge, even after its row is deleted.
 - **What protects a level: a secret URL.** Each image id is 128 random bits, never derived from the puzzle, the level or the answer. The server only sends the current level's URL (`PublicRound.imageSrc`), and one URL says nothing about another. Re-cutting a puzzle gives every level a new id and deletes the old files. A player could share a URL they've reached, which is no worse than sharing the answer.
 - **Previewing levels while writing content.** `npm run images:preview -- photo.jpg --focus 0.4,0.66 --zoom 10,5,2.5,1` writes every level to a temporary folder (or `--out`), and says which levels will look soft on a 2× screen, meaning the original is too small for that zoom (#34). It won't write inside the repo unless that folder is git-ignored; symlinks are followed first, and a folder named like `..previews` still counts as inside.
-- **Still to do (after #54 merges; #52 has):** a command that cuts every seeded puzzle into the database, the game sending `imageSrc` from `puzzle_images`, the viewer showing pre-cut images, and removing the temporary `PublicRound.reveal`.
+- **Cutting seeded puzzles:** `npm run db:seed` cuts every puzzle into its levels after seeding (`scripts/seed-images.ts`), skipping puzzles already cut with the same image, focus point and zoom levels (`--recut` forces it). A puzzle's original photo must not be committable unless it's in the practice pack: like its content file, it lives outside the repo or git-ignored. Known gap: the skip compares with the `puzzles` row from before this seed, not with what the images were cut from, so after a failed cut, or a photo replaced at the same path, run `--recut` (follow-up: #131). CI's e2e job seeds, so e2e plays real level images.
+- **In the game:** the server looks up only the current puzzle's level URLs (`LevelImageSource`, `getLevelSrcs`) and sends just `imageSrc` for the level reached, or the full image's level once the round is over, with no `reveal`. A puzzle that isn't cut yet is still sent whole with `reveal` only if it's a public practice image (`/puzzles/…`); any other puzzle without levels is an error, so a private image is never sent whole.
+- **In the viewer:** while the next level loads, the last one stays on screen at its own shape, and the new one fades in over it once it's ready. The old one is removed only when the fade has finished (`ImageViewer`), so the empty frame never shows.
+- **Deploying:** run `npm run db:seed` against preview and production after their migrations, so the practice puzzles there are cut too. Until then practice still works the old way.
+- **Still to do:** remove `PublicRound.reveal` and the practice fallback once every database is seeded and cut.
 
 ## 4. Secrets and user information
 
