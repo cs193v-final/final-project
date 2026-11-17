@@ -174,6 +174,47 @@ describe("seedContent", () => {
     expect((await getDailyEntry(db, "2026-11-21"))!.packId).toBe("pk-1");
   });
 
+  it("refuses to change how many zoom levels a played puzzle has, and writes nothing", async () => {
+    await seedContent(db, FRUIT_DAY);
+    await addGame("pk-1");
+    const fewer = { ...FRUIT[1]!, answer: "Pineapple!", reveal: { ...FRUIT[1]!.reveal, zoomLevels: [4, 1] } };
+    await expect(seedContent(db, content({ puzzles: [fewer] }))).rejects.toThrow(
+      "puzzle pz-2: its number of zoom levels changed (4 → 2), but it has already been played",
+    );
+    expect((await getPuzzles(db, ["pz-2"]))[0]!.answer).toBe("Pineapple");
+
+    // The same count with new values is a fix, so it's allowed.
+    const retuned = { ...FRUIT[1]!, reveal: { ...FRUIT[1]!.reveal, zoomLevels: [12, 6, 3, 1] } };
+    await seedContent(db, content({ puzzles: [retuned] }));
+    expect((await getPuzzles(db, ["pz-2"]))[0]!.reveal.zoomLevels).toEqual([12, 6, 3, 1]);
+  });
+
+  it("lets an unplayed puzzle change its number of zoom levels", async () => {
+    await seedContent(db, FRUIT_DAY);
+    const fewer = { ...FRUIT[1]!, reveal: { ...FRUIT[1]!.reveal, zoomLevels: [4, 1] } };
+    await seedContent(db, content({ puzzles: [fewer] }));
+    expect((await getPuzzles(db, ["pz-2"]))[0]!.reveal.zoomLevels).toEqual([4, 1]);
+  });
+
+  it("refuses to change the kind of a scheduled pack", async () => {
+    await seedContent(db, FRUIT_DAY);
+    const practice = content({ puzzles: FRUIT, packs: [{ ...daily("pk-1", ["pz-1", "pz-2"]), kind: "practice" }] });
+    await expect(seedContent(db, practice)).rejects.toThrow(
+      "pack pk-1: its kind changed (daily → practice), but it is on the daily schedule",
+    );
+    expect((await getPack(db, "pk-1"))!.kind).toBe("daily");
+  });
+
+  it("refuses to change the kind of a played pack, but allows it for one nobody has used", async () => {
+    const stanford = (kind: Pack["kind"]) =>
+      content({ puzzles: FRUIT, packs: [{ ...daily("pk-s", ["pz-1", "pz-2"]), kind }] });
+    await seedContent(db, stanford("stanford"));
+    await seedContent(db, stanford("lobby"));
+    expect((await getPack(db, "pk-s"))!.kind).toBe("lobby");
+    await addGame("pk-s");
+    await expect(seedContent(db, stanford("stanford"))).rejects.toThrow("but it has already been played");
+  });
+
   it("never deletes: content left out of a run stays in the database", async () => {
     await seedContent(db, FRUIT_DAY);
     await seedContent(db, PRACTICE_CONTENT);

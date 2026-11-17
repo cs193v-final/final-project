@@ -187,6 +187,10 @@ describe("findAnswerLeaks", () => {
     ["another short word", puzzle("pz-1", "Taj Mahal", [], "/img/taj_2.jpg")],
     ["the -y singular of an -ies plural", puzzle("pz-1", "Cherries", [], "/img/cherry.jpg")],
     ["a URL-encoded answer", puzzle("pz-1", "Giraffe", [], "/img/%67iraffe.jpg")],
+    ["the singular of an -es plural", puzzle("pz-1", "Tomatoes", [], "/img/tomato.jpg")],
+    ["another -es plural", puzzle("pz-1", "Peaches", [], "/img/peach.jpg")],
+    ["the plural of a singular answer", puzzle("pz-1", "Cherry", [], "/img/cherries.jpg")],
+    ["a short word next to digits", puzzle("pz-1", "Big Ben", [], "/img/ben1.jpg")],
   ])("finds %s", (_name, p) => {
     expect(leaksFor(p)).toHaveLength(1);
   });

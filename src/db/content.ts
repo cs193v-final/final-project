@@ -14,7 +14,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import type { Content } from "../game/packs.ts";
 import type { DailyEntry, Pack, Puzzle } from "../game/types.ts";
-import { dailySchedule, games, packPuzzles, packs, puzzles } from "./schema.ts";
+import { dailySchedule, gameRounds, games, packPuzzles, packs, puzzles } from "./schema.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- any schema, any driver
 export type AnyDb = PgDatabase<PgQueryResultHKT, any>;
@@ -89,9 +89,12 @@ const sameList = (a: readonly string[] | undefined, b: readonly string[]) =>
  * `SeedRefusedError` before writing anything if it would:
  * - a pack's puzzle list can't change once the pack has games;
  * - a date can't move to another pack once its current pack has games;
- * - a played pack can't move to another date.
+ * - a played pack can't move to another date;
+ * - a played puzzle can't change its number of zoom levels;
+ * - a scheduled or played pack can't change its kind.
  * Moving an unplayed pack to another date clears its old date, so a pack is
- * never on two days. Fixing a typo in a puzzle (answer, credit, focus) is allowed.
+ * never on two days. Fixing a typo in a puzzle (answer, credit, focus, image
+ * URL, zoom values) is allowed.
  */
 export async function seedContent(db: AnyDb, content: Content): Promise<SeedSummary> {
   const packIds = content.packs.map((p) => p.id);
@@ -115,10 +118,54 @@ export async function seedContent(db: AnyDb, content: Content): Promise<SeedSumm
           (row) => !dates.includes(row.date),
         );
 
+  // A puzzle someone has played keeps its number of zoom levels: a game in
+  // progress could otherwise be on a level the puzzle no longer has.
+  const puzzleIds = content.puzzles.map((p) => p.id);
+  const storedPuzzles =
+    puzzleIds.length === 0
+      ? []
+      : await db.select({ id: puzzles.id, zoomLevels: puzzles.zoomLevels }).from(puzzles).where(inArray(puzzles.id, puzzleIds));
+  const levelCountChanged = storedPuzzles.filter(
+    (row) => content.puzzles.find((p) => p.id === row.id)!.reveal.zoomLevels.length !== row.zoomLevels.length,
+  );
+  const levelChangeIds = levelCountChanged.map((r) => r.id);
+  const packsOfChanged =
+    levelChangeIds.length === 0
+      ? []
+      : await db.select().from(packPuzzles).where(inArray(packPuzzles.puzzleId, levelChangeIds));
+  const roundsOfChanged =
+    levelChangeIds.length === 0
+      ? []
+      : await db
+          .selectDistinct({ puzzleId: gameRounds.puzzleId })
+          .from(gameRounds)
+          .where(inArray(gameRounds.puzzleId, levelChangeIds));
+
+  // A scheduled or played pack keeps its kind: a daily pack that stops being
+  // daily would silently leave its day without a challenge.
+  const storedPacks =
+    packIds.length === 0 ? [] : await db.select({ id: packs.id, kind: packs.kind }).from(packs).where(inArray(packs.id, packIds));
+  const kindChanged = storedPacks.filter((row) => content.packs.find((p) => p.id === row.id)!.kind !== row.kind);
+  const kindChangeIds = kindChanged.map((r) => r.id);
+  const scheduledKindChanged =
+    kindChangeIds.length === 0
+      ? new Set<string>()
+      : new Set(
+          (await db.select({ packId: dailySchedule.packId }).from(dailySchedule).where(inArray(dailySchedule.packId, kindChangeIds))).map(
+            (r) => r.packId,
+          ),
+        );
+
   const played = await playedPackIds(db, [
     ...changedPacks.map((p) => p.id),
     ...movedDates.map((r) => r.packId),
     ...elsewhere.map((r) => r.packId),
+    ...packsOfChanged.map((r) => r.packId),
+    ...kindChangeIds,
+  ]);
+  const playedPuzzles = new Set([
+    ...roundsOfChanged.map((r) => r.puzzleId),
+    ...packsOfChanged.filter((r) => played.has(r.packId)).map((r) => r.puzzleId),
   ]);
   const problems = [
     ...changedPacks
@@ -132,6 +179,19 @@ export async function seedContent(db: AnyDb, content: Content): Promise<SeedSumm
       .map((r) => {
         const to = content.schedule.find((e) => e.packId === r.packId)!.date;
         return `pack ${r.packId}: can't move from ${r.date} to ${to}, it has already been played`;
+      }),
+    ...levelCountChanged
+      .filter((r) => playedPuzzles.has(r.id))
+      .map((r) => {
+        const now = content.puzzles.find((p) => p.id === r.id)!.reveal.zoomLevels.length;
+        return `puzzle ${r.id}: its number of zoom levels changed (${r.zoomLevels.length} → ${now}), but it has already been played`;
+      }),
+    ...kindChanged
+      .filter((r) => played.has(r.id) || scheduledKindChanged.has(r.id))
+      .map((r) => {
+        const now = content.packs.find((p) => p.id === r.id)!.kind;
+        const why = played.has(r.id) ? "it has already been played" : "it is on the daily schedule";
+        return `pack ${r.id}: its kind changed (${r.kind} → ${now}), but ${why}`;
       }),
   ];
   if (problems.length > 0) throw new SeedRefusedError(problems);

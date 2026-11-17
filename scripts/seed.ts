@@ -12,8 +12,8 @@
 // Runs directly in Node 24 (type stripping), so imports keep their `.ts`.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
 import { seedContent } from "../src/db/content.ts";
@@ -22,7 +22,17 @@ import { parsePuzzles } from "../src/game/puzzles.ts";
 import { connect } from "./seed-db.ts";
 
 const root = resolve(import.meta.dirname, "..");
-const readJson = (path: string): unknown => JSON.parse(readFileSync(path, "utf8"));
+// npm runs scripts from the repo root; INIT_CWD is where the command was typed,
+// so relative paths mean what the person expects.
+const cwd = process.env.INIT_CWD ?? process.cwd();
+
+function readJson(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(`${relative(cwd, path)}: not valid JSON (${error instanceof Error ? error.message : error})`);
+  }
+}
 
 function practiceContent(): { source: string; content: Content }[] {
   const dir = join(root, "src/puzzles");
@@ -35,7 +45,7 @@ function practiceContent(): { source: string; content: Content }[] {
 /** Files to load: each path given (a folder means every .json directly in it). */
 function contentFiles(paths: string[]): string[] {
   return paths.flatMap((path) => {
-    const full = resolve(path);
+    const full = resolve(cwd, path);
     if (!existsSync(full)) throw new Error(`${path}: no such file or folder`);
     if (!statSync(full).isDirectory()) return [full];
     return readdirSync(full)
@@ -45,16 +55,29 @@ function contentFiles(paths: string[]): string[] {
   });
 }
 
-/** Private content must not be committable: outside the repo, or git-ignored. */
+/** Whether `file` (after following symlinks) is inside the repo. */
+function inRepo(file: string): string | null {
+  const rel = relative(realpathSync(root), realpathSync(file));
+  return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) ? null : rel;
+}
+
+/**
+ * Private content must not be committable: outside the repo, or git-ignored.
+ * Symlinks are followed first, so `content/` linked to a shared drive counts as
+ * outside the repo.
+ */
 function assertNotCommittable(file: string) {
-  const inRepo = relative(root, file);
-  if (inRepo.startsWith("..")) return;
+  const rel = inRepo(file);
+  if (rel === null) return;
   try {
-    execFileSync("git", ["check-ignore", "-q", file], { cwd: root });
-  } catch {
-    throw new Error(
-      `${inRepo}: private content can't live in the repo unless it's git-ignored. Move it to content/ or outside the repo.`,
-    );
+    execFileSync("git", ["check-ignore", "-q", rel], { cwd: root, stdio: "pipe" });
+  } catch (error) {
+    if ((error as { status?: number }).status === 1) {
+      throw new Error(
+        `${rel}: private content can't live in the repo unless it's git-ignored. Move it to content/ or outside the repo.`,
+      );
+    }
+    throw new Error(`${rel}: couldn't ask git whether it's ignored: ${String((error as { stderr?: unknown }).stderr ?? error).trim()}`);
   }
 }
 
@@ -63,6 +86,9 @@ async function main() {
     options: { "dry-run": { type: "boolean", default: false } },
     allowPositionals: true,
   });
+  // `npm run db:seed --dry-run` (no `--`) gives the flag to npm, not to us;
+  // npm then sets npm_config_dry_run. Treat that as a dry run too, never as a real seed.
+  const dryRun = values["dry-run"] || process.env.npm_config_dry_run === "true";
   const defaultDir = join(root, "content");
   const paths = positionals.length > 0 ? positionals : existsSync(defaultDir) ? [defaultDir] : [];
 
@@ -71,7 +97,7 @@ async function main() {
   const content = combineContent([
     ...practiceContent(),
     ...files.map((file) => {
-      const source = relative(process.cwd(), file);
+      const source = relative(cwd, file);
       return { source, content: parseContent(readJson(file), source) };
     }),
   ]);
@@ -81,7 +107,7 @@ async function main() {
     `Checked ${files.length} content file(s) plus the practice pack: ${content.puzzles.length} puzzles, ` +
       `${content.packs.length} packs (${kinds}), ${content.schedule.length} scheduled days.`,
   );
-  if (values["dry-run"]) {
+  if (dryRun) {
     console.log("Dry run: no database touched.");
     return;
   }
@@ -109,6 +135,13 @@ async function main() {
 try {
   await main();
 } catch (error) {
-  console.error(error instanceof Error ? error.message : error);
+  // For a failed query, drizzle's message is the SQL; the database's own error
+  // (missing table, wrong password) is in `cause`.
+  let current: unknown = error;
+  for (let depth = 0; current !== undefined && depth < 5; depth++) {
+    const message = current instanceof Error ? current.message : String(current);
+    console.error(depth === 0 ? message : `Caused by: ${message}`);
+    current = current instanceof Error ? current.cause : undefined;
+  }
   process.exitCode = 1;
 }

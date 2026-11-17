@@ -91,13 +91,13 @@ If a migration fails partway, don't edit it; fix forward with a new migration, o
 
 A puzzle is the same `Puzzle` format as `sample.json`, plus an optional `aiSolvedLevel` (#56). Use random ids (`pz-` + `openssl rand -hex 4`): **no id or image URL may contain an answer or accepted answer**, and the checks reject one that does (#36). They also catch single words of 3+ letters (`ben-01.jpg` for "Big Ben"), singulars (`cherry.jpg` for "Cherries") and URL-encoded names. **Strip photo metadata** before using an image: phone photos carry GPS, which gives a landmark away. Only daily packs can be scheduled, each on one day. Per-pack `scoring` isn't loaded yet (#64).
 
-**Where private content lives:** in `content/` at the repo root, which is git-ignored, or anywhere outside the repo. The seed script refuses a content file inside the repo that git would commit.
+**Where private content lives:** in `content/` at the repo root, or anywhere outside the repo. `content/` is in `.gitignore` and in `.vercelignore` (a `vercel deploy` uploads from disk). It may be a symlink to a shared folder. The seed script refuses a content file inside the repo that git would commit.
 
 **Running it.**
 
 | Command | What it does |
 |---|---|
-| `npm run db:seed -- --dry-run [paths]` | Checks the content and prints a summary. No database needed. Run this while writing content. |
+| `npm run db:seed -- --dry-run [paths]` | Checks the content and prints a summary. No database needed. Run this while writing content. (`npm run db:seed --dry-run`, without `--`, is a dry run too.) |
 | `npm run db:seed` | Loads the practice pack and every `.json` file in `content/` into the database in `DATABASE_URL_UNPOOLED` (dev, from `.env.local`, by default). |
 | `npm run db:seed -- a.json more/` | The same, for these files and folders instead of `content/`. |
 
@@ -105,10 +105,14 @@ Credentials work like migrations: dev from `.env.local`; preview and production 
 
 **Safe to run again.** Every write is an upsert, so running it twice gives the same rows, and a run that stopped partway is fixed by running it again (the Neon HTTP driver has no transactions). It never deletes a puzzle or a pack; content you leave out stays in the database. A pack is on one day only: scheduling an unplayed pack on a new day clears its old day. Before writing anything, it refuses (and writes nothing) if it would:
 - change the puzzle list of a pack that has games,
-- move a date to another pack when the current one has games, or
-- move a pack that has games to another date.
+- move a date to another pack when the current one has games,
+- move a pack that has games to another date,
+- change how many zoom levels a played puzzle has (a game in progress could be past the new last level), or
+- change the kind of a pack that has games or is on the daily schedule.
 
-Fixing a typo in a puzzle (answer, alternates, credit, focus) is always allowed.
+Fixing a typo in a puzzle (answer, alternates, credit, focus, image URL, zoom values) is always allowed.
+
+The writes are separate statements, not one transaction. If a run stops partway, a pack can briefly have no puzzle list or a day no pack; running it again fixes that.
 
 **Reading content in the app:** `getPuzzles(db, ids)`, `getPack(db, id)` and `getDailyEntry(db, date)` in `src/db/content.ts`. Server-only, like everything in `src/db/`.
 

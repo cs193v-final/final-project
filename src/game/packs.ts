@@ -162,6 +162,8 @@ function words(value: string): string[] {
     .normalize("NFKD")
     .replace(/\p{M}/gu, "")
     .toLowerCase()
+    // Letters and digits are separate words, so "ben1" reads as "ben", "1".
+    .replace(/([a-z])(?=[0-9])|([0-9])(?=[a-z])/gu, "$1$2 ")
     .split(/[^a-z0-9]+/u)
     .filter(Boolean);
 }
@@ -172,7 +174,9 @@ const FILLER = new Set(["the", "and", "for", "los", "las", "les", "des", "del", 
 /**
  * What counts as giving `answer` away: the whole answer, and each word of 3 or
  * more letters ("ben" for "Big Ben"), also as a singular ("cherries" →
- * "cherry", "giraffes" → "giraffe").
+ * "cherry", "tomatoes" → "tomato", "giraffes" → "giraffe") and, for a word
+ * ending in "y", as a plural ("cherry" → "cherries"). Other plurals contain the
+ * singular already ("peach" is in "peaches").
  */
 function needles(answer: string): string[] {
   const parts = words(answer);
@@ -180,7 +184,9 @@ function needles(answer: string): string[] {
   for (const word of parts) {
     if (word.length >= 3 && !FILLER.has(word)) found.add(word);
     if (word.length >= 5 && word.endsWith("ies")) found.add(`${word.slice(0, -3)}y`);
+    else if (word.length >= 5 && word.endsWith("es")) found.add(word.slice(0, -2)).add(word.slice(0, -1));
     else if (word.length >= 5 && word.endsWith("s")) found.add(word.slice(0, -1));
+    if (word.length >= 4 && word.endsWith("y")) found.add(`${word.slice(0, -1)}ies`);
   }
   return [...found].filter(Boolean);
 }

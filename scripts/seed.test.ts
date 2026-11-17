@@ -1,7 +1,7 @@
 // Spec for the seed command (#52), run the way people run it (`node
 // scripts/seed.ts`), in --dry-run mode so no database is needed.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -14,14 +14,16 @@ afterEach(() => {
   for (const path of cleanup.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-function seed(...args: string[]) {
-  const result = spawnSync(process.execPath, ["scripts/seed.ts", "--dry-run", ...args], {
+function run(args: string[], env: Record<string, string> = {}) {
+  const result = spawnSync(process.execPath, ["scripts/seed.ts", ...args], {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, DATABASE_URL_UNPOOLED: "" },
+    env: { ...process.env, DATABASE_URL_UNPOOLED: "", ...env },
   });
   return { code: result.status, out: result.stdout + result.stderr };
 }
+
+const seed = (...args: string[]) => run(["--dry-run", ...args]);
 
 function writeContent(dir: string, name: string, data: unknown): string {
   mkdirSync(dir, { recursive: true });
@@ -88,6 +90,40 @@ describe("npm run db:seed -- --dry-run", { timeout: 30_000 }, () => {
     const { code, out } = seed(writeContent(join(root, "src/puzzles"), `seed-test-${process.pid}.json`, FRUIT));
     expect(out).toContain("private content can't live in the repo unless it's git-ignored");
     expect(code).toBe(1);
+  });
+
+  it("treats `npm run db:seed --dry-run` (no `--`, so npm takes the flag) as a dry run", () => {
+    // A real seed would try this unreachable database and fail.
+    const { code, out } = run([], { npm_config_dry_run: "true", DATABASE_URL_UNPOOLED: "postgresql://127.0.0.1:1/none" });
+    expect(out).toContain("Dry run: no database touched.");
+    expect(code).toBe(0);
+  });
+
+  it("follows a symlink, so content/ linked to a shared folder outside the repo is fine", () => {
+    const shared = outside();
+    writeContent(shared, "fruit.json", FRUIT);
+    const link = join(root, "content", `.seed-test-link-${process.pid}`);
+    mkdirSync(join(root, "content"), { recursive: true });
+    symlinkSync(shared, link);
+    cleanup.push(link);
+    const { code, out } = seed(link);
+    expect(out).toContain("Checked 1 content file(s)");
+    expect(code).toBe(0);
+  });
+
+  it("names the file when it isn't valid JSON", () => {
+    const file = join(outside(), "broken.json");
+    writeFileSync(file, "{ not json");
+    const { code, out } = seed(file);
+    expect(out).toMatch(/broken\.json: not valid JSON/u);
+    expect(code).toBe(1);
+  });
+
+  it("reads relative paths from where the command was typed (INIT_CWD), not the repo root", () => {
+    const dir = outside();
+    writeContent(dir, "fruit.json", FRUIT);
+    const { code } = run(["--dry-run", "fruit.json"], { INIT_CWD: dir });
+    expect(code).toBe(0);
   });
 
   it("names the file and field when content is wrong", () => {
