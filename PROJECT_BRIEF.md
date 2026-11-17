@@ -120,7 +120,7 @@ The owner of each type makes the final call. Change a type only through a PR its
 
 These are functions, not types in `src/game/`. They run only on the server.
 
-- **Jacky (#54):** `startGame(packId, user | null) → GameView`, `act(gameId, action: GameAction) → GameView`, `getGame(gameId) → GameView` (resume after a refresh).
+- **Jacky (#54):** `startGame(packId, user | null) → GameView`, `act(gameId, action: GameAction, revision) → GameView`, where `revision` is the `GameView.revision` the player saw; a stale one is a conflict and changes nothing (#107), `getGame(gameId) → GameView` (resume after a refresh).
   - Route Handlers vs Server Actions is Jacky's call; the types are the contract.
   - The server reuses the framework-free logic in `src/game/` (guess checking, the round state machine, scoring).
   - Games belong to the logged-in user, or to an anonymous cookie if we allow anonymous play.

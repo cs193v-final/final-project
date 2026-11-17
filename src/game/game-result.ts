@@ -13,9 +13,10 @@ export type GameError =
   /** The request wasn't a valid game action. Like a 400. */
   | "invalid"
   /**
-   * Another request (e.g. a second tab) changed the game between this
-   * action's read and its save, so the action was NOT applied. The browser
-   * reloads the game with getGame and tells the player.
+   * The game changed since the view this action was sent from, so the action
+   * was NOT applied: another tab moved it on, a request saved between this
+   * one's read and its save, or an earlier response was lost (#107). The
+   * browser reloads the game with getGame and tells the player.
    */
   | "conflict"
   /**
