@@ -84,6 +84,26 @@ jobs:
   e2e:
     name: End-to-end tests (Playwright)
     runs-on: ubuntu-latest
+    # /play keeps games in Postgres (#54). A throwaway Postgres on the runner,
+    # reached over localhost, so the app uses node-postgres (src/db/index.ts)
+    # without TLS. No password: trust auth on a container that only lives for
+    # this job (and no credential-looking URL for the secret scan).
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: zoomout
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres@localhost:5432/zoomout
+      DATABASE_URL_UNPOOLED: postgresql://postgres@localhost:5432/zoomout
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -96,6 +116,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       # playwright.config.ts starts `next start` on the build when CI is set.
       - run: npm run build
+      # Creates the tables in the service container (drizzle-kit uses `pg`).
+      - run: npm run db:migrate
       - run: npm run test:e2e
       - name: Upload the report and traces
         if: failure()

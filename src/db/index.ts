@@ -4,34 +4,83 @@
 import "server-only";
 
 import { neon } from "@neondatabase/serverless";
-import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
+import { drizzle as drizzleNeonHttp } from "drizzle-orm/neon-http";
+import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
+import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { Pool } from "pg";
 
 import * as schema from "./schema";
 
 export { schema };
 
-export type Db = NeonHttpDatabase<typeof schema>;
+/**
+ * The Drizzle client, whichever driver is behind it. Only the query builder and
+ * `db.execute` are common to both drivers: no `db.batch` (Neon HTTP only) and
+ * no interactive transactions (node-postgres only). Make writes that must
+ * happen together a single SQL statement (a CTE), as `src/db/games.ts` does.
+ */
+export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 
-let db: Db | undefined;
+type Cached = { url: string; db: Db };
+
+/**
+ * Where the client is kept. In production, this module. In development (and
+ * tests) on `globalThis`: hot reload re-runs this module, and a module-level
+ * node-postgres Pool would leak its connections on every edit. Keyed by URL so
+ * a changed `DATABASE_URL` gets a new client.
+ */
+const devCache = globalThis as typeof globalThis & { __zoomOutDb?: Cached };
+let prodCache: Cached | undefined;
+
+/**
+ * True when a connection string points at this machine (localhost, 127.x.x.x
+ * or ::1). Throws on a string that isn't a URL, without echoing it (it may
+ * hold a password).
+ */
+export function isLoopbackDatabaseUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    throw new Error("DATABASE_URL is not a valid connection URL.");
+  }
+  return isLoopbackHost(host);
+}
+
+/** `localhost`, `127.0.0.0/8` or `::1` (with or without brackets). */
+export function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return host === "localhost" || host === "::1" || /^127(\.\d{1,3}){3}$/.test(host);
+}
 
 /**
  * The shared Drizzle client, created on first use. Nothing connects at import
  * time, so `next build` works without `DATABASE_URL`.
  *
- * Uses Neon's HTTP driver with the pooled `DATABASE_URL`: one HTTP request per
- * query, no connection to keep open between serverless invocations. It has no
- * interactive transactions; use `db.batch([...])` for several statements that
- * must succeed or fail together.
+ * The driver depends on where the database is:
+ * - **Neon** (any non-loopback host: dev, preview, production): Neon's HTTP
+ *   driver with the pooled `DATABASE_URL`. One HTTP request per query, no
+ *   connection to keep open between serverless invocations.
+ * - **A Postgres on this machine** (localhost / 127.0.0.1 / ::1: the CI e2e
+ *   job's service container, or a local Postgres for e2e runs): node-postgres
+ *   (`pg`) over TCP. The Neon HTTP driver only talks to Neon's HTTP endpoint,
+ *   not to a plain Postgres. See TECHNICAL.md → Database.
  */
 export function getDb(): Db {
-  if (!db) {
-    const url = process.env.DATABASE_URL;
-    if (!url) {
-      throw new Error(
-        "DATABASE_URL is not set. Locally, copy .env.example to .env.local (see README.md → Database).",
-      );
-    }
-    db = drizzle({ client: neon(url), schema });
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is not set. Locally, copy .env.example to .env.local (see README.md → Database).",
+    );
   }
+  const production = process.env.NODE_ENV === "production";
+  const cached = production ? prodCache : devCache.__zoomOutDb;
+  if (cached?.url === url) return cached.db;
+
+  const db: Db = isLoopbackDatabaseUrl(url)
+    ? drizzleNodePg({ client: new Pool({ connectionString: url, max: 5 }), schema })
+    : drizzleNeonHttp({ client: neon(url), schema });
+  if (production) prodCache = { url, db };
+  else devCache.__zoomOutDb = { url, db };
   return db;
 }

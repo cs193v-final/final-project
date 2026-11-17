@@ -21,10 +21,16 @@ function feedbackIcon(feedback: Feedback): string | null {
 }
 
 export type GuessPanelProps = {
-  round: Round;
+  round: Pick<Round, "state" | "wrongGuesses">;
   feedback: Feedback;
   /** True on the last image, so the button after the round says "See results". */
   isLastRound: boolean;
+  /**
+   * True while the last move is still on its way to the server: Guess, Skip
+   * and Next are marked disabled and ignored. The text box stays editable so
+   * typing the next guess doesn't lose keystrokes.
+   */
+  pending?: boolean;
   onGuess: (guess: string) => void;
   onSkip: () => void;
   onNext: () => void;
@@ -52,10 +58,10 @@ function feedbackText(feedback: Feedback): string {
 }
 
 /**
- * Guess input, feedback and round controls (#14). Render it with
- * `key={round.puzzleId}` so the input resets for each image.
+ * Guess input, feedback and round controls (#14). Render it with a key per
+ * image (e.g. `key={round.position}`) so the input resets for each image.
  */
-export function GuessPanel({ round, feedback, isLastRound, onGuess, onSkip, onNext }: GuessPanelProps) {
+export function GuessPanel({ round, feedback, isLastRound, pending = false, onGuess, onSkip, onNext }: GuessPanelProps) {
   const [guess, setGuess] = useState("");
   const inputId = useId();
   const nextButton = useRef<HTMLButtonElement>(null);
@@ -69,15 +75,19 @@ export function GuessPanel({ round, feedback, isLastRound, onGuess, onSkip, onNe
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (pending) return; // keep the text; it can be sent once the last move is back
     onGuess(guess);
     // Keep blank input as-is (the hint explains it); clear anything that counted.
     if (guess.trim() !== "") setGuess("");
   }
 
   // Shake the guess box on each wrong guess. Every wrong guess makes a new
-  // feedback object, so a repeated guess shakes again (#48).
+  // feedback object, so a repeated guess shakes again (#48). Not for the
+  // feedback the panel mounts with: a game resumed after a refresh shows its
+  // last wrong guess, but the player didn't just make it.
+  const [mountFeedback] = useState(feedback);
   const guessRow = useAnimateOn<HTMLDivElement>(
-    feedback.kind === "incorrect" ? feedback : null,
+    feedback.kind === "incorrect" && feedback !== mountFeedback ? feedback : null,
     SHAKE,
     SHAKE_TIMING,
   );
@@ -115,7 +125,8 @@ export function GuessPanel({ round, feedback, isLastRound, onGuess, onSkip, onNe
             />
             <button
               type="submit"
-              className="rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              aria-disabled={pending}
+              className="rounded-lg aria-disabled:opacity-50 bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
             >
               Guess
             </button>
@@ -128,8 +139,11 @@ export function GuessPanel({ round, feedback, isLastRound, onGuess, onSkip, onNe
             </span>
             <button
               type="button"
-              onClick={onSkip}
-              className="rounded-lg px-3 py-1.5 font-medium text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-300"
+              onClick={() => {
+                if (!pending) onSkip();
+              }}
+              aria-disabled={pending}
+              className="rounded-lg aria-disabled:opacity-50 px-3 py-1.5 font-medium text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-300"
             >
               Skip this image
             </button>
@@ -139,8 +153,11 @@ export function GuessPanel({ round, feedback, isLastRound, onGuess, onSkip, onNe
         <button
           ref={nextButton}
           type="button"
-          onClick={onNext}
-          className="self-start rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          onClick={() => {
+            if (!pending) onNext();
+          }}
+          aria-disabled={pending}
+          className="aria-disabled:opacity-50 self-start rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
           {isLastRound ? "See results" : "Next image"}
         </button>
