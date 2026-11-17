@@ -45,6 +45,10 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
   // tick (before React re-renders); `pending` marks the controls as disabled.
   const inFlight = useRef(false);
   const [pending, setPending] = useState(false);
+  // False once the player has left /play (e.g. "Back to start" while a game is
+  // starting). Results that arrive after that are ignored, so they can't
+  // rewrite the URL of the page the player is on now.
+  const mounted = useRef(false);
 
   /**
    * Run one server round trip, unless one is already running. A Server Action
@@ -58,10 +62,10 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
     try {
       await task();
     } catch {
-      setProblem("unavailable");
+      if (mounted.current) setProblem("unavailable");
     } finally {
       inFlight.current = false;
-      setPending(false);
+      if (mounted.current) setPending(false);
     }
   }
 
@@ -79,10 +83,11 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
   function newGame() {
     return exclusive(async () => {
       const result = await start();
+      if (!mounted.current) return;
       if (result.ok) {
         setAnswers({});
         // Put the game in the URL, so a refresh resumes it (the page loads it with getGame).
-        window.history.replaceState(null, "", `${window.location.pathname}?game=${encodeURIComponent(result.view.gameId)}`);
+        window.history.replaceState(null, "", `/play?game=${encodeURIComponent(result.view.gameId)}`);
       }
       show(result, null);
     });
@@ -98,10 +103,12 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
     const { gameId } = view;
     return exclusive(async () => {
       const result = await act(gameId, action);
+      if (!mounted.current) return;
       if (!result.ok && result.error === "conflict") {
         // Another tab changed the game first, so this action wasn't applied.
         // Show the game as it is now and let the player decide again.
         const fresh = await get(gameId);
+        if (!mounted.current) return;
         show(fresh, null);
         if (fresh.ok) setProblem("conflict");
         return;
@@ -109,6 +116,15 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       show(result, action);
     });
   }
+
+  // Set in its own effect, so React's development-mode mount → unmount →
+  // mount leaves it true (and the one start below still counts).
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // No game in the URL: start one. The ref keeps React's development-mode
   // double effect from starting two.

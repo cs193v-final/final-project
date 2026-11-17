@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { pointsIfCorrect } from "@/game/scoring";
@@ -63,7 +64,40 @@ describe("PracticeGame start and resume (#54)", () => {
     const { server } = await setup();
     expect(server.start).toHaveBeenCalledTimes(1);
     const view = server.received[0]!.ok ? server.received[0]!.view : null;
-    expect(window.location.search).toBe(`?game=${view!.gameId}`);
+    expect(window.location.pathname + window.location.search).toBe(`/play?game=${view!.gameId}`);
+  });
+
+  it("starts exactly one game under React's development-mode double mount", async () => {
+    const server = backend();
+    render(
+      <StrictMode>
+        <PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />
+      </StrictMode>,
+    );
+    expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
+    expect(server.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a start that finishes after the player left /play, so the URL isn't rewritten", async () => {
+    const server = backend();
+    const realStart = server.start.getMockImplementation()!;
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => (finish = resolve));
+    server.start.mockImplementationOnce(async () => {
+      await gate;
+      return realStart();
+    });
+    window.history.replaceState(null, "", "/play");
+    const { unmount } = render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
+    expect(screen.getByText("Starting a new game…")).toBeInTheDocument();
+
+    // "← Back to start": Next unmounts /play and shows "/".
+    unmount();
+    window.history.replaceState(null, "", "/");
+    finish();
+    await waitFor(() => expect(server.received).toHaveLength(1));
+    await Promise.resolve();
+    expect(window.location.pathname + window.location.search).toBe("/");
   });
 
   it("resumes a game loaded on the server, with its zoom level, wrong guesses and score", async () => {

@@ -239,3 +239,40 @@ test("the browser's JavaScript doesn't contain the puzzle answers", async ({ pag
     }
   }
 });
+
+test("leaving /play while the game is still starting stays on the start screen", async ({ page }) => {
+  // Hold the start action's response until the player has left /play, so
+  // this doesn't depend on how fast the server is.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let sawStart!: () => void;
+  const startSent = new Promise<void>((resolve) => (sawStart = resolve));
+  let delivered!: () => void;
+  const startDelivered = new Promise<void>((resolve) => (delivered = resolve));
+  await page.route("**/play*", async (route) => {
+    const request = route.request();
+    if (request.method() !== "POST" || !(await request.headerValue("next-action"))) return route.fallback();
+    sawStart();
+    await held;
+    // Fetch the whole response here and hand it over in one piece, so we know
+    // when the page has it (the server still creates the game).
+    const response = await route.fetch();
+    await route.fulfill({ response, body: await response.text() }).catch(() => {}); // the page may have dropped it
+    delivered();
+  });
+
+  await page.goto("/play");
+  await startSent;
+  await expect(page.getByText("Starting a new game…")).toBeVisible();
+  await page.getByRole("link", { name: "← Back to start" }).click();
+  await expect(page.getByRole("link", { name: "Start practice" })).toBeVisible();
+
+  release();
+  await startDelivered;
+  // Give the page a couple of frames to (wrongly) act on the late result.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+  const url = new URL(page.url());
+  expect(url.pathname + url.search).toBe("/");
+  await expect(page.getByRole("link", { name: "Start practice" })).toBeVisible();
+});
