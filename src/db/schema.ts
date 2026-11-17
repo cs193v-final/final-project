@@ -81,6 +81,25 @@ export const sessions = pgTable(
   ],
 );
 
+/**
+ * Fixed-window counters for rate limiting login and sign-up (#53). One row per
+ * key, e.g. `login:user:<lowercased username>` or `login:ip:<SHA-256 of the IP>`.
+ * Never a raw IP address. A row is only useful until its window ends; expired
+ * rows are reset on the next hit and swept by `deleteExpiredRateLimits`.
+ */
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    key: text("key").primaryKey(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    count: integer("count").notNull(),
+  },
+  (t) => [
+    index("rate_limits_window_start_idx").on(t.windowStart),
+    check("rate_limits_count_min", sql`${t.count} >= 1`),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // Packs and puzzles (#52, #57, #56)
 // ---------------------------------------------------------------------------

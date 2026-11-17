@@ -97,6 +97,7 @@ describe("migrations", () => {
       "packs",
       "puzzle_images",
       "puzzles",
+      "rate_limits", // login and sign-up limits (#53)
       "sessions",
       "users",
     ]);
