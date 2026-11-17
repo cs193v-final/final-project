@@ -92,4 +92,4 @@ CI installs a pinned gitleaks (`GITLEAKS_VERSION` + `GITLEAKS_SHA256` in `ci.yml
 
 1. **Rotate it first** (revoke and replace it in Neon/Vercel/etc.). Once it's pushed, assume it's leaked.
 2. Remove it from the code in a new PR.
-3. It still exists in old commits, so the full-history scan on `main` keeps failing. Copy the finding's **Fingerprint** from the CI log and add it to [`.gitleaksignore`](.gitleaksignore) with a comment saying what was rotated and when.
+3. It still exists in old commits, so the full-history scan on `main` keeps failing. Copy the finding's **Fingerprint** from the CI log and add it to [`.gitleaksignore`](.gitleaksignore) with a comment saying what was rotated and when. A leaked Neon connection URL gives **two** findings, `postgres-connection-url` for the URL and `neon-password` for its `npg_…` password, so add both fingerprints.

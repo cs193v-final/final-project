@@ -36,15 +36,23 @@ description = "Neon Postgres password (npg_...)"
 regex = '''npg_[A-Za-z0-9]{8,}'''
 keywords = ["npg_"]
   # Placeholders that only show the shape: npg_xxxxxxxx, npg_XXXXXXXX.
+  # Same shape as the placeholder-URL entry in the global [[allowlists]]
+  # below; change both together.
   [[rules.allowlists]]
   description = "Placeholder Neon password"
   regexes = ['''^npg_(?:x+|X+)$''']
-  # The password part of a full URL is already reported by
-  # postgres-connection-url, so a leaked URL gives one finding, not two.
+  # Names and examples that aren't passwords: npg_password, npg_yourpassword,
+  # npg_example1, npg_REDACTED, setup_npg_connection. An entropy threshold
+  # can't separate these from real ones (npg_yourpassword scores 3.5, and
+  # about 1 in 1,000 random 12-character passwords score under 3.25), but a
+  # random password practically never contains one of these words.
   [[rules.allowlists]]
-  description = "Password inside a postgres:// URL (postgres-connection-url reports it)"
-  regexTarget = "line"
-  regexes = ['''(?i)postgres(?:ql)?://[^:\s/@'"]+:npg_[A-Za-z0-9]+@[^\s/'"]''']
+  description = "Words in names and examples, not in random passwords"
+  stopwords = ["password", "passwd", "example", "redacted", "placeholder", "changeme", "connection"]
+  # No allowlist for a password inside a full postgres:// URL: a leaked URL
+  # gives two findings (this rule and postgres-connection-url), and both
+  # fingerprints go in .gitleaksignore (README, "If a real secret gets
+  # committed"). A line-wide skip would also hide other passwords on that line.
 
 [[rules]]
 id = "env-file"
@@ -59,5 +67,6 @@ description = "Placeholder credentials in templates and docs"
 regexes = [
   '''(?i)postgres(?:ql)?://(USER|username)(:|%3A)(PASSWORD)@''',
   '''^(?i)(PASSWORD|<password>|your[-_]password)$''',
+  # Same placeholder shape as the neon-password rule's allowlist; change both together.
   '''(?i)postgres(?:ql)?://[^:\s/@'"]+:npg_(?:x+|X+)@''',
 ]

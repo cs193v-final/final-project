@@ -118,14 +118,14 @@ for f in creds.json pw.ts config.sh joined.ts rotated.sh; do
   rm -f "$f"
 done
 
-# 14. A full Neon URL gives exactly one finding (postgres-connection-url), so a
-# leaked URL needs one .gitleaksignore fingerprint, not two.
+# 14. A full Neon URL is reported by both rules: postgres-connection-url for the
+# URL and neon-password for its password. Both fingerprints go in .gitleaksignore
+# (README). Checked by rule id, not by counting gitleaks' output labels.
 echo "const db = \"${scheme}ql://fakeuser:${fakenpg}@ep-fake-123.us-east-1.aws.neon.tech/neondb\";" > neonurl.js
 try_commit "full Neon URL" neonurl.js
-nfind="$(grep -c 'RuleID:' <<<"$out")"
-if blocked Commit && [ "$nfind" -eq 1 ] && [[ "$out" == *postgres-connection-url* ]] \
-   && [[ "$out" != *neon-password* ]]; then pass "a full Neon URL gives one finding"
-else fail "a full Neon URL gave $nfind finding(s), expected 1 from postgres-connection-url (rc=$rc): $out"; fi
+if blocked Commit && [[ "$out" == *postgres-connection-url* ]] && [[ "$out" == *neon-password* ]]; then
+  pass "a full Neon URL is reported by both rules"
+else fail "a full Neon URL wasn't reported by both postgres-connection-url and neon-password (rc=$rc): $out"; fi
 rm -f neonurl.js
 
 # 15. Docs that only mention the prefix are allowed.
@@ -154,6 +154,33 @@ try_push
 if blocked Push && [[ "$out" == *neon-password* ]]; then pass "pre-push blocks a Neon password in an older commit"
 else fail "pre-push did not block a Neon password (rc=$rc): $out"; fi
 git reset -q --hard origin/main
+
+# 18. A second password on the same line as a full URL is reported on its own,
+# not hidden behind the URL's finding (two neon-password findings).
+fakenpg2="npg_Wk3$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+echo "{\"url\":\"${scheme}ql://fakeuser:${fakenpg}@ep-fake-123.neon.tech/db\",\"old\":\"${fakenpg2}\"}" > twopw.json
+try_commit "URL and a second password" twopw.json
+nneon="$(grep -o 'neon-password' <<<"$out" | wc -l)"
+if blocked Commit && [ "$nneon" -ge 2 ]; then pass "a second password next to a URL is reported"
+else fail "a second password next to a URL wasn't reported ($nneon neon-password findings, rc=$rc): $out"; fi
+rm -f twopw.json
+
+# 19. A real password on the same line as a placeholder URL is still blocked.
+echo "DATABASE_URL=${scheme}://fakeuser:npg_${x12}@ep-example.neon.tech/db PGPASS=${fakenpg}" > mixed.md
+try_commit "placeholder URL and a real password" mixed.md
+if blocked Commit && [[ "$out" == *neon-password* ]]; then pass "a real password next to a placeholder URL is blocked"
+else fail "a real password next to a placeholder URL was not blocked (rc=$rc): $out"; fi
+rm -f mixed.md
+
+# 20. Names and examples that only contain npg_ aren't passwords.
+{ echo 'const npg_password = process.env.NPG;'
+  echo 'NEON_PASSWORD=npg_yourpassword'
+  echo 'x = "npg_example1"; y = "npg_REDACTED"; setup_npg_connection();'
+} > names.ts
+try_commit "npg_ names and examples" names.ts
+if [ $rc -eq 0 ]; then pass "npg_ names and examples are allowed"
+else fail "npg_ names and examples were blocked: $out"; fi
+rm -f names.ts
 
 echo
 if [ $fails -eq 0 ]; then echo "All hook tests passed."; else echo "$fails hook test(s) failed."; exit 1; fi
