@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RATE_LIMITS } from "@/auth/accounts";
+import { GAME_LIMITS } from "@/server/limits";
 import type { PgDb } from "@/db/accounts";
 
 const { deleteExpiredSessions, deleteExpiredRateLimits, getDb } = vi.hoisted(() => ({
@@ -66,9 +67,10 @@ describe("sweepExpired", () => {
     expect(deleteExpiredRateLimits).toHaveBeenCalledWith(fakeDb, new Date(NOW.getTime() - RATE_LIMIT_MAX_AGE_MS));
   });
 
-  it("keeps every rate-limit row whose window could still be open", () => {
-    for (const limit of Object.values(RATE_LIMITS)) expect(RATE_LIMIT_MAX_AGE_MS).toBeGreaterThanOrEqual(limit.windowMs);
-    expect(RATE_LIMIT_MAX_AGE_MS).toBe(Math.max(...Object.values(RATE_LIMITS).map((l) => l.windowMs)));
+  it("keeps every rate-limit row whose window could still be open, login and game limits alike (#85)", () => {
+    const limits = { ...RATE_LIMITS, ...GAME_LIMITS };
+    for (const [name, limit] of Object.entries(limits)) expect(RATE_LIMIT_MAX_AGE_MS, name).toBeGreaterThanOrEqual(limit.windowMs);
+    expect(RATE_LIMIT_MAX_AGE_MS).toBe(Math.max(...Object.values(limits).map((l) => l.windowMs)));
   });
 });
 

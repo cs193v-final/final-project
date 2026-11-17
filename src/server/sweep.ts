@@ -12,13 +12,18 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { deleteExpiredRateLimits, deleteExpiredSessions, type PgDb } from "@/db/accounts";
 import { RATE_LIMITS } from "@/auth/accounts";
+import { GAME_LIMITS } from "@/server/limits";
 
 /**
- * How long a rate-limit row stays useful: the longest window. A row whose
- * window started earlier than this has ended for every kind of limit, and
- * `hitRateLimit` would start a fresh window anyway.
+ * How long a rate-limit row stays useful: the longest window of any limit
+ * stored in `rate_limits`, login and sign-up (`RATE_LIMITS`) and games
+ * (`GAME_LIMITS`, #85). A row whose window started earlier than this has
+ * ended for every kind of limit, and `hitRateLimit` would start a fresh
+ * window anyway. A new kind of limit in that table belongs in this list too.
  */
-export const RATE_LIMIT_MAX_AGE_MS = Math.max(...Object.values(RATE_LIMITS).map((limit) => limit.windowMs));
+export const RATE_LIMIT_MAX_AGE_MS = Math.max(
+  ...[...Object.values(RATE_LIMITS), ...Object.values(GAME_LIMITS)].map((limit) => limit.windowMs),
+);
 
 export type SweepCounts = { sessions: number; rateLimits: number };
 
