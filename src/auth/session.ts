@@ -1,0 +1,64 @@
+// The current user, from the session cookie (#53). Server-only: Server
+// Components, Server Actions and Route Handlers call these; the browser only
+// ever sees a `PublicUser`.
+//
+// The cookie holds a random token; the database holds its SHA-256 (see
+// ./crypto.ts). The cookie is HttpOnly (no JavaScript can read it), Secure
+// (HTTPS only; browsers also allow it on http://localhost for dev), and
+// SameSite=Lax (not sent on cross-site form posts, so another site can't log
+// someone in or out).
+import "server-only";
+
+import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
+
+import { getDb } from "@/db";
+import { deleteSession, findSessionUser } from "@/db/accounts";
+import type { PublicUser } from "@/game/types";
+
+import { sha256Hex } from "./crypto";
+
+export const SESSION_COOKIE = "zo_session";
+
+/** The logged-in user, or `null`. Checks the session in the database on every call, so logout and expiry apply at once. */
+export async function getCurrentUser(): Promise<PublicUser | null> {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  return findSessionUser(getDb(), sha256Hex(token), new Date());
+}
+
+/** The logged-in user; otherwise redirects to the login page. */
+export async function requireUser(): Promise<PublicUser> {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  return user;
+}
+
+/** Sets the session cookie. Only from a Server Action or Route Handler. */
+export async function setSessionCookie(token: string, expiresAt: Date): Promise<void> {
+  (await cookies()).set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    expires: expiresAt,
+  });
+}
+
+/** Ends the session on the server and removes the cookie. Only from a Server Action or Route Handler. */
+export async function endSession(): Promise<void> {
+  const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE)?.value;
+  if (token) await deleteSession(getDb(), sha256Hex(token));
+  jar.delete(SESSION_COOKIE);
+}
+
+/**
+ * The client's IP address, for rate limiting only (stored hashed). On Vercel,
+ * `x-forwarded-for` is set by Vercel's edge and its first entry is the client.
+ */
+export async function requestIp(): Promise<string | null> {
+  const h = await headers();
+  const first = h.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return first || h.get("x-real-ip") || null;
+}
