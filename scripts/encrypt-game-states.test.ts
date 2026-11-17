@@ -43,7 +43,7 @@ async function insertPlain(): Promise<string> {
 describe("encryptGameStates", () => {
   it("encrypts every plain state with its game's key, leaving no plain copy", async () => {
     const ids = [await insertPlain(), await insertPlain(), await insertPlain()];
-    expect(await encryptGameStates(db, vault, 2)).toEqual({ encrypted: 3, skipped: 0 });
+    expect(await encryptGameStates(db, vault, 2)).toEqual({ encrypted: 3, skipped: 0, left: 0 });
     for (const id of ids) {
       const { rows } = await pg.query<{ state: unknown; state_encrypted: string }>(
         "SELECT state, state_encrypted FROM games WHERE id = $1",
@@ -57,7 +57,7 @@ describe("encryptGameStates", () => {
   it("does nothing the second time", async () => {
     await insertPlain();
     await encryptGameStates(db, vault);
-    expect(await encryptGameStates(db, vault)).toEqual({ encrypted: 0, skipped: 0 });
+    expect(await encryptGameStates(db, vault)).toEqual({ encrypted: 0, skipped: 0, left: 0 });
   });
 
   it("reads one batch at a time, paging by id, and stops", async () => {
@@ -73,25 +73,50 @@ describe("encryptGameStates", () => {
         return result;
       },
     } as unknown as AnyDb;
-    expect(await encryptGameStates(counting, vault, 2)).toEqual({ encrypted: 10, skipped: 0 });
+    expect(await encryptGameStates(counting, vault, 2)).toEqual({ encrypted: 10, skipped: 0, left: 0 });
     expect(batches).toEqual([2, 2, 2, 2, 2, 0]);
     const { rows } = await pg.query<{ n: number }>("SELECT count(*)::int AS n FROM games WHERE state_encrypted IS NULL");
     expect(rows[0]!.n).toBe(0);
     for (const id of ids) expect((await pg.query("SELECT 1 FROM games WHERE id = $1 AND state IS NULL", [id])).rows).toHaveLength(1);
   });
 
-  it("skips a game that changed meanwhile, without stopping", async () => {
-    const id = await insertPlain();
-    const racing = {
+  /** A db that saves game `id` (bumps its revision) right after the backfill reads it, the first `times` reads. */
+  function racing(id: string, times: number): AnyDb {
+    let left = times;
+    return {
       execute: async (query: Parameters<AnyDb["execute"]>[0]) => {
         const result = await db.execute(query);
         const rows = (result as unknown as { rows: Record<string, unknown>[] }).rows;
-        // Another request saves the game right after the backfill read it.
-        if (rows.length > 0 && "revision" in rows[0]!) await pg.query("UPDATE games SET revision = revision + 1 WHERE id = $1", [id]);
+        if (left > 0 && rows.length > 0 && "revision" in rows[0]!) {
+          left--;
+          await pg.query("UPDATE games SET revision = revision + 1 WHERE id = $1", [id]);
+        }
         return result;
       },
     } as unknown as AnyDb;
-    expect(await encryptGameStates(racing, vault)).toEqual({ encrypted: 0, skipped: 1 });
+  }
+
+  it("retries a game that changed meanwhile once, at the end, so a finished game doesn't stay plain", async () => {
+    const id = await insertPlain();
+    expect(await encryptGameStates(racing(id, 1), vault)).toEqual({ encrypted: 1, skipped: 1, left: 0 });
+    const { rows } = await pg.query<{ state: unknown }>("SELECT state FROM games WHERE id = $1", [id]);
+    expect(rows[0]!.state).toBeNull();
+    await pg.query("DELETE FROM games WHERE id = $1", [id]);
+  });
+
+  it("reports a game that keeps changing as still plain, so the run can be repeated", async () => {
+    const id = await insertPlain();
+    expect(await encryptGameStates(racing(id, 2), vault)).toEqual({ encrypted: 0, skipped: 1, left: 1 });
+    expect(await encryptGameStates(db, vault)).toEqual({ encrypted: 1, skipped: 0, left: 0 });
+    await pg.query("DELETE FROM games WHERE id = $1", [id]);
+  });
+
+  it("bumps the revision, so a save racing the backfill gets a conflict instead of a constraint error", async () => {
+    const id = await insertPlain();
+    const before = (await pg.query<{ revision: number }>("SELECT revision FROM games WHERE id = $1", [id])).rows[0]!.revision;
+    await encryptGameStates(db, vault);
+    const after = (await pg.query<{ revision: number }>("SELECT revision FROM games WHERE id = $1", [id])).rows[0]!.revision;
+    expect(after).toBe(before + 1);
     await pg.query("DELETE FROM games WHERE id = $1", [id]);
   });
 });

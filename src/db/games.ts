@@ -110,9 +110,20 @@ const META_COLUMNS = {
 };
 type MetaRow = Omit<GameRow, "state" | "stateEncrypted">;
 
-/** A stored game from its row's columns and the state the caller already has (copied, like `get`'s result). */
+/**
+ * A stored game from its row's columns and the state the caller already has.
+ * The state goes through JSON, like what `get` decrypts and like
+ * `MemoryGameStore`, so `save()` returns exactly what the next `get()` will:
+ * an `undefined` field is dropped, a `Date` becomes a string.
+ */
 function withState(row: MetaRow, state: GameState): StoredGame {
-  return { id: row.id, owner: ownerOf(row), packId: row.packId, revision: Number(row.revision), state: structuredClone(state) };
+  return {
+    id: row.id,
+    owner: ownerOf(row),
+    packId: row.packId,
+    revision: Number(row.revision),
+    state: JSON.parse(JSON.stringify(state)) as GameState,
+  };
 }
 
 /** `db.execute` returns `{ rows }` on every driver we use (Neon HTTP, node-postgres, PGlite). */

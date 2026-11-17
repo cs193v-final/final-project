@@ -301,9 +301,10 @@ export const games = pgTable(
     // `npm run db:encrypt-games` has run on every tier; a later migration
     // drops it.
     state: jsonb("state"),
-    // The state, encrypted (#84): AES-256-GCM with a key for this owner and
-    // this game (src/crypto/vault.ts), so it can't be read or moved to
-    // another game without DATA_ENCRYPTION_KEY.
+    // The state, encrypted (#84): AES-256-GCM with a key for this game, from
+    // its id (src/db/game-state-key.ts, src/crypto/vault.ts), so it can't be
+    // read without DATA_ENCRYPTION_KEY or moved to another game. The key
+    // doesn't check ownership: server-game does that on every call.
     stateEncrypted: text("state_encrypted"),
     // Optimistic concurrency for #54: a save is `UPDATE ... WHERE id = $1 AND
     // revision = $2` and bumps it, so two fast requests can't both apply.

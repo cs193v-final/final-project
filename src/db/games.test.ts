@@ -10,7 +10,7 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { CONTRACT_PUZZLES, describeGameStoreContract } from "@/game/game-store-contract";
-import { act, GameConflictError, GameNotFoundError, puzzleSourceFrom, startGame, type GameDeps, type GameOwner } from "@/game/server-game";
+import { act, GameConflictError, GameNotFoundError, puzzleSourceFrom, startGame, type GameDeps, type GameOwner, type GameState } from "@/game/server-game";
 import type { Pack, ScoringConfig } from "@/game/types";
 
 import { Vault } from "@/crypto/vault";
@@ -243,6 +243,17 @@ describe("PgGameStore encryption (#84)", () => {
     const saved = await store.save({ ...created, owner: { anonId: "raw-cookie-token" } });
     expect(saved).toEqual({ ...created, revision: 1 });
     expect(await columns(created.id)).toMatchObject({ user_id: null, anon_owner_hash: "anonId" in bob && bob.anonId });
+  });
+
+  it("create and save return what the next get() will: the state goes through JSON, like MemoryGameStore", async () => {
+    const store = new PgGameStore(db, vault);
+    // Fields JSON drops or changes: an undefined value and a Date.
+    const odd = { ...(await newState(store)), extra: undefined, when: new Date("2026-11-17T00:00:00Z") } as GameState;
+    const created = await store.create({ owner: bob, packId: PACK.id, state: odd });
+    expect(created.state).toEqual((await store.get(created.id))!.state);
+    expect(created.state).not.toHaveProperty("extra");
+    const saved = await store.save({ ...created, state: odd });
+    expect(saved.state).toEqual((await store.get(created.id))!.state);
   });
 
   it("reports a conflict or a missing game without decrypting, even with the wrong key", async () => {
