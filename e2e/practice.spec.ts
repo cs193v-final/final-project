@@ -49,7 +49,8 @@ test("plays the practice game from the start screen to the final score and again
   await expect(page.getByText(`Worth ${firstPoints} points now`)).toBeVisible();
   // Case and extra spaces don't matter.
   await guess(page, `  ${first.answer.toUpperCase()} `);
-  await expect(status(page)).toHaveText(`Correct! It's ${first.answer}.`);
+  // Contains, not equals: the status line also shows a ✓ icon before the text (#48).
+  await expect(status(page)).toContainText(`Correct! It's ${first.answer}.`);
   await expect(page.getByText(`+${firstPoints} points for this image`)).toBeVisible();
   await expect(score(page)).toHaveText(`Score ${firstPoints}`);
   // The image credit only appears once the round is over.
