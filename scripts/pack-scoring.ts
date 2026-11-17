@@ -126,7 +126,10 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    throw error;
+    // Anything else (network, database): one line instead of a stack trace.
+    // Driver errors don't include the connection string.
+    console.error(`db:scoring failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
   }
 }
 

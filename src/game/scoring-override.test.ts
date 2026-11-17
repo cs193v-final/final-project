@@ -54,6 +54,13 @@ describe("resolveScoringConfig", () => {
     expect(() => resolveScoringConfig({ wrongGuessPenalty: "x" })).toThrow(/wrongGuessPenalty/);
     expect(() => resolveScoringConfig({ bonus: 1 })).toThrow(/unknown field "bonus"/);
   });
+
+  it("rejects fractions and values too big for the integer columns (#76 review)", () => {
+    // pointsIfCorrect would return 87.5, which can't be stored in game_rounds.points.
+    expect(() => resolveScoringConfig({ revealPenalty: 12.5 })).toThrow(ScoringConfigError);
+    expect(() => resolveScoringConfig({ revealPenalty: 12.5 })).toThrow(/revealPenalty.*whole number/);
+    expect(() => resolveScoringConfig({ basePoints: 1e300 })).toThrow(/basePoints/);
+  });
 });
 
 describe("parseScoringOverride", () => {

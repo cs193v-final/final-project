@@ -76,7 +76,7 @@ If a migration fails partway, don't edit it; fix forward with a new migration, o
 **Per-pack scoring (#64).** Server code gets a pack's scoring with `getScoringConfig(packId)` from `src/db/scoring.ts` (server-only). It reads `packs.scoring`:
 
 - `NULL` (the default for every pack): the pack uses `SCORING_CONFIG` from `src/game/scoring-config.ts`.
-- A JSON object with some or all `ScoringConfig` fields: merged over `SCORING_CONFIG`, and the result must pass `validateScoringConfig`. Unknown fields (typos) and non-number values are invalid.
+- A JSON object with some or all `ScoringConfig` fields: merged over `SCORING_CONFIG`, and the result must pass `validateScoringConfig`: every value a whole number from 0 to 2,147,483,647, because points are stored in Postgres `integer` columns. Unknown fields (typos), non-numbers and fractions are invalid. A stored override holds the full merged config, so **renaming or removing a `ScoringConfig` field makes every pack with an override fall back to the default**, with only a log line to show it; a PR that changes those fields must rewrite the stored overrides too.
 - Invalid: the game does **not** fail. The pack plays with the default, and a `[scoring] pack "<id>" has an invalid scoring override ...` line goes to `console.error` (Vercel function logs). The update command below refuses invalid values, so this only happens after hand-written SQL.
 - No pack with that id: throws `PackNotFoundError`. A missing pack is a bug, not a reason to use the default.
 

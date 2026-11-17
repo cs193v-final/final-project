@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createGame, step, type GameAction } from "./round.ts";
-import { pointsIfCorrect, scoreGame, scoreRound, validateScoringConfig } from "./scoring.ts";
+import { MAX_SCORING_VALUE, pointsIfCorrect, scoreGame, scoreRound, validateScoringConfig } from "./scoring.ts";
 import { SCORING_CONFIG } from "./scoring-config.ts";
 import type { Puzzle, ScoringConfig, ScoringEvent } from "./types.ts";
 
@@ -122,6 +122,15 @@ describe("validateScoringConfig", () => {
   it("rejects negative or non-numeric values", () => {
     expect(() => validateScoringConfig({ ...CONFIG, revealPenalty: -5 })).toThrow(/revealPenalty/);
     expect(() => validateScoringConfig({ ...CONFIG, basePoints: Number.NaN })).toThrow(/basePoints/);
+  });
+  it("rejects fractions and values too big for the integer columns (#76 review)", () => {
+    expect(() => validateScoringConfig({ ...CONFIG, revealPenalty: 12.5 })).toThrow(/revealPenalty.*whole number/);
+    expect(() => validateScoringConfig({ ...CONFIG, basePoints: 1e300 })).toThrow(/basePoints/);
+    expect(() => validateScoringConfig({ ...CONFIG, basePoints: Number.POSITIVE_INFINITY })).toThrow(/basePoints/);
+    expect(() =>
+      validateScoringConfig({ ...CONFIG, basePoints: MAX_SCORING_VALUE + 1 }),
+    ).toThrow(/basePoints/);
+    expect(() => validateScoringConfig({ ...CONFIG, basePoints: MAX_SCORING_VALUE })).not.toThrow();
   });
   it("rejects a floor above the base", () => {
     expect(() => validateScoringConfig({ ...CONFIG, minPoints: 200 })).toThrow(/minPoints/);
