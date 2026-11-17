@@ -1,16 +1,46 @@
 import type { GuessOutcome, Puzzle } from "./types.ts";
 
 /**
- * Normalize text for comparison: Unicode NFKC, trim, collapse inner
- * whitespace to one space, lowercase.
+ * Apostrophe- and quote-like characters, mapped to a straight `'` before NFKC.
+ * This runs first because NFKC turns the acute accent `´` into a space plus a
+ * combining accent, which would otherwise split a word in two.
+ */
+const APOSTROPHES = /[`´‘’‚‛′ʼ]/gu;
+const QUOTES = /[“”„‟″]/gu;
+
+/** Punctuation inside words, removed outright: `St. Paul's` -> `st pauls`. */
+const STRIPPED_PUNCTUATION = /[.'"]/gu;
+
+/**
+ * Punctuation between words, and hyphens and dashes, become spaces:
+ * `Notre-Dame` -> `notre dame`, `Paris,France` -> `paris france`.
+ */
+const SEPARATORS = /[,!?‐‑‒–—―−-]/gu;
+
+/**
+ * Normalize text for comparison: Unicode NFKC, curly quotes treated like
+ * straight ones, `. ' "` removed, hyphens, dashes and `, ! ?` turned into
+ * spaces, then trim, collapse inner whitespace to one space, lowercase.
  *
  * NFKC makes visually identical input compare equal (full-width letters,
  * non-breaking spaces, precomposed vs. combining accents). Accents themselves
  * are kept, so "café" and "cafe" still differ; that's part of the open
  * typo-tolerance decision.
+ *
+ * Apostrophes are removed rather than turned into spaces, so "St. Paul's"
+ * becomes "st pauls" and matches a guess typed without them. Input that is only
+ * punctuation normalizes to "", which checkGuess treats as an empty guess.
  */
 export function normalizeGuess(text: string): string {
-  return text.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
+  return text
+    .replace(APOSTROPHES, "'")
+    .replace(QUOTES, '"')
+    .normalize("NFKC")
+    .replace(STRIPPED_PUNCTUATION, "")
+    .replace(SEPARATORS, " ")
+    .trim()
+    .replace(/\s+/gu, " ")
+    .toLowerCase();
 }
 
 /**
