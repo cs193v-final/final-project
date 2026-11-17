@@ -16,6 +16,7 @@ import {
   limitsAddress,
   login,
   loginUserKey,
+  MAX_SESSIONS_PER_USER,
   RATE_LIMITS,
   register,
   sessionUser,
@@ -360,6 +361,58 @@ describe("sessions", () => {
     await deleteSession(db, sha256Hex(first.session.token));
     expect(await findSessionUser(db, sha256Hex(first.session.token), T0)).toBeNull();
     expect(await findSessionUser(db, sha256Hex(second.session.token), T0)).toEqual(second.user);
+  });
+
+  describe(`are capped at ${MAX_SESSIONS_PER_USER} per user (#156)`, () => {
+    const logIn = async (username: string, minute: number) =>
+      expectOk(await login(db, { username, password: PASSWORD }, req("203.0.113.7", at(minute * 60_000))));
+    const countFor = async (userId: string) =>
+      (await pg.query<{ n: number }>("SELECT count(*)::int AS n FROM sessions WHERE user_id = $1", [userId])).rows[0]!.n;
+    const LAST = at(MAX_SESSIONS_PER_USER * 60_000);
+
+    it("so one more login ends the oldest session, and the newer ones keep working", async () => {
+      const first = expectOk(await register(db, { username: "ethan", password: PASSWORD }, req()));
+      const later = [];
+      for (let i = 1; i < MAX_SESSIONS_PER_USER; i++) later.push(await logIn("ethan", i));
+      expect(await countFor(first.user.id)).toBe(MAX_SESSIONS_PER_USER);
+      expect(await findSessionUser(db, sha256Hex(first.session.token), LAST)).toEqual(first.user);
+
+      const newest = await logIn("ethan", MAX_SESSIONS_PER_USER);
+      expect(await countFor(first.user.id)).toBe(MAX_SESSIONS_PER_USER);
+      expect(await findSessionUser(db, sha256Hex(first.session.token), LAST)).toBeNull();
+      for (const { session } of [...later, newest]) {
+        expect(await findSessionUser(db, sha256Hex(session.token), LAST)).toEqual(first.user);
+      }
+    });
+
+    it("and the new session always survives, even when the others claim to be newer", async () => {
+      const { user } = expectOk(await register(db, { username: "ethan", password: PASSWORD }, req()));
+      for (let i = 1; i < MAX_SESSIONS_PER_USER; i++) await logIn("ethan", i);
+      // A clock that ran ahead: every existing session says it's from tomorrow.
+      await pg.exec("UPDATE sessions SET created_at = now() + interval '1 day'");
+      const newest = await logIn("ethan", MAX_SESSIONS_PER_USER);
+      expect(await countFor(user.id)).toBe(MAX_SESSIONS_PER_USER);
+      expect(await findSessionUser(db, sha256Hex(newest.session.token), LAST)).toEqual(user);
+    });
+
+    it("without touching other users' sessions", async () => {
+      const other = expectOk(await register(db, { username: "darian", password: PASSWORD }, req()));
+      for (let i = 1; i < MAX_SESSIONS_PER_USER; i++) await logIn("darian", i);
+      const { user } = expectOk(await register(db, { username: "ethan", password: PASSWORD }, req()));
+      for (let i = 1; i <= MAX_SESSIONS_PER_USER + 2; i++) await logIn("ethan", i);
+      expect(await countFor(user.id)).toBe(MAX_SESSIONS_PER_USER);
+      expect(await countFor(other.user.id)).toBe(MAX_SESSIONS_PER_USER);
+      expect(await findSessionUser(db, sha256Hex(other.session.token), LAST)).toEqual(other.user);
+    });
+
+    it("and the user's expired sessions are deleted at their next login", async () => {
+      const first = expectOk(await register(db, { username: "ethan", password: PASSWORD }, req()));
+      const second = await logIn("ethan", 1);
+      const third = await logIn("ethan", SESSION_DAYS * 24 * 60 + 0.5); // past the first one's expiry, not the second's
+      const hashes = (await rows<{ token_hash: string }>("SELECT token_hash FROM sessions")).map((r) => r.token_hash);
+      expect(hashes.sort()).toEqual([sha256Hex(second.session.token), sha256Hex(third.session.token)].sort());
+      expect(hashes).not.toContain(sha256Hex(first.session.token));
+    });
   });
 
   it("are deleted with their user", async () => {

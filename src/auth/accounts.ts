@@ -15,6 +15,7 @@ import {
   insertSession,
   insertUser,
   type PgDb,
+  trimSessions,
   type StoredUser,
 } from "@/db/accounts";
 import { DecryptionError, getVault, resolveVault, type Vault, type VaultSource } from "@/crypto/vault";
@@ -58,6 +59,13 @@ export async function sessionUser(db: PgDb, vault: Vault, tokenHash: string, now
 }
 
 export const SESSION_DAYS = 30;
+
+/**
+ * Live sessions one user can have (audit L4, #156). Starting another ends the
+ * oldest ones, so a stolen session can't outlive many logins elsewhere and an
+ * account can't pile up rows. Expired sessions are deleted at the same time.
+ */
+export const MAX_SESSIONS_PER_USER = 10;
 
 // Compute the dummy hash when the server starts, not on the first login with
 // an unknown username, so that first login isn't slower than the rest.
@@ -117,7 +125,12 @@ const WRONG_CREDENTIALS = "That username and password don't match.";
 async function startSession(db: PgDb, user: PublicUser, now: Date): Promise<AuthResult> {
   const token = newToken();
   const expiresAt = new Date(now.getTime() + SESSION_DAYS * DAY_MS);
-  await insertSession(db, sha256Hex(token), user.id, expiresAt);
+  const tokenHash = sha256Hex(token);
+  await insertSession(db, tokenHash, user.id, expiresAt);
+  // After the insert, so each login's trim sees every session inserted before
+  // it (its own included) and never deletes its own; logins at the same
+  // moment can't leave more than the cap once both have finished.
+  await trimSessions(db, user.id, tokenHash, MAX_SESSIONS_PER_USER, now);
   return { ok: true, user, session: { token, expiresAt } };
 }
 
