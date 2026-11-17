@@ -61,4 +61,4 @@ If they ask what to do, or how something works: "Do whatever you'd try if I were
 
 ## Changes made
 
-- What changed (#issue, PR #n)
+- Practice puzzles start on an ambiguous detail (grass, leaves, rocks) and zoom out in five smaller steps, `[14, 8, 4.5, 2.5, 1]` instead of `[10, 5, 2.5, 1]` (#112, #113, PR #117)
