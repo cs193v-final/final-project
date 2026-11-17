@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { usernameIndex } from "../src/auth/accounts";
+import { usernameIndex } from "../src/auth/user-row";
 import { verifyPassword } from "../src/auth/crypto";
 import { Vault } from "../src/crypto/vault";
 import type { PgDb } from "../src/db/accounts";
