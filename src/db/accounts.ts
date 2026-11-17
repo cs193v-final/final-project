@@ -4,41 +4,50 @@
 // `./schema.ts`, this file has no "server-only" import so the script can load
 // it, and relative imports keep `.ts` so Node can run it directly.
 //
-// Every function returns `PublicUser` (id and username), never a row with the
-// password hash, except `findLoginRow`, which login needs to check a password.
+// Usernames are encrypted (#84): these functions only ever see the encrypted
+// username and its keyed hash (`usernameIndex`). Encrypting and decrypting is
+// done by `src/auth/accounts.ts`, which has the key. No function returns the
+// password hash except `findLoginRow`, which login needs to check a password.
 import { and, eq, gt, lt, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
-import type { PublicUser } from "../game/types.ts";
 import { rateLimits, sessions, users } from "./schema.ts";
 import type * as schema from "./schema.ts";
 
 /** Any Drizzle Postgres client with our schema: Neon HTTP in the app, PGlite in tests. */
 export type PgDb = PgDatabase<PgQueryResultHKT, typeof schema>;
 
+/** A user row as stored: the username is encrypted. */
+export type StoredUser = { id: string; usernameEncrypted: string };
+
 /**
- * Inserts a user. Returns `null` if the username is taken, ignoring case.
+ * Inserts a user. Returns `false` if the username is taken (same
+ * `usernameIndex`, i.e. the same name ignoring case). The caller picks the id,
+ * because the username is encrypted with a key derived from it.
  * `passwordHash` must already be a hash (see `hashPassword`).
  */
-export async function insertUser(db: PgDb, username: string, passwordHash: string): Promise<PublicUser | null> {
-  const [row] = await db
+export async function insertUser(
+  db: PgDb,
+  user: { id: string; usernameEncrypted: string; usernameIndex: string; passwordHash: string },
+): Promise<boolean> {
+  const rows = await db
     .insert(users)
-    .values({ username, passwordHash })
-    // The only unique constraints are the id (random) and lower(username).
+    .values(user)
+    // The only unique constraints are the id (random) and the username index.
     .onConflictDoNothing()
-    .returning({ id: users.id, username: users.username });
-  return row ?? null;
+    .returning({ id: users.id });
+  return rows.length > 0;
 }
 
-/** The user row login needs, matched ignoring case, or `null`. */
+/** The user row login needs, by the username's keyed hash, or `null`. */
 export async function findLoginRow(
   db: PgDb,
-  username: string,
-): Promise<{ id: string; username: string; passwordHash: string } | null> {
+  usernameIndex: string,
+): Promise<(StoredUser & { passwordHash: string }) | null> {
   const [row] = await db
-    .select({ id: users.id, username: users.username, passwordHash: users.passwordHash })
+    .select({ id: users.id, usernameEncrypted: users.usernameEncrypted, passwordHash: users.passwordHash })
     .from(users)
-    .where(eq(sql`lower(${users.username})`, username.toLowerCase()));
+    .where(eq(users.usernameIndex, usernameIndex));
   return row ?? null;
 }
 
@@ -46,10 +55,10 @@ export async function insertSession(db: PgDb, tokenHash: string, userId: string,
   await db.insert(sessions).values({ tokenHash, userId, expiresAt });
 }
 
-/** The session's user, if the session exists and hasn't expired at `now`. */
-export async function findSessionUser(db: PgDb, tokenHash: string, now: Date): Promise<PublicUser | null> {
+/** The session's user (username still encrypted), if the session exists and hasn't expired at `now`. */
+export async function findSessionUser(db: PgDb, tokenHash: string, now: Date): Promise<StoredUser | null> {
   const [row] = await db
-    .select({ id: users.id, username: users.username })
+    .select({ id: users.id, usernameEncrypted: users.usernameEncrypted })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(and(eq(sessions.tokenHash, tokenHash), gt(sessions.expiresAt, now)));

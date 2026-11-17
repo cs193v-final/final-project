@@ -1,14 +1,27 @@
+import { SCORING_CONFIG } from "@/game/scoring-config";
+import type { ScoringConfig } from "@/game/types";
 import { GAME_NAME } from "@/site";
 import { ModePicker } from "./ModePicker";
 import { PrototypeNotice, SectionHeading } from "./ui/controls";
 
-/** The how-to-play steps, in order. Kept free of point values until scoring (#15) is settled. */
-export const HOW_TO_PLAY = [
-  "Each image starts zoomed way in.",
-  "Type what you think it is. A correct guess ends the round.",
-  "Stuck? Zoom out to see more, but every zoom costs points.",
-  "Wrong guesses cost points too. You can skip to the next image.",
-] as const;
+const pts = (n: number) => `${n} ${n === 1 ? "point" : "points"}`;
+
+/**
+ * The how-to-play steps, in order. Points are explained here, once, with the
+ * values from the scoring config (#64), instead of on every round (#146, from
+ * user test #90).
+ */
+export function howToPlay(config: ScoringConfig = SCORING_CONFIG): readonly string[] {
+  return [
+    "Each image starts zoomed way in.",
+    `Type what you think it is. A correct guess ends the round and scores up to ${pts(config.basePoints)}.`,
+    `Stuck? Zoom out to see more, but every zoom costs ${pts(config.revealPenalty)}.`,
+    `Wrong guesses cost ${pts(config.wrongGuessPenalty)} each. A correct guess always scores at least ${pts(config.minPoints)}.`,
+    `You can skip to the next image, for ${pts(config.skipPoints)}.`,
+  ];
+}
+
+export const HOW_TO_PLAY = howToPlay();
 
 /**
  * Start screen (#18), now the home screen (#50): the game name, the modes to
@@ -19,9 +32,8 @@ export function StartScreen() {
     <main className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-12 text-center">
       <div className="flex flex-col items-center gap-3">
         <h1 className="text-5xl font-semibold tracking-tight">{GAME_NAME}</h1>
-        <p className="max-w-md text-lg text-zinc-600 dark:text-zinc-400">
-          Guess the picture from a tiny piece of it. The less you need to see, the more you score.
-        </p>
+        {/* Short on purpose: a tester found the longer version too wordy (#144, user test #90). */}
+        <p className="max-w-md text-lg text-zinc-600 dark:text-zinc-400">Guess the picture. The less you see, the more you score.</p>
       </div>
 
       <ModePicker />

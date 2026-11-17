@@ -97,9 +97,9 @@ export type Pack = {
   scoring?: ScoringConfig; // per-pack override (type: Ethan; storage: Jacky, #64); default when absent. The seed script doesn't load it yet.
 };
 
-/** Owner: Joseph. Settled (#52); the reset time zone is still open (#58). Which pack is a given day's daily challenge. */
+/** Owner: Joseph. Settled (#52). Which pack is a given day's daily challenge. */
 export type DailyEntry = {
-  date: string; // "YYYY-MM-DD" in the reset time zone (open decision; default America/Los_Angeles)
+  date: string; // "YYYY-MM-DD" in the reset time zone: midnight America/Los_Angeles (#58, DEFAULT_DAILY_RESET)
   packId: string;
 };
 
@@ -144,6 +144,8 @@ export type PublicRound = {
 /** Owner: Jacky. PROPOSAL (#54). Returned by every game call (`startGame`, `act`, `getGame`). */
 export type GameView = {
   gameId: string;
+  /** The stored game's revision. The client sends it back with each action, so one from a stale tab is rejected (#107). */
+  revision: number;
   pack: Pick<Pack, "id" | "kind" | "title" | "theme">;
   round: PublicRound | null; // null once the game is over
   lastOutcome?: GuessOutcome;

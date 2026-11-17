@@ -294,6 +294,7 @@ export function toGameView(
 
   const view: GameView = {
     gameId: game.id,
+    revision: game.revision,
     pack: { id: state.pack.id, kind: state.pack.kind, title: state.pack.title, theme: state.pack.theme },
     round,
     results: rounds,
@@ -379,15 +380,31 @@ export async function getGame(deps: GameDeps, gameId: string, owner: GameOwner):
  * `parseGameAction` first. An action the round rejects (guess after the round
  * ended, reveal at the full image, a blank guess, ...) changes nothing, just
  * like `step` in round.ts: nothing is saved and the current view is returned.
+ *
+ * `expectedRevision` is the `GameView.revision` the player was looking at,
+ * and it's required (#107). It's checked after the owner, so a stranger gets
+ * `GameNotFoundError` whatever they send. A malformed one throws
+ * `InvalidGameActionError`; one that no longer matches the stored game
+ * (another tab moved it on, or an earlier response was lost) throws
+ * `GameConflictError`, and nothing changes.
  */
 export async function act(
   deps: GameDeps,
   gameId: string,
   owner: GameOwner,
   action: GameAction,
+  expectedRevision: number,
 ): Promise<GameView> {
   const parsed = parseGameAction(action);
   const { game, puzzles } = await load(deps, gameId, owner);
+  // The client acted on the view it was shown. If the game has moved on since
+  // (another tab answered, skipped, ...), the action was meant for a round
+  // that's gone: reject it rather than apply it to one the player never saw (#107).
+  // Untrusted like the action: it can come straight from a client.
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+    throw new InvalidGameActionError("revision must be a non-negative integer");
+  }
+  if (expectedRevision !== game.revision) throw new GameConflictError(game.id);
   const { state } = game;
 
   const current: Game = { puzzles, index: state.index, round: state.round, finished: state.finished };
