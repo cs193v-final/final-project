@@ -20,6 +20,7 @@ import type { PublicUser } from "@/game/types";
 import { isHttpsRequest } from "@/server/https";
 
 import { isToken, sha256Hex } from "./crypto";
+import { loginPath } from "./next-path";
 
 export const SESSION_COOKIE = "zo_session";
 
@@ -85,10 +86,13 @@ async function requestSessionToken(): Promise<string | null> {
   return token;
 }
 
-/** The logged-in user; otherwise redirects to the login page. */
-export async function requireUser(): Promise<PublicUser> {
+/**
+ * The logged-in user; otherwise redirects to the login page, which comes back
+ * to `next` (the page asking, e.g. "/account") after logging in (#134).
+ */
+export async function requireUser(next?: string): Promise<PublicUser> {
   const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  if (!user) redirect(loginPath(next));
   return user;
 }
 

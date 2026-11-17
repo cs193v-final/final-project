@@ -7,19 +7,18 @@ import { logoutAction } from "@/app/account/actions";
 import { getCurrentUserOrLoggedOut } from "@/auth/session";
 import type { PublicUser } from "@/game/types";
 
+import { LoginLink, WelcomeStatus } from "./AccountStatusLinks";
+
 const linkClass = "font-medium underline underline-offset-2";
 
 /** What the header shows for a user, or for nobody. Split out so it can be tested without cookies. */
 export function AccountStatusView({ user }: { user: PublicUser | null }) {
   if (!user) {
-    return (
-      <Link href="/login" className={linkClass}>
-        Log in
-      </Link>
-    );
+    return <LoginLink className={linkClass} />;
   }
   return (
     <div className="flex items-center gap-3">
+      <WelcomeStatus username={user.username} />
       <Link href="/account" className={linkClass}>
         {user.username}
       </Link>
