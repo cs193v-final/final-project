@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkGuess, normalizeGuess, type AnswerMatcher } from "./guess.ts";
+import { allowedTypos, checkGuess, exactMatch, normalizeGuess, typoDistance, type AnswerMatcher } from "./guess.ts";
 
 const puzzle = {
   answer: "Golden Gate Bridge",
@@ -134,7 +134,10 @@ describe("checkGuess", () => {
     it("still rejects answers that differ by more than punctuation", () => {
       expect(checkGuess(notreDame, "Notre").kind).toBe("incorrect");
       expect(checkGuess(notreDame, "Dame").kind).toBe("incorrect");
-      expect(checkGuess(notreDame, "NotreDame").kind).toBe("incorrect");
+      // A missing space is a word break, not punctuation; with typo tolerance
+      // (#115) it counts as one typo, which a 9-letter answer allows.
+      expect(checkGuess(notreDame, "NotreDame", { matcher: exactMatch }).kind).toBe("incorrect");
+      expect(checkGuess(notreDame, "NotreDame").kind).toBe("correct");
       expect(checkGuess(stPauls, "St. Paul's").kind).toBe("incorrect");
       expect(checkGuess(stPauls, "St. Peter's Cathedral").kind).toBe("incorrect");
       expect(checkGuess(puzzle, "Golden Gate Bridge 2").kind).toBe("incorrect");
@@ -164,5 +167,63 @@ describe("checkGuess", () => {
       kind: "correct",
       matched: "Golden Gate Bridge",
     });
+  });
+});
+
+describe("typo tolerance (#21, #115)", () => {
+  const hoover = { answer: "Hoover Tower", acceptedAnswers: [] };
+  const oval = { answer: "The Oval", acceptedAnswers: ["Oval"] };
+
+  it("allows no typos under 5 letters, 1 from 5, 2 from 9 (spaces don't count)", () => {
+    expect(allowedTypos("oval")).toBe(0);
+    expect(allowedTypos("paris")).toBe(1);
+    expect(allowedTypos("the oval")).toBe(1); // 7 letters
+    expect(allowedTypos("stanford")).toBe(1);
+    expect(allowedTypos("hoover tower")).toBe(2); // 11 letters
+  });
+
+  it("counts insertions, deletions, substitutions and adjacent swaps as one typo each", () => {
+    expect(typoDistance("hoover tower", "hoover tower")).toBe(0);
+    expect(typoDistance("hover tower", "hoover tower")).toBe(1); // missing letter
+    expect(typoDistance("hooover tower", "hoover tower")).toBe(1); // extra letter
+    expect(typoDistance("hoovar tower", "hoover tower")).toBe(1); // wrong letter
+    expect(typoDistance("hoover towre", "hoover tower")).toBe(1); // swapped letters
+    expect(typoDistance("hovr towr", "hoover tower")).toBe(3);
+    expect(typoDistance("abc", "xyzxyz", 1)).toBe(2); // stops early past the limit
+  });
+
+  it("accepts a guess within the allowed typos and reports the real spelling", () => {
+    expect(checkGuess(hoover, "Hover Tower")).toEqual({ kind: "correct", matched: "Hoover Tower" });
+    expect(checkGuess(hoover, "hovver towre")).toEqual({ kind: "correct", matched: "Hoover Tower" });
+    expect(checkGuess({ answer: "Paris", acceptedAnswers: [] }, "Pairs")).toEqual({ kind: "correct", matched: "Paris" });
+    expect(checkGuess({ answer: "Café Borrone", acceptedAnswers: [] }, "cafe borrone").kind).toBe("correct");
+  });
+
+  it("rejects a guess with more typos than the answer allows", () => {
+    expect(checkGuess(hoover, "hovr towr").kind).toBe("incorrect");
+    expect(checkGuess({ answer: "Paris", acceptedAnswers: [] }, "Parsi s").kind).toBe("incorrect");
+  });
+
+  it("forgives nothing in short answers, where one letter makes another word", () => {
+    expect(checkGuess({ answer: "Oval", acceptedAnswers: [] }, "Opal").kind).toBe("incorrect");
+    expect(checkGuess({ answer: "Quad", acceptedAnswers: [] }, "Quid").kind).toBe("incorrect");
+    expect(checkGuess(oval, "Oval")).toEqual({ kind: "correct", matched: "Oval" });
+  });
+
+  it("rejects near misses that are really other places: a different first letter or different numbers", () => {
+    expect(checkGuess({ answer: "Mesa", acceptedAnswers: [] }, "Pesa").kind).toBe("incorrect");
+    expect(checkGuess({ answer: "Lagunita", acceptedAnswers: [] }, "Magunita").kind).toBe("incorrect");
+    expect(checkGuess({ answer: "Building 10", acceptedAnswers: [] }, "Building 11").kind).toBe("incorrect");
+    expect(checkGuess({ answer: "Gates 104", acceptedAnswers: [] }, "Gates 140").kind).toBe("incorrect");
+    expect(checkGuess({ answer: "Building 10", acceptedAnswers: [] }, "Buildng 10").kind).toBe("correct");
+  });
+
+  it("prefers an exact match on an alternate over a typo match on the canonical answer", () => {
+    const close = { answer: "Stanford Mall", acceptedAnswers: ["Stanford Hall"] };
+    expect(checkGuess(close, "stanford hall")).toEqual({ kind: "correct", matched: "Stanford Hall" });
+  });
+
+  it("can be turned off with exactMatch", () => {
+    expect(checkGuess(hoover, "Hover Tower", { matcher: exactMatch }).kind).toBe("incorrect");
   });
 });

@@ -191,7 +191,7 @@ type RoundState = "playing" | "correct" | "skipped";
 // playing → correct | skipped → next puzzle; after the last puzzle → final score screen
 ```
 
-Normalization for the prototype (#22): Unicode NFKC, trim, collapse inner whitespace, lowercase. Accents are kept, so "café" ≠ "cafe". Typo tolerance is an open decision (#21); `checkGuess` takes a pluggable `matcher` so it can be added without changing callers.
+Normalization for the prototype (#22): Unicode NFKC, trim, collapse inner whitespace, lowercase. Accents are kept, so "café" ≠ "cafe". **Typo tolerance (decided in #21 after the #115 user test, Ethan):** a guess counts if it's within a small edit distance of an answer (insert, delete, substitute or swap two neighbouring letters): none for answers under 5 letters, 1 typo from 5, 2 from 9 (spaces not counted). The first character and every digit must match, so a different nearby place ("Building 11" for "Building 10") isn't accepted. An exact match on any accepted answer wins over a typo match. It's `typoTolerantMatch` in `src/game/guess.ts`, the default `matcher`; `exactMatch` turns it off.
 
 The round state machine is `step(game, action)` in `src/game/round.ts` (#23). Actions are `reveal`, `guess`, `skip` and `next`. Invalid actions are rejected with a reason instead of throwing.
 
@@ -253,7 +253,7 @@ Don't treat these as decided. Ask the owner, or keep them configurable.
 | Anonymous play | Default proposal: anyone can play daily; only logged-in players get leaderboard entries and streaks | #54, #62 |
 | Where non-public puzzle content lives | **Proposal (#52):** each of us keeps it in the git-ignored `content/` folder, and the seed script refuses committable content. Still to decide: how we share the files with each other (e.g. a private repo or a shared drive). | #52 |
 | Scoring values and wrong-guess rules | Placeholders in `src/game/scoring-config.ts`; flat or increasing penalties; a guess limit? | #21, #64 |
-| Number of reveal steps; typo tolerance | Fixed or per puzzle; edit distance or none | #21 |
+| Number of reveal steps | Fixed or per puzzle | #21 (typo tolerance decided: small edit distance, see "`GuessOutcome` and round states") |
 | Stanford mode | A fixed pack, or its own daily rotation | #65 |
 | Name and look | "Crumbscope" (proposal), "Zoom Out" (app), or other | #51 |
 | Image sourcing | Which licenses we accept; our own photos for Stanford | #55, #65 |
