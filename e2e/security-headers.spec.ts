@@ -15,7 +15,7 @@ function cspViolations(page: Page): string[] {
   return violations;
 }
 
-for (const path of ["/", "/play"]) {
+for (const path of ["/", "/play", "/login"]) {
   test(`${path} sends the security headers and no X-Powered-By`, async ({ request }) => {
     const response = await request.get(path);
     const headers = response.headers();
@@ -32,14 +32,19 @@ test("the policy blocks nothing while playing a practice game", async ({ page })
   const violations = cspViolations(page);
   const response = await page.goto("/");
   const csp = response?.headers()["content-security-policy"] ?? "";
-  // In dev the policy also allows eval; either way it's the one from security-headers.ts.
-  expect([contentSecurityPolicy(false), contentSecurityPolicy(true)]).toContain(csp);
+  // CI runs the production build, which must never allow eval; locally the
+  // dev server does (playwright.config.ts).
+  expect(csp).toBe(contentSecurityPolicy(!process.env.CI));
 
   await page.getByRole("link", { name: "Start practice" }).click();
   await expect(page.getByText(/^Image 1 of \d+$/)).toBeVisible({ timeout: 10_000 });
   // A Server Action (a move) and the level images it loads.
   await page.getByRole("button", { name: "Skip this image" }).click();
   await expect(page.getByRole("button", { name: /^(Next image|See results)$/ })).toBeVisible();
-  await expect(page.getByRole("img").first()).toBeVisible();
+  // Wait for the level image to actually load: a blocked image only shows up
+  // as a violation after the <img> is already in the page.
+  const image = page.getByRole("img", { name: /^Mystery image/ });
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
   expect(violations).toEqual([]);
 });

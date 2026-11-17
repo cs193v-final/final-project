@@ -9,7 +9,7 @@ describe("security headers (#105)", () => {
     expect(header(false, "X-Content-Type-Options")).toBe("nosniff");
     expect(header(false, "Referrer-Policy")).toBe("strict-origin-when-cross-origin");
     expect(header(false, "X-Frame-Options")).toBe("DENY");
-    expect(header(false, "Strict-Transport-Security")).toMatch(/^max-age=\d{8,}; includeSubDomains$/);
+    expect(header(false, "Strict-Transport-Security")).toBe("max-age=63072000");
     expect(header(false, "Content-Security-Policy")).toContain("frame-ancestors 'none'");
   });
 

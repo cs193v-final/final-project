@@ -26,15 +26,15 @@ export function contentSecurityPolicy(isDev: boolean): string {
   ].join("; ");
 }
 
-/** HSTS for two years. Browsers ignore it over plain http, so local dev and e2e aren't affected. */
-export const HSTS = "max-age=63072000; includeSubDomains";
-
 export function securityHeaders(isDev: boolean): { key: string; value: string }[] {
   return [
     { key: "Content-Security-Policy", value: contentSecurityPolicy(isDev) },
     { key: "X-Content-Type-Options", value: "nosniff" },
     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-    { key: "Strict-Transport-Security", value: HSTS },
+    // HTTPS only, for two years. No includeSubDomains: on a custom domain that
+    // would force HTTPS on subdomains we don't control. Browsers ignore it
+    // over plain http, so local dev and e2e aren't affected.
+    { key: "Strict-Transport-Security", value: "max-age=63072000" },
     // Older browsers that don't know frame-ancestors.
     { key: "X-Frame-Options", value: "DENY" },
   ];
