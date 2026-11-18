@@ -22,6 +22,34 @@
       "when": 1794879207925,
       "tag": "0002_image_files",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794895701092,
+      "tag": "0003_rate_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794896292949,
+      "tag": "0004_encrypt_usernames",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794934743318,
+      "tag": "0005_daily_games",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794935372291,
+      "tag": "0006_encrypt_game_state",
+      "breakpoints": true
     }
   ]
 }

@@ -4,23 +4,29 @@
 //   npm run db:seed -- --dry-run            check content, touch no database
 //   npm run db:seed                          practice pack + every file in content/
 //   npm run db:seed -- path/to/a.json dir/   practice pack + these files or folders
+//   npm run db:seed -- --recut               also cut every puzzle's images again
+//   npm run db:seed -- --no-images           seed without cutting images
 //
 // The practice pack (src/puzzles/) is always included. Every other content
 // path must be outside the repo or git-ignored (like content/), so private
 // answers can't be committed by accident. Safe to run again.
 //
+// After seeding, each puzzle is cut into one image per zoom level and stored
+// (#57, ./seed-images.ts), unless it's already cut with the same image, focus
+// and zoom levels.
+//
 // Runs directly in Node 24 (type stripping), so imports keep their `.ts`.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
 import { seedContent } from "../src/db/content.ts";
 import { combineContent, parseContent, type Content } from "../src/game/packs.ts";
 import { parsePuzzles } from "../src/game/puzzles.ts";
-import { assertDatabaseUrlRequiresTls } from "../src/db/tls.ts";
 import { connect } from "./seed-db.ts";
+import { cutPuzzleImages, originalPath, storedImageSettings } from "./seed-images.ts";
 
 const root = resolve(import.meta.dirname, "..");
 // npm runs scripts from the repo root; INIT_CWD is where the command was typed,
@@ -84,7 +90,11 @@ function assertNotCommittable(file: string) {
 
 async function main() {
   const { values, positionals } = parseArgs({
-    options: { "dry-run": { type: "boolean", default: false } },
+    options: {
+      "dry-run": { type: "boolean", default: false },
+      recut: { type: "boolean", default: false },
+      "no-images": { type: "boolean", default: false },
+    },
     allowPositionals: true,
   });
   // `npm run db:seed --dry-run` (no `--`) gives the flag to npm, not to us;
@@ -95,11 +105,16 @@ async function main() {
 
   const files = contentFiles(paths);
   files.forEach(assertNotCommittable);
+  // Which folder each content puzzle came from: its relative imageUrl is the
+  // original photo, next to its file. Practice puzzles aren't in here.
+  const contentDirOf = new Map<string, string>();
   const content = combineContent([
     ...practiceContent(),
     ...files.map((file) => {
       const source = relative(cwd, file);
-      return { source, content: parseContent(readJson(file), source) };
+      const parsed = parseContent(readJson(file), source);
+      for (const p of parsed.puzzles) contentDirOf.set(p.id, dirname(file));
+      return { source, content: parsed };
     }),
   ]);
 
@@ -108,6 +123,23 @@ async function main() {
     `Checked ${files.length} content file(s) plus the practice pack: ${content.puzzles.length} puzzles, ` +
       `${content.packs.length} packs (${kinds}), ${content.schedule.length} scheduled days.`,
   );
+
+  const cutImages = !values["no-images"];
+  // Find every original before touching the database (and in a dry run too), so
+  // a missing or misnamed photo stops the seed cleanly. A content puzzle's photo
+  // is private like its content file, so it mustn't be committable either.
+  const originals = new Map(
+    cutImages
+      ? content.puzzles.map((p) => {
+          const contentDir = contentDirOf.get(p.id) ?? null;
+          const file = originalPath(p, contentDir, root);
+          if (contentDir !== null) assertNotCommittable(file);
+          return [p.id, file] as const;
+        })
+      : [],
+  );
+  if (cutImages) console.log(`Found the original photo of all ${originals.size} puzzles.`);
+
   if (dryRun) {
     console.log("Dry run: no database touched.");
     return;
@@ -120,16 +152,23 @@ async function main() {
   }
   const url = process.env.DATABASE_URL_UNPOOLED;
   if (!url) throw new Error("DATABASE_URL_UNPOOLED is not set (see TECHNICAL.md → Content).");
-  // Same TLS rule as the app and drizzle.config.ts (#60): only a database on this machine may skip it.
-  assertDatabaseUrlRequiresTls(url, "DATABASE_URL_UNPOOLED");
-
-  const { db, close } = await connect(url);
+  // connect() checks TLS (#60), by the same rule as the app and drizzle.config.ts:
+  // only a database on this machine may skip it.
+  const { db, close } = await connect(url, "DATABASE_URL_UNPOOLED");
   try {
+    // What the images were cut from before this seed, so changed puzzles are cut again.
+    const before = cutImages ? await storedImageSettings(db, content.puzzles.map((p) => p.id)) : new Map();
     const summary = await seedContent(db, content);
     console.log(
       `Seeded ${summary.puzzles} puzzles, ${summary.packs} packs (${summary.packOrders} with a new or changed ` +
         `puzzle list) and ${summary.schedule} scheduled days.`,
     );
+    if (cutImages) {
+      const images = await cutPuzzleImages(db, content.puzzles, (p) => originals.get(p.id)!, { before, recut: values.recut });
+      console.log(`Cut ${images.cut} puzzle(s) into level images (${images.alreadyCut} already cut).`);
+    } else {
+      console.log("Images not cut (--no-images): puzzles that aren't cut can't be played, except practice ones.");
+    }
   } finally {
     await close();
   }
@@ -138,8 +177,9 @@ async function main() {
 try {
   await main();
 } catch (error) {
-  // For a failed query, drizzle's message is the SQL; the database's own error
-  // (missing table, wrong password) is in `cause`.
+  // For a failed query, drizzle's message is the SQL followed by its params,
+  // which can include answers; printing it is tracked in #110. The database's
+  // own error (missing table, wrong password) is in `cause`.
   let current: unknown = error;
   for (let depth = 0; current !== undefined && depth < 5; depth++) {
     const message = current instanceof Error ? current.message : String(current);

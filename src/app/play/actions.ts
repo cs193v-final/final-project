@@ -19,9 +19,12 @@ export async function startGameAction(): Promise<GameResult> {
   return startPracticeGame();
 }
 
-/** Apply one player action (reveal, guess, skip, next) to the player's game. */
-export async function actAction(gameId: string, action: GameAction): Promise<GameResult> {
-  return actOnGame(gameId, action);
+/**
+ * Apply one player action (reveal, guess, skip, next) to the player's game.
+ * `revision` is the `GameView.revision` the player saw; a stale one gives `conflict` (#107).
+ */
+export async function actAction(gameId: string, action: GameAction, revision: number): Promise<GameResult> {
+  return actOnGame(gameId, action, revision);
 }
 
 /** The player's game as it is now, e.g. to resync after a conflict. */

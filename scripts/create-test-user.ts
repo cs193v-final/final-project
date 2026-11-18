@@ -1,0 +1,92 @@
+// Creates a test user (#53), so each teammate can play the full flow with
+// their own account. The password is read from TEST_USER_PASSWORD, never from
+// the command line (which lands in shell history):
+//
+//   # in .env.local (git-ignored):  TEST_USER_PASSWORD=<your test password>
+//   npm run db:test-user -- <username>
+//
+// Connects with DATABASE_URL_UNPOOLED, like drizzle.config.ts: a value already
+// in the environment wins; only when it's unset does it fall back to the dev
+// database in .env.local. TLS is required (localhost exempt, src/db/tls.ts,
+// checked by `connect`),
+// and the driver follows the host like the seed script's (`connect` in
+// ./seed-db.ts): Neon's HTTP driver for Neon, node-postgres for a local one.
+// Prints only the database host, never credentials. The username is stored
+// encrypted (#84), so DATA_ENCRYPTION_KEY must be the same key the app uses.
+//
+// Runs with plain Node (type stripping), so imports are relative with `.ts`.
+import { existsSync } from "node:fs";
+
+import { hashPassword } from "../src/auth/crypto.ts";
+import { EncryptionKeyError, Vault } from "../src/crypto/vault.ts";
+import { checkNewPassword, checkUsername } from "../src/auth/rules.ts";
+import { newUserRow } from "../src/auth/user-row.ts";
+import { insertUser, type PgDb } from "../src/db/accounts.ts";
+import { InsecureDatabaseUrlError } from "../src/db/tls.ts";
+import { errorSummary } from "../src/server/error-summary.ts";
+import { connect } from "./seed-db.ts";
+
+export const USAGE = "Usage: TEST_USER_PASSWORD=... npm run db:test-user -- <username>\n(put TEST_USER_PASSWORD in .env.local)";
+
+export class UsageError extends Error {
+  constructor(message: string) {
+    super(`${message}\n\n${USAGE}`);
+    this.name = "UsageError";
+  }
+}
+
+/** Checks the arguments and password with the same rules as sign-up. */
+export function parseInput(args: readonly string[], password: string | undefined): { username: string; password: string } {
+  if (args.length !== 1) throw new UsageError("Give exactly one username.");
+  const username = checkUsername(args[0]);
+  if (!username.ok) throw new UsageError(username.error);
+  const pw = checkNewPassword(password);
+  if (!pw.ok) throw new UsageError(`TEST_USER_PASSWORD: ${pw.error}`);
+  return { username: username.value, password: pw.value };
+}
+
+/** Creates the user and returns what to print. An existing user is left unchanged. */
+export async function createTestUser(
+  db: PgDb,
+  vault: Vault,
+  input: { username: string; password: string },
+): Promise<string> {
+  // Built exactly like sign-up builds it (`register`), so the user can log in.
+  const created = await insertUser(db, newUserRow(vault, input.username, await hashPassword(input.password)));
+  return created
+    ? `Created test user "${input.username}". Log in at /login.`
+    : `A user named "${input.username}" already exists (ignoring case); nothing changed.`;
+}
+
+async function main(): Promise<void> {
+  try {
+    // loadEnvFile never overwrites a variable already in the environment, so
+    // a URL set in the shell wins over .env.local.
+    if (existsSync(".env.local")) process.loadEnvFile(".env.local");
+    const input = parseInput(process.argv.slice(2), process.env.TEST_USER_PASSWORD);
+    const url = process.env.DATABASE_URL_UNPOOLED;
+    if (!url) throw new UsageError("DATABASE_URL_UNPOOLED is not set (see README.md → Database).");
+    // connect() checks TLS first, so an insecure URL is rejected before
+    // anything is printed. Neither driver opens a connection until the insert.
+    const { db, close } = await connect(url, "DATABASE_URL_UNPOOLED");
+    try {
+      const vault = Vault.fromEnv();
+      console.log(`Database host: ${new URL(url).host}`);
+      console.log(await createTestUser(db as unknown as PgDb, vault, input));
+    } finally {
+      await close();
+    }
+  } catch (error) {
+    process.exitCode = 1;
+    if (error instanceof UsageError || error instanceof InsecureDatabaseUrlError || error instanceof EncryptionKeyError) {
+      console.error(error.message);
+      return;
+    }
+    // Never the error itself: Node would print a failed insert's params (the
+    // username and the password hash). errorSummary keeps names, Postgres
+    // codes and value-free messages only (#60).
+    console.error(`Couldn't create the test user: ${errorSummary(error)}`);
+  }
+}
+
+if (import.meta.main) await main();

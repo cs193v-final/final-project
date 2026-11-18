@@ -1,40 +1,56 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GameError, GameResult } from "@/game/game-result";
 import type { GameAction, GameView, Puzzle, PublicRound } from "@/game/types";
+import { Confetti } from "./Confetti";
 import { FinalScore } from "./FinalScore";
 import { GuessPanel } from "./GuessPanel";
 import { ImageViewer } from "./ImageViewer";
+import { POP, POP_TIMING, useAnimateOn } from "./motion";
 import { feedbackFor, finalScoreLabels, learnAnswer, NO_FEEDBACK, type Feedback, type KnownAnswers } from "./practice";
 import { RoundValue, ScoreHeader } from "./LiveScore";
 import { ZoomOutButton } from "./ZoomOutButton";
+import { Button } from "../ui/controls";
 
 export type PracticeGameProps = {
   /** The game from the URL (`/play?game=<id>`), loaded on the server; null starts a new one. */
   initial: GameResult | null;
   /** Server Actions (src/app/play/actions.ts). Props, so tests can pass in-memory ones. */
   start: () => Promise<GameResult>;
-  act: (gameId: string, action: GameAction) => Promise<GameResult>;
+  act: (gameId: string, action: GameAction, revision: number) => Promise<GameResult>;
   get: (gameId: string) => Promise<GameResult>;
+  /** Where a started game lives, so a refresh resumes it. Default: `/play?game=<id>`. */
+  gameHref?: (gameId: string) => string;
+  /** Whether the final score offers Play again. The daily (#58) is one game per day: false, with `afterFinish`. */
+  replay?: boolean;
+  afterFinish?: ReactNode | ((view: GameView) => ReactNode);
 };
+
+const playHref = (gameId: string) => `/play?game=${encodeURIComponent(gameId)}`;
 
 const PROBLEMS: Record<GameError, string> = {
   "not-found": "We couldn't find that game. It may have been started in another browser.",
   invalid: "That didn't work. Please try again.",
-  conflict: "This game changed in another tab, so it was reloaded here.",
+  conflict: "This game was updated since you last saw it, so it was reloaded.",
+  "rate-limited": "You're going faster than we allow right now. Please wait a while (up to an hour), then try again.",
   unavailable: "Couldn't reach the server. Check your connection and try again, or reload the page.",
 };
 
 /**
  * The practice game: the image viewer and Zoom out (#10, #11), guessing (#14),
- * and the live and final score (#16). The game runs on the server (#54):
- * every move is a Server Action that returns a `GameView`, and this component
- * only renders that view. It never sees answers before a round ends, and it
- * doesn't score anything.
+ * the live and final score (#16), and answer feedback (#48). The game runs on
+ * the server (#54): every move is a Server Action that returns a `GameView`,
+ * and this component only renders that view. It never sees answers before a
+ * round ends, and it doesn't score anything.
  */
-export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
+export function PracticeGame({ initial, start, act, get, gameHref = playHref, replay = true, afterFinish }: PracticeGameProps) {
   const [view, setView] = useState<GameView | null>(initial?.ok ? initial.view : null);
+  // The latest view, updated as soon as a result arrives. `send` reads the
+  // game id and revision from here rather than from `view`, which only
+  // updates on the next render: a click in between would otherwise send the
+  // old revision and get a false conflict (#107).
+  const latest = useRef<GameView | null>(initial?.ok ? initial.view : null);
   const [problem, setProblem] = useState<GameError | null>(initial && !initial.ok ? initial.error : null);
   const [feedback, setFeedback] = useState<Feedback>(() =>
     initial?.ok ? feedbackFor(null, initial.view, NO_FEEDBACK) : NO_FEEDBACK,
@@ -45,10 +61,15 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
   // tick (before React re-renders); `pending` marks the controls as disabled.
   const inFlight = useRef(false);
   const [pending, setPending] = useState(false);
-  // False once the player has left /play (e.g. "Back to start" while a game is
+  // False once the player has left /play (e.g. "← Home" while a game is
   // starting). Results that arrive after that are ignored, so they can't
   // rewrite the URL of the page the player is on now.
   const mounted = useRef(false);
+  // True right after a guess made here solved the round, so the confetti and
+  // the pop (#48) are for the player's own solve. A solved round that was
+  // loaded (a refresh, or the reload after another tab changed the game)
+  // isn't celebrated again.
+  const [justSolved, setJustSolved] = useState(false);
 
   /**
    * Run one server round trip, unless one is already running. A Server Action
@@ -75,6 +96,8 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       return;
     }
     setProblem(null);
+    setJustSolved(action?.type === "guess" && result.view.round?.state === "correct");
+    latest.current = result.view;
     setView(result.view);
     setFeedback((previous) => feedbackFor(action, result.view, previous));
     setAnswers((known) => learnAnswer(known, result.view));
@@ -87,7 +110,7 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       if (result.ok) {
         setAnswers({});
         // Put the game in the URL, so a refresh resumes it (the page loads it with getGame).
-        window.history.replaceState(null, "", `/play?game=${encodeURIComponent(result.view.gameId)}`);
+        window.history.replaceState(null, "", gameHref(result.view.gameId));
       }
       show(result, null);
     });
@@ -100,12 +123,14 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       setFeedback({ kind: "empty" });
       return Promise.resolve();
     }
-    const { gameId } = view;
     return exclusive(async () => {
-      const result = await act(gameId, action);
+      const current = latest.current;
+      if (current === null) return;
+      const { gameId, revision } = current;
+      const result = await act(gameId, action, revision);
       if (!mounted.current) return;
       if (!result.ok && result.error === "conflict") {
-        // Another tab changed the game first, so this action wasn't applied.
+        // The game changed since this view (another tab, or a lost response), so this action wasn't applied.
         // Show the game as it is now and let the player decide again.
         const fresh = await get(gameId);
         if (!mounted.current) return;
@@ -136,6 +161,12 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The image a guess made here just solved, if any: it pops once (#48).
+  // Called before the early returns below so the hooks run in the same order
+  // every render.
+  const solvedRound = justSolved && view?.round && !view.finished ? view.round.position : null;
+  const imageBox = useAnimateOn<HTMLDivElement>(solvedRound, POP, POP_TIMING);
+
   const alert = problem && view ? (
     <div className="flex flex-col items-center gap-2">
       <p role="alert" className="text-center text-sm text-rose-700 dark:text-rose-400">
@@ -143,13 +174,11 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       </p>
       {problem === "unavailable" ? (
         // After a redeploy only a reload fixes "Failed to find Server Action".
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="text-sm font-medium underline underline-offset-2"
-        >
+        // Always underlined: it sits next to the message, and on a touch screen
+        // there's no hover to show it can be pressed.
+        <Button variant="quiet" onClick={() => window.location.reload()} className="text-sm underline">
           Reload the page
-        </button>
+        </Button>
       ) : null}
     </div>
   ) : null;
@@ -161,14 +190,9 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
     return (
       <div className="flex flex-col items-center gap-3 text-center">
         <p role="alert">{PROBLEMS[problem]}</p>
-        <button
-          type="button"
-          onClick={() => void newGame()}
-          aria-disabled={pending}
-          className="rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 aria-disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-        >
+        <Button disabled={pending} onClick={() => void newGame()}>
           {problem === "not-found" ? "Start a new game" : "Try again"}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -181,7 +205,8 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
         <FinalScore
           puzzles={finalScoreLabels(view, answers)}
           score={{ rounds: view.results, total: view.total }}
-          onPlayAgain={() => void newGame()}
+          {...(replay ? { onPlayAgain: () => void newGame() } : {})}
+          after={typeof afterFinish === "function" ? afterFinish(view) : afterFinish}
         />
       </div>
     );
@@ -201,13 +226,17 @@ export function PracticeGame({ initial, start, act, get }: PracticeGameProps) {
       <ScoreHeader index={round.position - 1} count={round.puzzleCount} total={view.total} />
 
       <div className="flex w-full max-w-md flex-col items-center gap-3">
-        {/* key: each image starts at its own tight crop, with no zoom animation from the last one. */}
-        <ImageViewer
-          key={round.position}
-          puzzle={{ imageUrl: round.imageSrc, reveal: cropFor(round) }}
-          revealLevel={round.revealLevel}
-          showFull={round.state !== "playing"}
-        />
+        <div ref={imageBox} data-image-box className="relative flex w-full justify-center">
+          {/* key: each image starts at its own tight crop, with no zoom animation from the last one. */}
+          <ImageViewer
+            key={round.position}
+            puzzle={{ imageUrl: round.imageSrc, reveal: cropFor(round) }}
+            revealLevel={round.revealLevel}
+            showFull={round.state !== "playing"}
+          />
+          {/* Mounts fresh each time a guess here solves an image ("Next image" unmounts it), so it plays once per solve. */}
+          {solvedRound !== null && <Confetti />}
+        </div>
         {round.state === "playing" ? (
           <ZoomOutButton round={roundView} pending={pending} onZoomOut={() => void send({ type: "reveal" })} />
         ) : round.credit ? (
