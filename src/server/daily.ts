@@ -6,10 +6,10 @@ import { cacheLife } from "next/cache";
 import { getDb } from "@/db";
 import { getDailyIntro, getDailyPack } from "@/db/daily";
 import { getDailyStats, type DailyStats } from "@/db/daily-stats";
+import { scoringFromStored } from "@/db/scoring";
 import { dailyDateFor, DEFAULT_DAILY_RESET } from "@/game/daily-date";
 import type { DailyIntro } from "@/game/daily";
 import { runGameCall, type GameResult } from "@/game/game-result";
-import { SCORING_CONFIG } from "@/game/scoring-config";
 import { GameNotFoundError, resumeDaily, startOrResumeDaily } from "@/game/server-game";
 
 import { deps } from "./games";
@@ -72,8 +72,9 @@ export async function startTodaysDaily(date: unknown, now = new Date()): Promise
   const daily = pack;
   return runGameCall(async () => {
     const owner = await currentOrNewOwner();
-    // The pack's own scoring (#64) when it has one.
-    return startOrResumeDaily(deps(db), daily, today, owner, daily.scoring ?? SCORING_CONFIG);
+    // The pack's own scoring (#64) when it has one, checked like any stored
+    // override: an invalid one (hand-written SQL) is logged and the default used.
+    return startOrResumeDaily(deps(db), daily, today, owner, scoringFromStored(daily.id, daily.scoring ?? null));
   });
 }
 

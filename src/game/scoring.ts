@@ -6,10 +6,19 @@ import type { RoundResult, ScoringConfig, ScoringEvent } from "./types.ts";
  * config changes; `scoreRound` and `scoreGame` also call it, so a bad
  * playtest tweak fails loudly in tests instead of showing odd scores.
  */
+/**
+ * Largest value a scoring field may have. Points end up in Postgres `integer`
+ * columns (`game_rounds.points`, the penalty columns, `games.total`), so every
+ * value must be a whole number that fits one.
+ */
+export const MAX_SCORING_VALUE = 2_147_483_647;
+
 export function validateScoringConfig(config: ScoringConfig): void {
   for (const [key, value] of Object.entries(config)) {
-    if (!Number.isFinite(value) || value < 0) {
-      throw new Error(`ScoringConfig.${key} must be a number ≥ 0, got ${value}`);
+    if (!Number.isInteger(value) || value < 0 || value > MAX_SCORING_VALUE) {
+      throw new Error(
+        `ScoringConfig.${key} must be a whole number from 0 to ${MAX_SCORING_VALUE}, got ${value}`,
+      );
     }
   }
   if (config.minPoints > config.basePoints) {

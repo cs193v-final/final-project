@@ -102,6 +102,34 @@ A migration that adds or tightens a CHECK fails if a row already in that databas
 
 If a migration fails partway, don't edit it; fix forward with a new migration, or restore the Neon branch to a point in time before the migration.
 
+**Per-pack scoring (#64).** Server code gets a pack's scoring with `getScoringConfig(packId)` from `src/db/scoring.ts` (server-only). It reads `packs.scoring`:
+
+- `NULL` (the default for every pack): the pack uses `SCORING_CONFIG` from `src/game/scoring-config.ts`.
+- A JSON object with some or all `ScoringConfig` fields: merged over `SCORING_CONFIG`, and the result must pass `validateScoringConfig`: every value a whole number from 0 to 2,147,483,647, because points are stored in Postgres `integer` columns. Unknown fields (typos), non-numbers and fractions are invalid. A stored override holds the full merged config, so **renaming or removing a `ScoringConfig` field makes every pack with an override fall back to the default**, with only a log line to show it; a PR that changes those fields must rewrite the stored overrides too.
+- Invalid: the game does **not** fail. The pack plays with the default, and a `[scoring] pack "<id>" has an invalid scoring override ...` line goes to `console.error` (Vercel function logs). The update command below refuses invalid values, so this only happens after hand-written SQL.
+- No pack with that id: throws `PackNotFoundError`. A missing pack is a bug, not a reason to use the default.
+
+The pure rules are `resolveScoringConfig` in `src/game/scoring-override.ts`, which throws `ScoringConfigError`; the fallback-and-log is in `src/db/pack-scoring.ts`.
+
+**Changing a pack's scoring without a redeploy.** Use the command, which validates before writing:
+
+```sh
+npm run db:scoring -- show  <pack-id>                        # stored override and effective config
+npm run db:scoring -- set   <pack-id> '{"basePoints": 150}'  # or a path to a .json file
+npm run db:scoring -- clear <pack-id>                        # back to the default
+```
+
+`set` merges what you give over the current `SCORING_CONFIG` and stores the full result, so the pack's values stay fixed even if the default in code changes later. It connects with `DATABASE_URL_UNPOOLED` exactly like `drizzle.config.ts`: dev from `.env.local`; preview and production typed at a hidden prompt for that one command, e.g. `read -rs URL && DATABASE_URL_UNPOOLED="$URL" npm run db:scoring -- set <pack-id> scoring.json; unset URL`. Like the app, it refuses a URL that doesn't require TLS (only localhost is exempt). It prints the database host (never the credentials) so you can check which database you changed.
+
+Plain SQL works too (Neon console SQL editor), but nothing validates it, so run `show` afterwards and check it isn't marked INVALID:
+
+```sql
+UPDATE packs SET scoring = '{"basePoints": 150, "revealPenalty": 20, "wrongGuessPenalty": 10, "minPoints": 10, "skipPoints": 0}'::jsonb WHERE id = '<pack-id>';
+UPDATE packs SET scoring = NULL WHERE id = '<pack-id>';  -- back to the default
+```
+
+A change applies to games **started** after it. A server game (#54) reads the config once when it starts and keeps it in `games.state`, so games in progress finish with the values they started with, and a round's score never changes halfway through a game.
+
 ### Expired rows (#154)
 
 Every login and sign-up attempt, and every game start and move (#85), writes a `rate_limits` row, and every login a `sessions` row. Neither is needed once it expires, so they're deleted on a schedule rather than left to grow toward Neon's free 0.5 GB (security audit M2).
@@ -128,7 +156,7 @@ Every login and sign-up attempt, and every game start and move (#85), writes a `
 }
 ```
 
-A puzzle is the same `Puzzle` format as `sample.json`, plus an optional `aiSolvedLevel` (#56). Use random ids (`pz-` + `openssl rand -hex 4`): **no id or image URL may contain an answer or accepted answer**, and the checks reject one that does (#36). They also catch single words of 3+ letters (`ben-01.jpg` for "Big Ben"), singulars (`cherry.jpg` for "Cherries") and URL-encoded names. **Strip photo metadata** before using an image: phone photos carry GPS, which gives a landmark away. Only daily packs can be scheduled, each on one day. Per-pack `scoring` isn't loaded yet (#64).
+A puzzle is the same `Puzzle` format as `sample.json`, plus an optional `aiSolvedLevel` (#56). Use random ids (`pz-` + `openssl rand -hex 4`): **no id or image URL may contain an answer or accepted answer**, and the checks reject one that does (#36). They also catch single words of 3+ letters (`ben-01.jpg` for "Big Ben"), singulars (`cherry.jpg` for "Cherries") and URL-encoded names. **Strip photo metadata** before using an image: phone photos carry GPS, which gives a landmark away. Only daily packs can be scheduled, each on one day. Content files can't set per-pack `scoring` yet (the checks reject it); set it with `npm run db:scoring` instead (#64, above). Re-seeding keeps a pack's stored scoring, because the seed only updates `kind`, `title` and `theme`.
 
 **`imageUrl` is the original photo** (#57): for a content puzzle, a path relative to its content file (e.g. `images/fig.jpg` next to `content/fruit.json`); for the practice pack, `/puzzles/…` in `public/`. The seed cuts it into one image per zoom level, and only those level images ever reach a browser, so the path itself is never sent. A remote URL can't be cut: download the photo first.
 

@@ -378,8 +378,7 @@ function checkPuzzlesMatch(state: GameState, puzzles: readonly Puzzle[]): void {
 
 /**
  * Start a new game of `pack` for `owner`. `scoring` is the pack's config
- * (today: `SCORING_CONFIG`; later `getScoringConfig(pack.id)`, #64); it's
- * stored with the game.
+ * (`getScoringConfig(pack.id)`, #64); it's stored with the game.
  */
 export async function startGame(
   deps: GameDeps,

@@ -16,8 +16,8 @@ import { getDb, type Db } from "@/db";
 import { getPuzzles } from "@/db/content";
 import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
+import { getScoringConfig } from "@/db/scoring";
 import { runGameCall, type GameResult } from "@/game/game-result";
-import { SCORING_CONFIG } from "@/game/scoring-config";
 import {
   act,
   GameNotFoundError,
@@ -107,8 +107,9 @@ export async function startPracticeGame(): Promise<GameResult> {
     const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;
     const reuse = unfinished.untouchedId ?? (atCap ? unfinished.latestId : null);
     if (reuse !== null) return getGame(deps(db), reuse, owner);
-    // TODO(#64): getScoringConfig(PRACTICE_PACK.id) once it lands.
-    return startGame(deps(db), PRACTICE_PACK, owner, SCORING_CONFIG);
+    // The pack's stored scoring (#64), read once here and kept in the game's
+    // state, so changing it only affects games started afterwards.
+    return startGame(deps(db), PRACTICE_PACK, owner, await getScoringConfig(PRACTICE_PACK.id));
   });
 }
 

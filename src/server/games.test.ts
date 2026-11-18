@@ -34,6 +34,9 @@ vi.mock("next/headers", () => ({
 }));
 
 const { actOnGame, loadGame, startPracticeGame } = await import("./games");
+const { setPackScoring } = await import("@/db/pack-scoring");
+const { SCORING_CONFIG } = await import("@/game/scoring-config");
+const { PRACTICE_PACK } = await import("@/puzzles");
 const { GAME_LIMITS, MAX_UNFINISHED_GAMES_PER_PACK } = await import("./limits");
 
 let pg: PGlite;
@@ -73,6 +76,36 @@ describe("loadGame while Next prerenders /play", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(loadGame(view.gameId)).rejects.toBe(signal);
     expect(log).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+});
+
+describe("startPracticeGame with per-pack scoring (#64)", () => {
+  afterEach(async () => {
+    await setPackScoring(state.db as never, PRACTICE_PACK.id, null);
+  });
+
+  it("plays new games with the pack's stored scoring, and leaves games already started alone", async () => {
+    const before = await started(); // also inserts the practice pack's row
+    expect(before.round!.pointsAvailable).toBe(SCORING_CONFIG.basePoints);
+
+    const basePoints = SCORING_CONFIG.basePoints + 50;
+    await setPackScoring(state.db as never, PRACTICE_PACK.id, { basePoints });
+    const beforeOwner = new Map(state.jar);
+    state.jar.clear(); // a new player, so it's a new game rather than the untouched one
+    expect((await started()).round!.pointsAvailable).toBe(basePoints);
+
+    state.jar = beforeOwner;
+    expect(await loadGame(before.gameId)).toMatchObject({ ok: true, view: { round: { pointsAvailable: SCORING_CONFIG.basePoints } } });
+  });
+
+  it("plays with the default, and logs, when the stored override is invalid (hand-written SQL)", async () => {
+    await started();
+    await pg.query("UPDATE packs SET scoring = $1::jsonb WHERE id = $2", [JSON.stringify({ basePoints: -5 }), PRACTICE_PACK.id]);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    state.jar.clear();
+    expect((await started()).round!.pointsAvailable).toBe(SCORING_CONFIG.basePoints);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`pack "${PRACTICE_PACK.id}" has an invalid scoring override`));
     log.mockRestore();
   });
 });
