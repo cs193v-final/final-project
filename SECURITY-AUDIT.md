@@ -2,7 +2,7 @@
 
 An LLM security audit of the code, as the Checkpoint 2 backend requirements ask. Claude (Claude Code) wrote this file; the course allows AI writing for it. Each finding is filed as a `security` issue with an owner and a priority, linked below.
 
-**First audit:** 2026-11-16, evening (PST), read-only. **Re-checked:** 2026-11-17, about 1 am (PST), on `main` at `a3a2208`, after most of the audited PRs had merged.
+**First audit:** 2026-11-16, evening (PST), read-only. **Re-checked:** 2026-11-17, about 1 am (PST), on `main` at `a3a2208`, after most of the audited PRs had merged. **Status update:** 2026-11-18, from the issues and PRs only (no new audit); see [Status now](#status-now-2026-11-18). The statuses under each finding are as of the re-check.
 
 | Code | Audited at | At the re-check |
 |---|---|---|
@@ -15,6 +15,18 @@ An LLM security audit of the code, as the Checkpoint 2 backend requirements ask.
 **Method.** Four independent reviews, one per area: accounts; server-side games; per-level images; `main` with the daily intro, secrets, CI and dependencies. Each read the changed code in full and probed it in a throwaway copy: a production build (`next build` and `next start`) against a local Postgres or PGlite with the real migrations, Server Actions called over raw HTTP like an attacker's script, gitleaks run on fake secrets, and `npm audit`. **Verified** means confirmed in the code or by a probe; **suspected** means it depends on something we couldn't check offline (mostly Vercel's edge). The main findings were then re-checked in the code. **Locations** (`file:line`) are from the audited commits in the table above; on `main` the code has moved since (for example, login is now around `src/auth/accounts.ts:140-153`).
 
 **Re-check.** For each PR, the code that changed between the audited commit and the merge was checked against its findings (the **Status** of each finding below). A fifth review then audited the security-relevant code that merged after the first audit: per-level images in the game (#126), the stale-tab check (#127), the security headers (#137) and #103's final commits. Its findings are under [Follow-up audit](#follow-up-audit-code-merged-after-the-first-audit).
+
+## Status now (2026-11-18)
+
+Every PR that was still open at the re-check has merged: #100, #104, #123, #124, #125, #129 and #138. The partly fixed findings were finished in #159, #160, #161 and #163. Of the first audit's 24 findings, **19 are fixed on `main`**, **2 are partly fixed** and **3 are still open**. Of the follow-up's 2, **1 is fixed** and **1 is open**.
+
+| Status | Findings |
+|---|---|
+| Fixed on `main` | M2 (#154, PR #159), M3 (PR #129), M4 (#85, PR #104), M5, M6, M7, M8 (PR #100), M9 (#84, PRs #129 and #138), M10 (#106, PR #123), L2, L3, L4 (#156, PR #160), L5, L6 (#108, PR #125), L7, L8, L9, L13, L14 (PR #124), F1 (#155, PR #163) |
+| Partly fixed | M1: the address limit is checked first, but one address can still lock an account (#151). L1: login and sign-up limits count IPv6 per /64 (#150, PR #161), but the game's rate limits still count each address (#167) |
+| Still open | L10 (#88), L11 (#109), L12 (#110), F2 (#152) |
+
+One `security` issue was filed after the audit, from the review of #138: #165 (bind the game's revision into the state encryption, low).
 
 ## Summary
 
