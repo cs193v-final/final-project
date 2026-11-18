@@ -12,6 +12,8 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { seedContent } from "@/db/content";
+import { setPackScoring } from "@/db/pack-scoring";
+import { SCORING_CONFIG } from "@/game/scoring-config";
 import * as schema from "@/db/schema";
 import { combineContent } from "@/game/packs";
 import type { GameView, Pack, Puzzle } from "@/game/types";
@@ -121,6 +123,24 @@ describe("the daily on the server", () => {
     view = ok(await actOnGame(view.gameId, { type: "reveal" }, view.revision));
     expect(ok(await loadTodaysDailyGame(BEFORE_MIDNIGHT)).round!.imageSrc).toBe(view.round!.imageSrc);
     expect(ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).gameId).toBe(view.gameId);
+  }, 60_000);
+
+  it("plays with the day's pack scoring (#64), or the default (logged) if the stored value is invalid", async () => {
+    await cutPuzzleImages(db, PUZZLES, (p) => join(root, "public", "puzzles", p.imageUrl.replace("images/", "")));
+    try {
+      const basePoints = SCORING_CONFIG.basePoints + 50;
+      await setPackScoring(db, "pk-n1", { basePoints });
+      expect(ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).round!.pointsAvailable).toBe(basePoints);
+
+      state.jar = new Map(); // another player
+      await pg.query("UPDATE packs SET scoring = $1::jsonb WHERE id = 'pk-n1'", [JSON.stringify({ basePoints: 1.5 })]);
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).round!.pointsAvailable).toBe(SCORING_CONFIG.basePoints);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('pack "pk-n1" has an invalid scoring override'));
+      log.mockRestore();
+    } finally {
+      await setPackScoring(db, "pk-n1", null);
+    }
   }, 60_000);
 
   it("at midnight (a daylight-saving night): the intro's day is over, so Start says so instead of playing tomorrow", async () => {

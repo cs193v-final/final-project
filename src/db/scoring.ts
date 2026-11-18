@@ -6,7 +6,7 @@ import type { ScoringConfig } from "@/game/types";
 import { getDb } from "./index";
 import { getPackScoringConfig } from "./pack-scoring";
 
-export { PackNotFoundError } from "./pack-scoring";
+export { PackNotFoundError, scoringFromStored } from "./pack-scoring";
 
 /**
  * The scoring config to play pack `packId` with: its `packs.scoring` override

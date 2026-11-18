@@ -48,7 +48,16 @@ export async function readStoredScoring(db: PgDb, packId: string): Promise<unkno
  * be fixed.
  */
 export async function getPackScoringConfig(db: PgDb, packId: string): Promise<ScoringConfig> {
-  const stored = await readStoredScoring(db, packId);
+  return scoringFromStored(packId, await readStoredScoring(db, packId));
+}
+
+/**
+ * The scoring config for pack `packId` from its `packs.scoring` value, already
+ * read (e.g. with the rest of the pack's row, as the daily does): the same
+ * rules as `getPackScoringConfig`, including the log-and-default for an
+ * invalid override, without another query.
+ */
+export function scoringFromStored(packId: string, stored: unknown): ScoringConfig {
   try {
     return resolveScoringConfig(stored);
   } catch (error) {

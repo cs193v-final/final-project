@@ -94,7 +94,7 @@ export type Pack = {
   title: string; // e.g. "Landmarks"
   theme: string; // shown before play (open decision: hide it for a bonus?)
   puzzleIds: string[]; // play order; usually 5
-  scoring?: ScoringConfig; // per-pack override (type: Ethan; storage: Jacky, #64); default when absent. The seed script doesn't load it yet.
+  scoring?: ScoringConfig; // per-pack override (type: Ethan; storage: Jacky, #64); default when absent. Set with `npm run db:scoring`, not by the seed script.
 };
 
 /** Owner: Joseph. Settled (#52). Which pack is a given day's daily challenge. */
