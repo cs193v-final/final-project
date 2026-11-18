@@ -16,7 +16,7 @@ test("sign-up refuses an email address as a username and keeps what was typed", 
 
   const username = page.getByLabel("Username");
   await expect(username).toHaveAttribute("aria-invalid", "true");
-  await expect(username).toHaveAccessibleDescription(/not an email address/i);
+  await expect(username).toHaveAccessibleDescription(/pick a username, not an email address/i);
   await expect(username).toHaveValue("someone@example.com");
   // The password is never sent back to the page.
   await expect(page.getByLabel("Password")).toHaveValue("");

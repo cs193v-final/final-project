@@ -24,7 +24,7 @@ import type { PublicUser } from "@/game/types";
 import { getDummyPasswordHash, hashPassword, newToken, sha256Hex, verifyPassword } from "./crypto";
 import { limitsAddress } from "./limits-address";
 import { rateLimitAddress } from "./rate-limit-address";
-import { checkNewPassword, checkUsername, hasSpaces, usernameKey } from "./rules";
+import { checkNewPassword, checkUsername, loginUsernameHint, usernameKey } from "./rules";
 import { newUserRow, USERNAME_FIELD, usernameIndex } from "./user-row";
 
 export { USERNAME_FIELD, usernameIndex };
@@ -121,7 +121,6 @@ export const loginUserKey = (vault: Vault, username: string) =>
 
 const RATE_LIMITED = "Too many attempts. Wait a few minutes and try again.";
 const WRONG_CREDENTIALS = "That username and password don't match.";
-const USERNAMES_HAVE_NO_SPACES = "Usernames don't have spaces. Check the username you signed up with.";
 
 async function startSession(db: PgDb, user: PublicUser, now: Date): Promise<AuthResult> {
   const token = newToken();
@@ -174,7 +173,7 @@ export async function login(
   vaultSource: VaultSource = getVault,
 ): Promise<AuthResult> {
   // Just require something in both fields; "invalid" is only for empty ones
-  // (and a username with a space, below).
+  // (and a username no account could have, below).
   const username = typeof input.username === "string" ? input.username.normalize("NFKC").trim() : "";
   const password = typeof input.password === "string" ? input.password : "";
   if (username === "" || password === "") {
@@ -189,13 +188,13 @@ export async function login(
   }
 
   // No account can have a name that breaks the username rules (they've been
-  // the same since accounts started), so that's a wrong login, decided
-  // without the database. This also keeps very long input out of the
-  // rate-limit table, where a key over Postgres's index limit was an error.
-  // A name with a space gets a hint instead (#133): people type their full
-  // name, and since no username has one, saying so reveals nothing.
-  if (hasSpaces(username)) return { ok: false, reason: "invalid", errors: { username: USERNAMES_HAVE_NO_SPACES } };
-  if (!checkUsername(username).ok) return { ok: false, reason: "wrong-credentials", message: WRONG_CREDENTIALS };
+  // the same since accounts started), so it's refused without the database,
+  // with what's wrong with it (#133): people type their full name or an
+  // email, and since no username has one, saying so reveals nothing. This
+  // also keeps very long input out of the rate-limit table, where a key over
+  // Postgres's index limit was an error.
+  const hint = loginUsernameHint(username);
+  if (hint !== null) return { ok: false, reason: "invalid", errors: { username: hint } };
 
   const db = resolve(source);
   const vault = resolveVault(vaultSource);

@@ -50,7 +50,7 @@ export function AccountForm({ mode, action }: Props) {
           {usernameError ?? ""}
         </p>
         <p id={`${id}-username-hint`} className={hintClass}>
-          {isRegister ? `${USERNAME_MIN}–${USERNAME_MAX} letters, numbers, _ or -, with no spaces. Not an email address.` : ""}
+          {isRegister ? `${USERNAME_MIN}–${USERNAME_MAX} letters a–z, numbers, _ or -, with no spaces. Not an email address.` : ""}
         </p>
       </div>
 

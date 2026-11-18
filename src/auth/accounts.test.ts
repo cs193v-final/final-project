@@ -308,32 +308,26 @@ describe("login", () => {
     expect(await rows("SELECT * FROM sessions")).toHaveLength(1); // only the one from sign-up
   });
 
-  it("refuses a username no account could have, without touching the database", async () => {
+  // No account can have such a name, so saying why reveals nothing (#133).
+  it.each([
+    ["Jane Doe", /don't have spaces/],
+    ["jane\u200Bdoe", /don't have spaces/],
+    ["o'brien", /don't have “'”/],
+    ["jose.garcia", /don't have “\.”/],
+    ["alice@example.com", /aren't email addresses/],
+    ["ab", /3 to 20 characters/],
+    ["x".repeat(12_000), /3 to 20 characters/],
+    ["x ".repeat(6_000), /3 to 20 characters/],
+  ])("says what's wrong with %j, without touching the database (#133)", async (username, hint) => {
     const noDb = () => {
       throw new Error("the database should not be touched");
     };
-    for (const username of ["x".repeat(12_000), "alice@example.com", "ab", "o'brien"]) {
-      expect(await login(noDb, { username, password: "wrong pass" }, req())).toEqual({
-        ok: false,
-        reason: "wrong-credentials",
-        message: "That username and password don't match.",
-      });
-    }
+    expect(await login(noDb, { username, password: "wrong pass" }, req())).toEqual({
+      ok: false,
+      reason: "invalid",
+      errors: { username: expect.stringMatching(hint) },
+    });
   });
-
-  it.each(["Jane Doe", "jane\u200Bdoe", "x ".repeat(6_000)])(
-    "says usernames have no spaces for %j, without touching the database (#133)",
-    async (username) => {
-      const noDb = () => {
-        throw new Error("the database should not be touched");
-      };
-      expect(await login(noDb, { username, password: "wrong pass" }, req())).toEqual({
-        ok: false,
-        reason: "invalid",
-        errors: { username: "Usernames don't have spaces. Check the username you signed up with." },
-      });
-    },
-  );
 });
 
 describe("sessions", () => {
