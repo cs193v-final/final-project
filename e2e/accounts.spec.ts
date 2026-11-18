@@ -16,10 +16,36 @@ test("sign-up refuses an email address as a username and keeps what was typed", 
 
   const username = page.getByLabel("Username");
   await expect(username).toHaveAttribute("aria-invalid", "true");
-  await expect(username).toHaveAccessibleDescription(/not an email address/i);
+  await expect(username).toHaveAccessibleDescription(/pick a username, not an email address/i);
   await expect(username).toHaveValue("someone@example.com");
   // The password is never sent back to the page.
   await expect(page.getByLabel("Password")).toHaveValue("");
+});
+
+test("sign-up says up front that usernames have no spaces, and explains a full name (#133)", async ({ page }) => {
+  await page.goto("/register");
+  const username = page.getByLabel("Username");
+  await expect(username).toHaveAccessibleDescription(/no spaces/i);
+
+  await username.fill("Jane Doe");
+  await page.getByLabel("Password").fill("long enough password");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(username).toHaveAttribute("aria-invalid", "true");
+  await expect(username).toHaveAccessibleDescription(/can't contain spaces/i);
+  // The error is added to the hint, not shown instead of it.
+  await expect(username).toHaveAccessibleDescription(/with no spaces/i);
+  await expect(username).toHaveValue("Jane Doe");
+});
+
+test("log-in says usernames have no spaces, instead of a wrong password (#133)", async ({ page }) => {
+  await page.goto("/login");
+  const username = page.getByLabel("Username");
+  await username.fill("Jane Doe");
+  await page.getByLabel("Password").fill("some password");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(username).toHaveAttribute("aria-invalid", "true");
+  await expect(username).toHaveAccessibleDescription(/usernames don't have spaces/i);
+  await expect(page.getByText(/don't match/)).toHaveCount(0);
 });
 
 test("sign-up explains a short password", async ({ page }) => {
