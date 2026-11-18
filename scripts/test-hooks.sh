@@ -100,5 +100,87 @@ try_push refs/heads/feature "$zero"
 if [ $rc -eq 0 ]; then pass "pre-push allows a clean new branch"
 else fail "pre-push blocked a clean new branch: $out"; fi
 
+# 9-13. A bare Neon password (npg_...) is blocked even outside a connection URL,
+# including glued to other text: after a "\n" escape (env lines joined into one
+# string, so the letter n sits right before npg_) and followed by "_old".
+# Built at runtime so this file holds no npg_ token of its own.
+fakenpg="npg_${fakepw}"
+printf '{ "host": "ep-fake-123.neon.tech", "password": "%s" }\n' "$fakenpg" > creds.json
+printf 'const pw = "%s";\n' "$fakenpg" > pw.ts
+printf 'DATABASE_URL=%s://fakeuser@ep-fake-123.neon.tech/neondb\nDB_PASSWORD=%s\n' \
+  "$scheme" "$fakenpg" > config.sh
+printf 'const env = "PGHOST=ep-fake-123.neon.tech\\n%s";\n' "$fakenpg" > joined.ts
+printf 'DB_PASSWORD_PREVIOUS=%s_old\n' "$fakenpg" > rotated.sh
+for f in creds.json pw.ts config.sh joined.ts rotated.sh; do
+  try_commit "Neon password in $f" "$f"
+  if blocked Commit && [[ "$out" == *neon-password* ]]; then pass "Neon password in $f is blocked"
+  else fail "Neon password in $f was not blocked (rc=$rc): $out"; fi
+  rm -f "$f"
+done
+
+# 14. A full Neon URL is reported by both rules: postgres-connection-url for the
+# URL and neon-password for its password. Both fingerprints go in .gitleaksignore
+# (README). Checked by rule id, not by counting gitleaks' output labels.
+echo "const db = \"${scheme}ql://fakeuser:${fakenpg}@ep-fake-123.us-east-1.aws.neon.tech/neondb\";" > neonurl.js
+try_commit "full Neon URL" neonurl.js
+if blocked Commit && [[ "$out" == *postgres-connection-url* ]] && [[ "$out" == *neon-password* ]]; then
+  pass "a full Neon URL is reported by both rules"
+else fail "a full Neon URL wasn't reported by both postgres-connection-url and neon-password (rc=$rc): $out"; fi
+rm -f neonurl.js
+
+# 15. Docs that only mention the prefix are allowed.
+printf 'Neon passwords start with "npg_", like npg_... or npg_\xe2\x80\xa6 (never commit one).\n' > neon.md
+try_commit "npg_ prefix in docs" neon.md
+if [ $rc -eq 0 ]; then pass "the bare npg_ prefix in docs is allowed"
+else fail "the bare npg_ prefix in docs was blocked: $out"; fi
+rm -f neon.md
+
+# 16. Placeholder passwords (npg_xxxx..., npg_XXXX...) are allowed, alone or in a URL.
+x12="xxxxxxxxxxxx"
+{ echo "DB_PASSWORD=npg_${x12}"
+  echo "DB_PASSWORD=npg_XXXXXXXX"
+  echo "DATABASE_URL=${scheme}ql://neondb_owner:npg_${x12}@ep-example.neon.tech/neondb"
+} > placeholders.md
+try_commit "npg_ placeholders in docs" placeholders.md
+if [ $rc -eq 0 ]; then pass "npg_ placeholders are allowed"
+else fail "npg_ placeholders were blocked: $out"; fi
+rm -f placeholders.md
+
+# 17. Pre-push catches a Neon password in an older commit, like case 4.
+git reset -q --hard origin/main
+printf 'const pw = "%s";\n' "$fakenpg" > pw.ts && git add pw.ts && git commit -q --no-verify -m "npg secret"
+echo clean > clean.txt && git add clean.txt && git commit -q --no-verify -m "clean on top"
+try_push
+if blocked Push && [[ "$out" == *neon-password* ]]; then pass "pre-push blocks a Neon password in an older commit"
+else fail "pre-push did not block a Neon password (rc=$rc): $out"; fi
+git reset -q --hard origin/main
+
+# 18. A second password on the same line as a full URL is reported on its own,
+# not hidden behind the URL's finding (two neon-password findings).
+fakenpg2="npg_Wk3$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+echo "{\"url\":\"${scheme}ql://fakeuser:${fakenpg}@ep-fake-123.neon.tech/db\",\"old\":\"${fakenpg2}\"}" > twopw.json
+try_commit "URL and a second password" twopw.json
+nneon="$(grep -o 'neon-password' <<<"$out" | wc -l)"
+if blocked Commit && [ "$nneon" -ge 2 ]; then pass "a second password next to a URL is reported"
+else fail "a second password next to a URL wasn't reported ($nneon neon-password findings, rc=$rc): $out"; fi
+rm -f twopw.json
+
+# 19. A real password on the same line as a placeholder URL is still blocked.
+echo "DATABASE_URL=${scheme}://fakeuser:npg_${x12}@ep-example.neon.tech/db PGPASS=${fakenpg}" > mixed.md
+try_commit "placeholder URL and a real password" mixed.md
+if blocked Commit && [[ "$out" == *neon-password* ]]; then pass "a real password next to a placeholder URL is blocked"
+else fail "a real password next to a placeholder URL was not blocked (rc=$rc): $out"; fi
+rm -f mixed.md
+
+# 20. Names and examples that only contain npg_ aren't passwords.
+{ echo 'const npg_password = process.env.NPG;'
+  echo 'NEON_PASSWORD=npg_yourpassword'
+  echo 'x = "npg_example1"; y = "npg_REDACTED"; setup_npg_connection();'
+} > names.ts
+try_commit "npg_ names and examples" names.ts
+if [ $rc -eq 0 ]; then pass "npg_ names and examples are allowed"
+else fail "npg_ names and examples were blocked: $out"; fi
+rm -f names.ts
+
 echo
 if [ $fails -eq 0 ]; then echo "All hook tests passed."; else echo "$fails hook test(s) failed."; exit 1; fi
