@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { registerAction } from "@/app/account/actions";
-import { AccountForm } from "@/components/account/AccountForm";
+import { AccountPageForm } from "@/components/account/AccountPageForm";
 
 export const metadata: Metadata = { title: "Create an account · Zoom Out" };
 
-export default function RegisterPage() {
+export default function RegisterPage({ searchParams }: PageProps<"/register">) {
   return (
     <main className="flex flex-1 flex-col items-center gap-6 px-4 py-10">
       <nav aria-label="Back" className="w-full max-w-sm">
@@ -15,7 +15,8 @@ export default function RegisterPage() {
         </Link>
       </nav>
       <h1 className="text-3xl font-semibold tracking-tight">Create an account</h1>
-      <AccountForm mode="register" action={registerAction} />
+      {/* `?next=` (where to go after, #134) is request data: see AccountPageForm. */}
+      <AccountPageForm searchParams={searchParams} mode="register" action={registerAction} />
     </main>
   );
 }

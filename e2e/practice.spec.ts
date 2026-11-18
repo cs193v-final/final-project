@@ -26,7 +26,8 @@ function puzzleAt(i: number) {
   return p;
 }
 
-const status = (page: Page) => page.getByRole("status");
+// The game's status, not the header's login confirmation (#134).
+const status = (page: Page) => page.getByRole("main").getByRole("status");
 const score = (page: Page) => page.getByText(/^Score \d+$/);
 
 /**

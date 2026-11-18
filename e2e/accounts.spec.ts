@@ -70,13 +70,25 @@ test("log-in asks for both fields, and links to sign-up and back to start", asyn
   await expect(page).toHaveURL(/\/$/);
 });
 
-test("the header offers Log in on every screen when nobody is logged in", async ({ page }) => {
-  for (const path of ["/", "/play", "/register"]) {
+test("the header offers Log in on every screen when nobody is logged in, coming back to the page after (#134)", async ({ page }) => {
+  for (const [path, href] of [
+    ["/", /^\/login$/],
+    // /play puts the game's id in the URL, so logging in comes back to that game.
+    ["/play", /^\/login\?next=%2Fplay%3Fgame%3D/],
+    ["/register", /^\/login$/],
+  ] as const) {
     await page.goto(path);
     const site = siteNav(page);
-    await expect(site.getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/login");
+    await expect(site.getByRole("link", { name: "Log in" })).toHaveAttribute("href", href);
     await expect(site.getByRole("button", { name: "Log out" })).toHaveCount(0);
   }
+});
+
+test("the account page sends a logged-out visitor to log in, and back (#134)", async ({ page }) => {
+  await page.goto("/account");
+  await expect(page).toHaveURL(/\/login\?next=%2Faccount$/);
+  await page.getByRole("link", { name: "Create an account" }).click();
+  await expect(page).toHaveURL(/\/register\?next=%2Faccount$/);
 });
 
 // A session cookie that matches no session (expired, logged out elsewhere, or
@@ -90,4 +102,86 @@ test("a stale session cookie still shows the pages, with Log in in the header", 
     await expect(site.getByRole("link", { name: "Log in" })).toBeVisible();
   }
   await expect(page.getByRole("button", { name: "Zoom out" })).toBeVisible();
+});
+
+// The full flow needs a database (CI has one; locally, set DATABASE_URL for
+// this process too). Each run signs up a fresh username.
+test.describe("with a database", () => {
+  test.skip(!process.env.DATABASE_URL, "needs DATABASE_URL and a migrated database");
+
+  const freshUsername = () => `e2e_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const password = "e2e test password";
+
+  test("sign-up goes home and says who you're logged in as, once (#132, #134)", async ({ page }) => {
+    const username = freshUsername();
+    await page.goto("/register");
+    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Create account" }).click();
+
+    await expect(page.getByRole("status").filter({ hasText: "Logged in" })).toHaveText(
+      `Account created. Logged in as ${username}.`,
+    );
+    // The one-time flag is gone from the URL, so a reload doesn't repeat it.
+    await expect(page).toHaveURL(/\/$/);
+    const site = page.getByRole("navigation", { name: "Site" });
+    await expect(site.getByRole("link", { name: username })).toBeVisible();
+    await page.reload();
+    await expect(site.getByRole("link", { name: username })).toBeVisible();
+    await expect(page.getByText(/Logged in as/)).toHaveCount(0);
+  });
+
+  test("logging in from the account page comes back to it (#134)", async ({ page }) => {
+    const username = freshUsername();
+    await page.goto("/register");
+    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(page.getByRole("navigation", { name: "Site" }).getByRole("link", { name: username })).toBeVisible();
+    await page.getByRole("navigation", { name: "Site" }).getByRole("button", { name: "Log out" }).click();
+    await expect(page.getByRole("navigation", { name: "Site" }).getByRole("link", { name: "Log in" })).toBeVisible();
+
+    await page.goto("/account");
+    await expect(page).toHaveURL(/\/login\?next=%2Faccount$/);
+    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Log in" }).click();
+
+    await expect(page).toHaveURL(/\/account$/);
+    await expect(page.getByRole("heading", { name: "Your account" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Logged in" })).toHaveText(`Logged in as ${username}.`);
+  });
+
+  test("the one-time ?welcome= flag doesn't come back on the next router update (#134)", async ({ page }) => {
+    const username = freshUsername();
+    await page.goto("/register");
+    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Create account" }).click();
+    const site = page.getByRole("navigation", { name: "Site" });
+    await expect(site.getByRole("link", { name: username })).toBeVisible();
+    await site.getByRole("button", { name: "Log out" }).click();
+    await expect(site.getByRole("link", { name: "Log in" })).toBeVisible();
+
+    // /account, not /play: the game rewrites the URL itself (`?game=`), which
+    // would hide the bug.
+    await page.goto("/login?next=%2Faccount");
+    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Log in" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Logged in" })).toHaveText(`Logged in as ${username}.`);
+    await expect(page).toHaveURL(/\/account$/);
+
+    // A router update (here router.refresh(); a Server Action that revalidates
+    // does the same) makes Next write its own idea of the URL back. If Next
+    // never learned the flag was removed, `?welcome=` comes back here.
+    const refreshed = page.waitForResponse((response) => response.request().headers()["rsc"] === "1");
+    await page.evaluate(() => (window as unknown as { next: { router: { refresh(): void } } }).next.router.refresh());
+    await refreshed;
+    await page.waitForLoadState("networkidle");
+    expect(new URL(page.url()).searchParams.has("welcome")).toBe(false);
+    await page.reload();
+    await expect(site.getByRole("link", { name: username })).toBeVisible();
+    await expect(page.getByText(/Logged in as/)).toHaveCount(0);
+  });
 });

@@ -106,7 +106,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       }
 
       await guess(page, "definitely not it");
-      await expect(page.getByRole("status")).not.toBeEmpty();
+      await expect(page.getByRole("main").getByRole("status")).not.toBeEmpty();
       await checkScreen(page, "game, after a wrong guess");
 
       await page.getByRole("button", { name: "Zoom out" }).click();
@@ -141,6 +141,11 @@ for (const colorScheme of ["light", "dark"] as const) {
         await page.getByLabel("Username").fill(username);
         await page.getByLabel("Password").fill("a long test password");
         await page.getByRole("button", { name: "Create account" }).click();
+        // Sign-up redirects. Wait until the new page is in place, not just its
+        // header: "Log out" can show before the navigation ends, and axe would
+        // then see a document without its <title> (flaky in CI on #134).
+        await expect(page).not.toHaveURL(/\/register/);
+        await expect(page).toHaveTitle(/\S/);
         await expect(siteNav(page).getByRole("button", { name: "Log out" })).toBeVisible();
         await checkScreen(page, "after signing up (logged-in header)");
 
@@ -166,7 +171,8 @@ test("right and wrong are told apart by their words and a symbol, not only by co
   // colors themselves (that was checked by hand with a colorblind simulator, #49).
   await page.goto("/play");
   await waitForAccountLinks(page);
-  const status = page.getByRole("status");
+  // The game's own status; the header has one too (the login confirmation, #134).
+  const status = page.getByRole("main").getByRole("status");
 
   await guess(page, "definitely not it");
   await expect(status).toContainText("isn't it (1 wrong guess)");

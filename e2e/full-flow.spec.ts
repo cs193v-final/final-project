@@ -29,7 +29,8 @@ function puzzleAt(i: number) {
 
 const site = (page: Page) => page.getByRole("navigation", { name: "Site" });
 const guessBox = (page: Page) => page.getByRole("textbox", { name: "What is it?" });
-const status = (page: Page) => page.getByRole("status");
+// The game's status, not the header's login confirmation (#134).
+const status = (page: Page) => page.getByRole("main").getByRole("status");
 const score = (page: Page) => page.getByText(/^Score \d+$/);
 
 async function guess(page: Page, text: string) {

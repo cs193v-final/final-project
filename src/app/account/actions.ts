@@ -5,17 +5,21 @@
 import { redirect } from "next/navigation";
 
 import { login, register, type AuthResult, type FieldErrors } from "@/auth/accounts";
-import { endSession, requestIp, setSessionCookie } from "@/auth/session";
+import { safeNextPath, withWelcome } from "@/auth/next-path";
+import { discardSession, endSession, requestIp, setSessionCookie } from "@/auth/session";
 import { getDb } from "@/db";
 import { errorSummary } from "@/server/error-summary";
 
 /** What the forms show after a failed submit. Never echoes the password. */
 export type AccountFormState = { username: string; errors: FieldErrors; message?: string } | undefined;
 
-async function finish(result: AuthResult, formData: FormData): Promise<AccountFormState> {
+async function finish(kind: "register" | "login", result: AuthResult, formData: FormData): Promise<AccountFormState> {
   if (result.ok) {
-    await setSessionCookie(result.session.token, result.session.expiresAt);
-    redirect("/account");
+    // Back to where you were going (`/login?next=/account`, #134) if that's a
+    // page on this site, else the home screen, where most sites send you
+    // (user test, #132). `?welcome=` makes the header say "Logged in as …"
+    // once, for screen readers too.
+    redirect(withWelcome(safeNextPath(formData.get("next")), kind === "register" ? "signup" : "login"));
   }
   const username = typeof formData.get("username") === "string" ? String(formData.get("username")) : "";
   if (result.reason === "invalid" || result.reason === "taken") return { username, errors: result.errors };
@@ -23,6 +27,8 @@ async function finish(result: AuthResult, formData: FormData): Promise<AccountFo
 }
 
 const UNAVAILABLE = "Something went wrong on our side. Please try again in a moment.";
+/** Sign-up worked but the cookie didn't: trying again would only say "taken". */
+const CREATED_NOT_LOGGED_IN = "Your account was created, but we couldn't log you in. Please log in.";
 
 /**
  * Runs register or login. If the database fails, the form shows a short
@@ -30,6 +36,11 @@ const UNAVAILABLE = "Something went wrong on our side. Please try again in a mom
  * `errorForLog`'s rule (`errorSummary`): names, Postgres codes and messages
  * that can't quote a value. Next would otherwise log the failed query with its
  * parameters (the username and the password hash).
+ *
+ * Setting the session cookie (which ends any earlier session) can fail after
+ * the account and session already exist. Then the unused session is deleted,
+ * and a sign-up says the account was created, so nobody retries into "That
+ * username is taken" for an account they don't know they have.
  */
 async function attempt(
   kind: "register" | "login",
@@ -37,6 +48,7 @@ async function attempt(
   run: typeof register | typeof login,
 ): Promise<AccountFormState> {
   const input = { username: formData.get("username"), password: formData.get("password") };
+  const username = typeof input.username === "string" ? input.username : "";
   let result: AuthResult;
   try {
     result = await run(getDb, input, { ip: await requestIp(), now: new Date() });
@@ -45,10 +57,19 @@ async function attempt(
     // never includes the key and says how to fix it; a failed query keeps
     // only its names and Postgres code.
     console.error(`${kind} failed: ${errorSummary(error)}`);
-    const username = typeof input.username === "string" ? input.username : "";
     return { username, errors: {}, message: UNAVAILABLE };
   }
-  return finish(result, formData);
+  if (result.ok) {
+    try {
+      await setSessionCookie(result.session.token, result.session.expiresAt);
+    } catch (error) {
+      console.error(`${kind} failed setting the session cookie: ${errorSummary(error)}`);
+      await discardSession(result.session.token);
+      return { username, errors: {}, message: kind === "register" ? CREATED_NOT_LOGGED_IN : UNAVAILABLE };
+    }
+  }
+  // Outside the try: on success, finish() redirects, which works by throwing.
+  return finish(kind, result, formData);
 }
 
 export async function registerAction(_prev: AccountFormState, formData: FormData): Promise<AccountFormState> {

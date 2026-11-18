@@ -25,7 +25,7 @@ export default function AccountPage() {
 }
 
 async function SignedIn() {
-  const user = await requireUser();
+  const user = await requireUser("/account");
   return (
     <div className="flex w-full max-w-sm flex-col items-center gap-4">
       <p>
