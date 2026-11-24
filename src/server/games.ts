@@ -21,6 +21,7 @@ import { runGameCall, type GameResult } from "@/game/game-result";
 import {
   act,
   GameNotFoundError,
+  GameUnreadableError,
   getGame,
   puzzleSourceFrom,
   startGame,
@@ -106,7 +107,16 @@ export async function startPracticeGame(): Promise<GameResult> {
     const unfinished = await findUnfinishedGames(db, owner, PRACTICE_PACK.id);
     const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;
     const reuse = unfinished.untouchedId ?? (atCap ? unfinished.latestId : null);
-    if (reuse !== null) return getGame(deps(db), reuse, owner);
+    if (reuse !== null) {
+      try {
+        return await getGame(deps(db), reuse, owner);
+      } catch (error) {
+        // An untouched game that can't be decrypted (#164) is skipped, so
+        // "Start a new game" doesn't land on it again. It's logged when loaded,
+        // and at the cap there's no room for another: then it's reported.
+        if (!(error instanceof GameUnreadableError) || atCap) throw error;
+      }
+    }
     // The pack's stored scoring (#64), read once here and kept in the game's
     // state, so changing it only affects games started afterwards.
     return startGame(deps(db), PRACTICE_PACK, owner, await getScoringConfig(PRACTICE_PACK.id));

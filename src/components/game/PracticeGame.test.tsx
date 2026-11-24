@@ -130,6 +130,16 @@ describe("PracticeGame start and resume (#54)", () => {
     expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
   });
 
+  it("says a game that can't be loaded anymore is lost, instead of blaming the connection, and offers a new one (#164)", async () => {
+    const user = userEvent.setup();
+    const server = backend();
+    render(<PracticeGame initial={{ ok: false, error: "unreadable" }} start={server.start} act={server.act} get={server.get} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("This game can't be loaded anymore");
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/connection/i);
+    await user.click(screen.getByRole("button", { name: "Start a new game" }));
+    expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
+  });
+
   it("reloads the game and says so when another tab changed it", async () => {
     const { user, input, server } = await setup();
     server.act.mockResolvedValueOnce({ ok: false, error: "conflict" });

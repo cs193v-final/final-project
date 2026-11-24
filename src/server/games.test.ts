@@ -223,6 +223,18 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     expect(await ownGameCount()).toBe(2);
   });
 
+  it("starts a new game instead of resuming an untouched one that can't be decrypted, so \"Start a new game\" works (#164)", async () => {
+    const lost = await started();
+    await pg.query(`UPDATE games SET state_encrypted = 'v1.${"A".repeat(16)}.${"A".repeat(40)}' WHERE id = $1`, [lost.gameId]);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await loadGame(lost.gameId)).toEqual({ ok: false, error: "unreadable" });
+    const fresh = await started();
+    expect(fresh.gameId).not.toBe(lost.gameId);
+    expect(await loadGame(fresh.gameId)).toMatchObject({ ok: true });
+    expect((await started()).gameId).toBe(fresh.gameId); // and a refresh resumes the new one, not another row
+    log.mockRestore();
+  });
+
   it(`never lets a player have more than ${MAX_UNFINISHED_GAMES_PER_PACK} unfinished games: the next start resumes the latest`, async () => {
     let latest = "";
     for (let i = 0; i < MAX_UNFINISHED_GAMES_PER_PACK; i++) {
