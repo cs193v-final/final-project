@@ -13,8 +13,10 @@ import * as schema from "@/db/schema";
 
 import {
   ipKey,
+  isDeviceTokenFor,
   limitsAddress,
   login,
+  loginDeviceKey,
   loginUserKey,
   MAX_SESSIONS_PER_USER,
   RATE_LIMITS,
@@ -57,7 +59,7 @@ beforeEach(async () => {
 
 const T0 = new Date("2026-11-17T12:00:00Z");
 const at = (ms: number) => new Date(T0.getTime() + ms);
-const req = (ip: string | null = "203.0.113.7", now = T0) => ({ ip, now });
+const req = (ip: string | null = "203.0.113.7", now = T0, device: string | null = null) => ({ ip, now, device });
 const PASSWORD = "correct horse battery";
 
 function expectOk(result: AuthResult) {
@@ -229,6 +231,77 @@ describe("login", () => {
     });
     // After the window, the right password works again.
     expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("203.0.113.9", at(RATE_LIMITS.loginPerUser.windowMs + 1))));
+  });
+
+  describe("a browser that logged into the account before (#151)", () => {
+    // `register` in the outer beforeEach was this browser's first login.
+    let device: string;
+    beforeEach(async () => {
+      device = expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("192.0.2.1"))).device;
+    });
+
+    async function lockEthan() {
+      for (let i = 0; i < RATE_LIMITS.loginPerUser.max + 1; i++) {
+        await login(db, { username: "Ethan", password: "wrong pass" }, req(`198.51.100.${i}`));
+      }
+      expect(await login(db, { username: "Ethan", password: PASSWORD }, req("198.51.100.200"))).toMatchObject({
+        reason: "rate-limited",
+      });
+    }
+
+    it("gets a device token for that username at sign-up and every login", async () => {
+      const signup = expectOk(await register(db, { username: "Mallory", password: PASSWORD }, req("192.0.2.2")));
+      expect(isDeviceTokenFor(vault, "mallory", signup.device)).toBe(true);
+      expect(isDeviceTokenFor(vault, "ETHAN", device)).toBe(true);
+      expect(isDeviceTokenFor(vault, "Ethan", signup.device)).toBe(false);
+    });
+
+    it("still logs in with the right password while the username is locked by someone else's guesses", async () => {
+      await lockEthan();
+      const result = expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("203.0.113.50", T0, device)));
+      expect(result.user.username).toBe("Ethan");
+    });
+
+    it(`has its own limit of ${RATE_LIMITS.loginPerDevice.max} attempts, so a stolen token isn't unlimited guessing`, async () => {
+      for (let i = 0; i < RATE_LIMITS.loginPerDevice.max; i++) {
+        expect(await login(db, { username: "Ethan", password: "wrong pass" }, req(`198.51.100.${i}`, T0, device))).toMatchObject({
+          reason: "wrong-credentials",
+        });
+      }
+      expect(await login(db, { username: "Ethan", password: PASSWORD }, req("198.51.100.99", T0, device))).toMatchObject({
+        reason: "rate-limited",
+      });
+      // Its guesses didn't count against the username: a browser without the token isn't locked out.
+      expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("198.51.100.98")));
+    });
+
+    it("isn't trusted with another username's token, a forged one or junk", async () => {
+      const mallory = expectOk(await register(db, { username: "Mallory", password: PASSWORD }, req("192.0.2.3"))).device;
+      await lockEthan();
+      const [nonce, mac] = device.split(".") as [string, string];
+      const forged = [
+        mallory,
+        `${nonce}.${mac.slice(0, -1)}${mac.endsWith("0") ? "1" : "0"}`,
+        `${"A".repeat(nonce.length)}.${mac}`,
+        "",
+        "junk",
+        `${device}.extra`,
+        "x".repeat(10_000),
+      ];
+      for (const token of forged) {
+        expect(await login(db, { username: "Ethan", password: PASSWORD }, req("203.0.113.51", T0, token)), token.slice(0, 40)).toMatchObject({
+          reason: "rate-limited",
+        });
+      }
+    });
+
+    it("doesn't carry the username, and its limit key doesn't carry the token", async () => {
+      expect(device.toLowerCase()).not.toContain("ethan");
+      await login(db, { username: "Ethan", password: "wrong pass" }, req("203.0.113.52", T0, device));
+      const keys = (await rows<{ key: string }>("SELECT key FROM rate_limits")).map((r) => r.key);
+      expect(keys).toContain(loginDeviceKey(vault, device));
+      for (const part of device.split(".")) expect(keys.join("\n")).not.toContain(part);
+    });
   });
 
   it("clears a username's failed attempts after a successful login", async () => {
