@@ -67,11 +67,16 @@ for (const colorScheme of ["light", "dark"] as const) {
   test.describe(`${colorScheme} mode`, () => {
     test.use({ colorScheme });
 
-    test("home, log-in, sign-up (with errors) and not-found screens meet WCAG 2.2 AA", async ({ page }) => {
+    test("home, leaderboard, log-in, sign-up (with errors) and not-found screens meet WCAG 2.2 AA", async ({ page }) => {
       // Each screen waits for the header's Log in link, which streams in after the page shell.
       await page.goto("/");
       await waitForAccountLinks(page);
       await checkScreen(page, "home");
+
+      await page.goto("/leaderboard");
+      await waitForAccountLinks(page);
+      await expect(page.getByText(/only logged-in players/i)).toBeVisible(); // the board has loaded, not the fallback
+      await checkScreen(page, "leaderboard");
 
       await page.goto("/login");
       await waitForAccountLinks(page);

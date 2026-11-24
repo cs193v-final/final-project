@@ -148,6 +148,9 @@ export function DailyResult({ intro, view, loadStats, now = systemNow, share = d
 
       <div className="flex flex-wrap justify-center gap-3">
         <Button onClick={() => void onShare()}>Share result</Button>
+        <ButtonLink href="/leaderboard" variant="secondary">
+          Leaderboard
+        </ButtonLink>
         <ButtonLink href="/" variant="secondary">
           Home
         </ButtonLink>
