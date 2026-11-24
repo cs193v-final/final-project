@@ -25,6 +25,8 @@ vi.stubEnv("DATA_ENCRYPTION_KEY", Buffer.alloc(32, 5).toString("base64"));
 
 vi.mock("@/db", () => ({ getDb: () => state.db }));
 vi.mock("next/cache", () => ({ cacheLife: () => {} }));
+// Request time, as in a real request (games.ts awaits it before its rate limits, #169).
+vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (state.jar.has(name) ? { name, value: state.jar.get(name)! } : undefined),
