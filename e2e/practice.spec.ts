@@ -337,9 +337,12 @@ test("the controls under the image stay in the same place for a wide and a tall 
     await expect(guessBox(page)).toBeVisible({ timeout: 10_000 });
     const img = page.getByRole("img", { name: /^Mystery image/ });
     await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth / el.naturalHeight)).toBeCloseTo(w / h, 2);
+    // From the image figure's top, not the viewport's: focusing the guess box can
+    // scroll the page by a different amount each time.
+    const frame = await page.locator("figure").first().boundingBox();
     const zoom = await page.getByRole("button", { name: "Zoom out" }).boundingBox();
     const box = await guessBox(page).boundingBox();
-    return { zoomY: zoom!.y, guessY: box!.y };
+    return { zoomY: zoom!.y - frame!.y, guessY: box!.y - frame!.y };
   }
 
   const wide = await controlsFor(1600, 800);
