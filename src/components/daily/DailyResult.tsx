@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { resetLabel } from "@/components/daily/DailyIntroScreen";
 import { Button, ButtonLink, SectionHeading, TextLink } from "@/components/ui/controls";
+import { joinClasses, TEXT_INPUT } from "@/components/ui/styles";
 import type { DailyIntro } from "@/game/daily";
 import { DEFAULT_DAILY_RESET } from "@/game/daily-date";
 import { betterThanPercent, formatCountdown, nextChallengeAt, shareText, type DailyStats } from "@/game/daily-result";
@@ -163,7 +164,8 @@ export function DailyResult({ intro, view, loadStats, now = systemNow, share = d
           aria-label="Your result to copy"
           value={text}
           rows={3}
-          className="w-full rounded-md border border-zinc-400 p-2 font-mono text-sm dark:border-zinc-500 dark:bg-zinc-900"
+          // The shared text box style (#89, #183); a textarea, so not TextInput.
+          className={joinClasses(TEXT_INPUT, "w-full font-mono text-sm")}
         />
       ) : null}
 
