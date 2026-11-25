@@ -22,11 +22,15 @@ import type { PublicUser } from "@/game/types";
 import { errorSummary } from "@/server/error-summary";
 import { isHttpsRequest } from "@/server/https";
 
-import { sessionUser } from "./accounts";
+import { DEVICE_TOKEN_DAYS, sessionUser } from "./accounts";
 import { isToken, sha256Hex } from "./crypto";
 import { loginPath } from "./next-path";
 
 export const SESSION_COOKIE = "zo_session";
+/** The login device token (#151, see `isDeviceTokenFor`). Kept at logout: it only says this browser logged in before. */
+export const DEVICE_COOKIE = "zo_device";
+/** The server stops trusting a token this long after it was made, whatever the cookie says. */
+export const DEVICE_COOKIE_DAYS = DEVICE_TOKEN_DAYS;
 
 /**
  * A failed session lookup. Its message describes the error by `errorForLog`'s
@@ -146,6 +150,22 @@ export async function discardSession(token: string): Promise<void> {
   await deleteSession(getDb(), sha256Hex(token)).catch((error: unknown) => {
     console.error(`Couldn't discard an unused session: ${errorSummary(error)}`);
   });
+}
+
+/** The device token this browser sent, unchecked. `login` decides whether to trust it. */
+export async function requestDeviceToken(): Promise<string | null> {
+  return (await cookies()).get(DEVICE_COOKIE)?.value ?? null;
+}
+
+/**
+ * Remembers that this browser logged into an account (#151), with the same
+ * options as the session cookie, for `DEVICE_COOKIE_DAYS`. Replaces any
+ * earlier token, so it's for the account used last. Only from a Server Action
+ * or Route Handler.
+ */
+export async function setDeviceCookie(token: string, now: Date): Promise<void> {
+  const expiresAt = new Date(now.getTime() + DEVICE_COOKIE_DAYS * 24 * 60 * 60 * 1000);
+  (await cookies()).set(DEVICE_COOKIE, token, sessionCookieOptions(expiresAt, (await headers()).get("x-forwarded-proto")));
 }
 
 /** Ends the session on the server and removes the cookie. Only from a Server Action or Route Handler. */

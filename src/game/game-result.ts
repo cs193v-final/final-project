@@ -5,7 +5,7 @@
 // Error messages and stacks never go to the browser, only these codes.
 
 import type { GameView } from "./types.ts";
-import { GameConflictError, GameNotFoundError, InvalidGameActionError } from "./server-game.ts";
+import { GameConflictError, GameNotFoundError, GameUnreadableError, InvalidGameActionError } from "./server-game.ts";
 import { errorForLog, type LoggedError } from "./log-safe.ts";
 
 export type GameError =
@@ -25,6 +25,13 @@ export type GameError =
    * src/server/limits.ts). Nothing was changed. Like a 429.
    */
   | "rate-limited"
+  /**
+   * The player's own game is stored but can't be decrypted (another tier's
+   * DATA_ENCRYPTION_KEY, or a damaged row, #84). It's lost: retrying won't
+   * help, so the browser says so instead of blaming the connection (#164).
+   * Logged on the server. A stranger gets `not-found`, as for any other game.
+   */
+  | "unreadable"
   /** Anything else (database down, ...). Logged on the server. */
   | "unavailable";
 
@@ -62,6 +69,6 @@ export async function runGameCall(
     if (error instanceof InvalidGameActionError) return { ok: false, error: "invalid" };
     if (error instanceof RateLimitedError) return { ok: false, error: "rate-limited" };
     log(errorForLog(error));
-    return { ok: false, error: "unavailable" };
+    return { ok: false, error: error instanceof GameUnreadableError ? "unreadable" : "unavailable" };
   }
 }
