@@ -7,7 +7,8 @@
 // Usernames are encrypted (#84): these functions only ever see the encrypted
 // username and its keyed hash (`usernameIndex`). Encrypting and decrypting is
 // done by `src/auth/accounts.ts`, which has the key. No function returns the
-// password hash except `findLoginRow`, which login needs to check a password.
+// password hash except `findLoginRow` and `findUserRow`, which the password
+// checks need.
 import { and, desc, eq, gt, inArray, lte, lt, ne, or, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
@@ -49,6 +50,43 @@ export async function findLoginRow(
     .from(users)
     .where(eq(users.usernameIndex, usernameIndex));
   return row ?? null;
+}
+
+/** The user row the account page's password checks need, by id, or `null`. */
+export async function findUserRow(db: PgDb, userId: string): Promise<(StoredUser & { passwordHash: string }) | null> {
+  const [row] = await db
+    .select({ id: users.id, usernameEncrypted: users.usernameEncrypted, passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.id, userId));
+  return row ?? null;
+}
+
+/**
+ * Replaces the user's password hash, but only if it's still `previousHash`, so
+ * two changes at once can't both win. Returns whether it changed.
+ */
+export async function updatePasswordHash(db: PgDb, userId: string, previousHash: string, passwordHash: string): Promise<boolean> {
+  const rows = await db
+    .update(users)
+    .set({ passwordHash })
+    .where(and(eq(users.id, userId), eq(users.passwordHash, previousHash)))
+    .returning({ id: users.id });
+  return rows.length > 0;
+}
+
+/** Ends every session of the user. Returns how many were removed. */
+export async function deleteUserSessions(db: PgDb, userId: string): Promise<number> {
+  const removed = await db.delete(sessions).where(eq(sessions.userId, userId)).returning({ t: sessions.tokenHash });
+  return removed.length;
+}
+
+/**
+ * Deletes the user. Their sessions and games go with them (`ON DELETE
+ * CASCADE`), so they drop off every leaderboard. Returns whether a row was deleted.
+ */
+export async function deleteUser(db: PgDb, userId: string): Promise<boolean> {
+  const rows = await db.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
+  return rows.length > 0;
 }
 
 export async function insertSession(db: PgDb, tokenHash: string, userId: string, expiresAt: Date): Promise<void> {
