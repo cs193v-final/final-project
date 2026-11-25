@@ -20,16 +20,16 @@ import type { Puzzle } from "../src/game/types.ts";
 import { cutLevels } from "../src/images/cut.ts";
 
 /** What decides how a puzzle's levels look: if any of it changes, the puzzle is cut again. */
-type ImageSettings = { imageUrl: string; focusX: number; focusY: number; zoomLevels: readonly number[] };
+export type ImageSettings = { imageUrl: string; focusX: number; focusY: number; zoomLevels: readonly number[] };
 
-const settingsOf = (p: Puzzle): ImageSettings => ({
+export const settingsOf = (p: Puzzle): ImageSettings => ({
   imageUrl: p.imageUrl,
   focusX: p.reveal.focus.x,
   focusY: p.reveal.focus.y,
   zoomLevels: p.reveal.zoomLevels,
 });
 
-const sameSettings = (a: ImageSettings, b: ImageSettings) =>
+export const sameSettings = (a: ImageSettings, b: ImageSettings) =>
   a.imageUrl === b.imageUrl &&
   a.focusX === b.focusX &&
   a.focusY === b.focusY &&
