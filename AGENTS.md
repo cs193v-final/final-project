@@ -49,7 +49,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Read existing reviews and threads; don't repeat resolved points.
 - Do one full review, then review only changes since the last reviewed SHA.
 - Reply in existing threads; post at most one summary per round.
-- Label findings blocking or nit. Nits never block approval or trigger re-review.
+- Label findings blocking or nit. Nits never block approval or trigger re-review. Put nits in the review summary, not inline: `main` won't merge while a review thread is unresolved.
 - Approve once blockers are resolved and CI passes. Keep re-approvals brief.
 - Don't merge `main` into a branch unless GitHub reports a conflict (`mergeStateStatus` is `DIRTY`). Every push dismisses the approval, so batch fixes into one push.
 - If a third review round seems necessary, stop and ask the people involved.

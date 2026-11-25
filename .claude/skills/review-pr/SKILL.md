@@ -66,12 +66,12 @@ Read these line by line, follow-ups included:
   When a blocker you raised is fixed, reply "Fixed in `<short sha>`" and resolve the thread:
   `gh api graphql -f id=<thread id> -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'`
   Leave threads other people opened for them to resolve.
-- **At most one summary review per round**, with new findings as inline comments in it: blockers first, then nits marked optional. End the body with `Reviewed up to <short sha>`. Write the JSON to a temporary file (`mktemp`) and post it with `gh api repos/cs193v-final/final-project/pulls/<n>/reviews --input <file>`:
-  `{"commit_id": "<head>", "event": "REQUEST_CHANGES", "body": "...\n\nReviewed up to <short sha>", "comments": [{"path": "src/...", "line": 42, "side": "RIGHT", "body": "**blocking:** ..."}]}`
+- **At most one summary review per round.** Post each new blocker as an inline comment in it. Put nits in the body instead, marked optional, each with its file and line: `main` won't merge while any review thread is unresolved, so an inline nit would block the merge until someone resolves it. End the body with `Reviewed up to <short sha>`. Write the JSON to a temporary file (`mktemp`) and post it with `gh api repos/cs193v-final/final-project/pulls/<n>/reviews --input <file>`:
+  `{"commit_id": "<head>", "event": "REQUEST_CHANGES", "body": "...\n\nNits (optional):\n- src/...:12: ...\n\nReviewed up to <short sha>", "comments": [{"path": "src/...", "line": 42, "side": "RIGHT", "body": "**blocking:** ..."}]}`
 - **Re-approvals are one line:** `gh pr review <n> --approve -b 'Changes since abc1234 fix the blocker. Reviewed up to def5678.'`
 
 ## 5. Verdict
 - `gh pr checks <n>`: every check has to pass. If one is still running, wait (`gh pr checks <n> --watch`) or tell the person.
-- No blockers and CI passes: `APPROVE`, with any nits marked optional. Blockers: `REQUEST_CHANGES`. Not the reviewer: `COMMENT`.
+- No blockers and CI passes: `APPROVE`, with any nits in the body, marked optional, and no inline comments. Blockers: `REQUEST_CHANGES`. Not the reviewer: `COMMENT`.
 - **Show the person the draft first** (thread replies, summary and verdict) and post only after they OK it.
 - Afterwards, report what `gh pr view <n> --json reviewDecision,mergeStateStatus` says; don't predict whether the PR can merge. Once approved, the author adds it to the merge queue. Nobody merges `main` into it unless it says `DIRTY`.
