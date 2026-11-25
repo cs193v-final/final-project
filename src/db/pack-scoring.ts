@@ -7,7 +7,6 @@
 import { eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
-import { SCORING_CONFIG } from "../game/scoring-config.ts";
 import { parseScoringOverride, resolveScoringConfig, ScoringConfigError } from "../game/scoring-override.ts";
 import type { ScoringConfig } from "../game/types.ts";
 import { packs } from "./schema.ts";
@@ -65,7 +64,7 @@ export function scoringFromStored(packId: string, stored: unknown): ScoringConfi
     console.error(
       `[scoring] pack "${packId}" has an invalid scoring override, using the default instead: ${error.message}`,
     );
-    return { ...SCORING_CONFIG };
+    return resolveScoringConfig(null); // a fresh copy of the default
   }
 }
 

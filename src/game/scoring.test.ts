@@ -132,6 +132,21 @@ describe("validateScoringConfig", () => {
     ).toThrow(/basePoints/);
     expect(() => validateScoringConfig({ ...CONFIG, basePoints: MAX_SCORING_VALUE })).not.toThrow();
   });
+  it("caps each field so a game's total can't overflow games.total (#174)", () => {
+    const INTEGER_MAX = 2_147_483_647; // Postgres `integer`
+    // Fit in one column, but two correct rounds overflowed the sum before #174.
+    expect(() => validateScoringConfig({ ...CONFIG, basePoints: 2_000_000_000, minPoints: 10 })).toThrow(
+      /basePoints must be a whole number from 0 to 1000000/,
+    );
+    expect(MAX_SCORING_VALUE).toBe(1_000_000);
+    // At the cap, a long game still fits.
+    expect(MAX_SCORING_VALUE * 1_000).toBeLessThan(INTEGER_MAX);
+    for (const key of Object.keys(CONFIG) as (keyof typeof CONFIG)[]) {
+      expect(() => validateScoringConfig({ ...CONFIG, [key]: MAX_SCORING_VALUE + 1 }), key).toThrow(
+        new RegExp(key),
+      );
+    }
+  });
   it("rejects a floor above the base", () => {
     expect(() => validateScoringConfig({ ...CONFIG, minPoints: 200 })).toThrow(/minPoints/);
   });
