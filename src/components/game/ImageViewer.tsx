@@ -40,9 +40,10 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
   const level = showFull ? levels - 1 : clampRevealLevel(reveal, revealLevel);
   const transform = cropTransformCss(reveal, level);
 
-  // Size the frame to the image's own shape once it loads, so the focus point
-  // (a fraction of the image) maps exactly onto the frame. 4:3 until the first
-  // image loads. Each result is tagged with the URL it belongs to.
+  // The frame is always 4:3 (FRAME_ASPECT). The box inside it takes the image's
+  // own shape once it loads, so the focus point (a fraction of the image) maps
+  // exactly onto the box. 4:3 until the first image loads. Each result is tagged
+  // with the URL it belongs to.
   const [result, setResult] = useState<{ url: string; load: LoadState; aspect: number }>({
     url: imageUrl,
     load: "loading",
