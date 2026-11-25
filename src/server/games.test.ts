@@ -66,17 +66,38 @@ async function started() {
   return result.view;
 }
 
-describe("loadGame while Next prerenders /play", () => {
-  it("lets Next's prerender signal through instead of logging it and reporting \"unavailable\"", async () => {
-    const view = await started();
-    const signal = new Error("During prerendering, `connection()` rejects when the prerender is complete.");
+describe("while Next prerenders /play", () => {
+  const signal = new Error("During prerendering, `connection()` rejects when the prerender is complete.");
+
+  // Each call marks request time first, before its rate limits read the clock
+  // (#169): a call that never awaited connection() would resolve here instead.
+  // And Next's signal gets through instead of being logged and reported as
+  // "unavailable".
+  async function expectPrerenderSignal(call: () => Promise<unknown>) {
     state.connection = async () => {
       throw signal;
     };
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    await expect(loadGame(view.gameId)).rejects.toBe(signal);
-    expect(log).not.toHaveBeenCalled();
-    log.mockRestore();
+    try {
+      await expect(call()).rejects.toBe(signal);
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  }
+
+  it("loadGame", async () => {
+    const view = await started();
+    await expectPrerenderSignal(() => loadGame(view.gameId));
+  });
+
+  it("startPracticeGame", async () => {
+    await expectPrerenderSignal(() => startPracticeGame());
+  });
+
+  it("actOnGame", async () => {
+    const view = await started();
+    await expectPrerenderSignal(() => actOnGame(view.gameId, { type: "reveal" }, view.revision));
   });
 });
 
