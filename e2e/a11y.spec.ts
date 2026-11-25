@@ -150,7 +150,7 @@ for (const colorScheme of ["light", "dark"] as const) {
         await checkScreen(page, "after signing up (logged-in header)");
 
         await page.goto("/account");
-        await expect(page.getByRole("main").getByText(username)).toBeVisible();
+        await expect(page.getByRole("main").getByText(`Signed in as ${username}.`)).toBeVisible();
         await checkScreen(page, "account");
       } finally {
         // Found by the same keyed hash login uses; sessions and games cascade.
