@@ -53,7 +53,7 @@ DATABASE_URL_UNPOOLED=postgresql://postgres@127.0.0.1:5432/zoomout npm run db:mi
 DATABASE_URL_UNPOOLED=postgresql://postgres@127.0.0.1:5432/zoomout npm run db:seed   # optional: /play works without it
 DATABASE_URL=postgresql://postgres@127.0.0.1:5432/zoomout npm run test:e2e
 ```
-A database on localhost is reached with node-postgres and no TLS; anything else with Neon's driver (see [TECHNICAL.md → Database](TECHNICAL.md#database-47)). On your own computer, run `npx playwright install chromium` once first.
+A database on localhost is reached with node-postgres and no TLS; anything else with Neon's driver (see [TECHNICAL.md → Database](TECHNICAL.md#database-47)). On your own computer, run `npx playwright install chromium` once first. In the course container, don't: `@playwright/test` is pinned to its `playwright --version`, whose Chromium is already installed.
 
 ### 4. Deploying
 Deploys go through Jacky's Vercel account (free-tier limitation). See `INSTRUCTIONS.md`.
