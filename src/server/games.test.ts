@@ -270,6 +270,70 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
   });
 
+  it("logs a skipped unreadable game without its state or owner (#164)", async () => {
+    const lost = await started();
+    const bad = `v1.${"A".repeat(16)}.${"A".repeat(40)}`;
+    await pg.query("UPDATE games SET state_encrypted = $1 WHERE id = $2", [bad, lost.gameId]);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await started()).gameId).not.toBe(lost.gameId);
+      expect(log).toHaveBeenCalledWith("skipped an unreadable game:", expect.stringContaining("GameUnreadableError"));
+      const { hashOwnerToken, OWNER_COOKIE } = await import("./owner");
+      const logged = JSON.stringify(log.mock.calls);
+      expect(logged).not.toContain(hashOwnerToken(state.jar.get(OWNER_COOKIE)!));
+      expect(logged).not.toContain(state.jar.get(OWNER_COOKIE)!);
+      expect(logged).not.toContain(bad);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  describe(`at the cap of ${MAX_UNFINISHED_GAMES_PER_PACK}, with a game that can't be decrypted (#164)`, () => {
+    const damage = (id: string) =>
+      pg.query(`UPDATE games SET state_encrypted = 'v1.${"A".repeat(16)}.${"A".repeat(40)}' WHERE id = $1`, [id]);
+    /** Starts and plays `n` games, oldest first; returns their ids. */
+    async function played(n: number): Promise<string[]> {
+      const ids: string[] = [];
+      for (let i = 0; i < n; i++) {
+        const id = (await started()).gameId;
+        await actNow(id, { type: "reveal" });
+        ids.push(id);
+      }
+      return ids;
+    }
+    let log: { mockRestore: () => void };
+    beforeEach(() => {
+      log = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+    afterEach(() => log.mockRestore());
+
+    it("resumes the most recent game that loads when the latest can't, every time", async () => {
+      const ids = await played(MAX_UNFINISHED_GAMES_PER_PACK);
+      await damage(ids.at(-1)!);
+
+      expect((await started()).gameId).toBe(ids.at(-2));
+      expect((await started()).gameId).toBe(ids.at(-2)); // "Start a new game" doesn't loop on the lost one
+      expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
+    });
+
+    it("resumes a played game when the untouched one can't be decrypted", async () => {
+      const ids = await played(MAX_UNFINISHED_GAMES_PER_PACK - 1);
+      const untouched = (await started()).gameId;
+      await damage(untouched);
+
+      expect((await started()).gameId).toBe(ids.at(-1));
+      expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
+    });
+
+    it("reports unreadable only when none of them loads", async () => {
+      const ids = await played(MAX_UNFINISHED_GAMES_PER_PACK);
+      for (const id of ids) await damage(id);
+
+      expect(await startPracticeGame()).toEqual({ ok: false, error: "unreadable" });
+      expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
+    });
+  });
+
   it("starts a new game after a finished one (Play again), even with other unfinished games", async () => {
     const view = await started();
     for (let i = 0; i < view.round!.puzzleCount; i++) {
