@@ -7,6 +7,7 @@ import { DailyPlay } from "@/components/daily/DailyPlay";
 import { ButtonLink, TextLink } from "@/components/ui/controls";
 import { actAction, getGameAction } from "@/app/play/actions";
 import { loadDailyIntro, loadTodaysDailyGame } from "@/server/daily";
+import { errorSummary } from "@/server/error-summary";
 
 import { dailyStatsAction, startDailyAction } from "./actions";
 import { GAME_NAME } from "@/site";
@@ -46,11 +47,12 @@ async function Today() {
   const now = new Date();
   const [intro, initial] = await Promise.all([
     loadDailyIntro(now).catch((error: unknown) => {
-      console.error("Couldn't load today's daily challenge", error);
+      console.error(`Couldn't load today's daily challenge: ${errorSummary(error)}`);
       return null;
     }),
     loadTodaysDailyGame(now).catch((error: unknown) => {
-      console.error("Couldn't load this player's daily game", error);
+      // Without the query's parameters (the owner's id or hash, #60).
+      console.error(`Couldn't load this player's daily game: ${errorSummary(error)}`);
       return null;
     }),
   ]);
