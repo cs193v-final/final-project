@@ -59,8 +59,9 @@ export type DailyStartResult = GameResult | { ok: false; error: "day-over" | "no
  * Creates the anonymous owner cookie on first play, like practice, and counts
  * toward the same start limits, per owner and per IP (#85, #210): a client
  * without a cookie is a new owner each time, so only the IP limit stops it
- * creating games. Reloading /daily resumes through `loadTodaysDailyGame`,
- * which doesn't count.
+ * creating games. Resuming today's game doesn't count: Start (and reloading
+ * /daily, through `loadTodaysDailyGame`) gets a player back to the daily they
+ * already started, even at the limit, and writes nothing.
  */
 export async function startTodaysDaily(date: unknown, now = new Date()): Promise<DailyStartResult> {
   const today = dailyDateAt(now);
@@ -77,6 +78,8 @@ export async function startTodaysDaily(date: unknown, now = new Date()): Promise
   const daily = pack;
   return runGameCall(async () => {
     const owner = await currentOrNewOwner();
+    const started = await resumeDaily(deps(db), owner, today);
+    if (started !== null) return started;
     await checkStartLimits(db, owner, await requestIpHash(), now);
     // The pack's own scoring (#64) when it has one, checked like any stored
     // override: an invalid one (hand-written SQL) is logged and the default used.

@@ -43,7 +43,7 @@ vi.mock("next/headers", () => ({
 }));
 
 const { startTodaysDaily, loadTodaysDailyGame, loadDailyIntro, loadDailyStats } = await import("./daily");
-const { actOnGame } = await import("./games");
+const { actOnGame, startPracticeGame } = await import("./games");
 const { GAME_LIMITS } = await import("./limits");
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -210,12 +210,36 @@ describe("rate limits on starting the daily", () => {
     await pg.exec("DELETE FROM rate_limits;");
   });
 
-  it("returns `rate-limited` for the first start over the owner limit, and the page can still resume the game", async () => {
-    const view = ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
-    for (let i = 1; i < GAME_LIMITS.startsPerOwner.max; i++) await startTodaysDaily(NOV1, BEFORE_MIDNIGHT);
-    expect(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).toEqual({ ok: false, error: "rate-limited" });
-    // Reloading /daily resumes without counting as a start.
-    expect(ok(await loadTodaysDailyGame(BEFORE_MIDNIGHT)).gameId).toBe(view.gameId);
+  // Starts are counted per player across packs, so practice starts use up the
+  // limit here (on the daily's clock, so both share one window).
+  const useUpStarts = async (n: number) => {
+    for (let i = 0; i < n; i++) ok(await startPracticeGame());
+    expect(await startPracticeGame()).toEqual({ ok: false, error: "rate-limited" });
+  };
+
+  it("returns `rate-limited` for a new daily over the owner limit, without creating a game", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: BEFORE_MIDNIGHT });
+    try {
+      await useUpStarts(GAME_LIMITS.startsPerOwner.max);
+      const games = await gameCount();
+      expect(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).toEqual({ ok: false, error: "rate-limited" });
+      expect(await gameCount()).toBe(games);
+      expect(await loadTodaysDailyGame(BEFORE_MIDNIGHT)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 60_000);
+
+  it("still resumes today's game at the limit: pressing Start again doesn't count", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: BEFORE_MIDNIGHT });
+    try {
+      const view = ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
+      await useUpStarts(GAME_LIMITS.startsPerOwner.max - 1);
+      for (let i = 0; i < 3; i++) expect(ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).gameId).toBe(view.gameId);
+      expect(ok(await loadTodaysDailyGame(BEFORE_MIDNIGHT)).gameId).toBe(view.gameId);
+    } finally {
+      vi.useRealTimers();
+    }
   }, 60_000);
 
   it("stops a client that drops its cookie each time at the per-IP limit, without creating a game", async () => {
