@@ -67,6 +67,15 @@ describe("StartScreen", () => {
     expect(html).not.toMatch(/<a[^>]*>[^<]*leaderboard/iu);
   });
 
+  it("shows the daily streak (#63) between the tagline and the mode picker, when given one", () => {
+    const withStreak = renderToStaticMarkup(<StartScreen streak={<p>STREAK SLOT</p>} />);
+    const slot = withStreak.indexOf("STREAK SLOT");
+    expect(slot).toBeGreaterThan(withStreak.indexOf("Guess the picture."));
+    expect(slot).toBeLessThan(withStreak.indexOf("Choose a mode"));
+    // Logged out (no slot), the home screen is unchanged.
+    expect(html).not.toContain("streak");
+  });
+
   it("labels what's still a placeholder (#58: the daily is built now)", () => {
     expect(html).toContain("Prototype: point values are still being tuned.");
     expect(html).not.toContain("Daily puzzles aren");
