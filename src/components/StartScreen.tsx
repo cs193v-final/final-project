@@ -26,8 +26,13 @@ export const HOW_TO_PLAY = howToPlay();
 /**
  * Start screen (#18), now the home screen (#50): the game name, the modes to
  * choose from (only Practice is playable so far), and how to play.
+ *
+ * `scoring` is the config "How to play" explains: the practice pack's, with
+ * its stored override if it has one (#204), so the numbers match the game.
+ * The page reads it on the server; this component doesn't.
  */
-export function StartScreen() {
+export function StartScreen({ scoring = SCORING_CONFIG }: { scoring?: ScoringConfig } = {}) {
+  const steps = howToPlay(scoring);
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-12 text-center">
       <div className="flex flex-col items-center gap-3">
@@ -43,7 +48,7 @@ export function StartScreen() {
       <section aria-labelledby="how-to-play" className="w-full max-w-md text-left">
         <SectionHeading id="how-to-play">How to play</SectionHeading>
         <ol className="flex flex-col gap-2">
-          {HOW_TO_PLAY.map((step, i) => (
+          {steps.map((step, i) => (
             <li key={step} className="flex gap-3 rounded-lg bg-zinc-100 px-4 py-3 dark:bg-zinc-900">
               <span aria-hidden="true" className="font-semibold text-zinc-600 dark:text-zinc-400">
                 {i + 1}
