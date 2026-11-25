@@ -19,6 +19,8 @@ const board = (over: Partial<DailyLeaderboardProps["board"]> = {}): DailyLeaderb
   ...over,
 });
 
+const you = (e: LeaderboardEntry, players: number) => ({ entry: e, players });
+
 const rows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1); // minus the header row
 
 describe("DailyLeaderboard", () => {
@@ -40,7 +42,7 @@ describe("DailyLeaderboard", () => {
   });
 
   it("marks your own row when you're in the top list, and doesn't repeat it below", () => {
-    render(<DailyLeaderboard board={board({ loggedIn: true, you: entry(2, "cara_99", 180) })} />);
+    render(<DailyLeaderboard board={board({ loggedIn: true, you: you(entry(2, "cara_99", 180), 4) })} />);
     const mine = rows()[2]!;
     expect(mine).toHaveAttribute("aria-current", "true");
     expect(mine).toHaveTextContent("cara_99 (you)");
@@ -49,13 +51,13 @@ describe("DailyLeaderboard", () => {
   });
 
   it("marks only your row when someone else has the same score", () => {
-    render(<DailyLeaderboard board={board({ loggedIn: true, you: entry(2, "Alice", 180) })} />);
+    render(<DailyLeaderboard board={board({ loggedIn: true, you: you(entry(2, "Alice", 180), 4) })} />);
     expect(rows()[1]).toHaveAttribute("aria-current", "true");
     expect(rows()[2]).not.toHaveAttribute("aria-current");
   });
 
   it("shows your rank below the list when you're not in it", () => {
-    render(<DailyLeaderboard board={board({ loggedIn: true, players: 40, you: entry(23, "zed", 40) })} />);
+    render(<DailyLeaderboard board={board({ loggedIn: true, players: 40, you: you(entry(23, "zed", 40), 40) })} />);
     expect(screen.getByText(/your rank/i).closest("p")).toHaveTextContent("Your rank: 23 of 40, with 40 points.");
   });
 
@@ -74,5 +76,41 @@ describe("DailyLeaderboard", () => {
     render(<DailyLeaderboard board={board({ top: [], players: 0 })} />);
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText(/nobody has finished today's daily yet/i)).toBeInTheDocument();
+  });
+
+  // The top list is cached for about a minute; your own entry and the player
+  // count next to it are read fresh. Right after you finish, the cached list
+  // may not have you yet.
+  it("just after you're the first to finish: your rank, not 'nobody has finished'", () => {
+    render(<DailyLeaderboard board={board({ top: [], players: 0, loggedIn: true, you: you(entry(1, "zed", 200), 1) })} />);
+    expect(screen.queryByText(/nobody has finished/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/your rank/i).closest("p")).toHaveTextContent("Your rank: 1 of 1, with 200 points.");
+    expect(screen.getByText(/updates within a minute/i)).toBeInTheDocument();
+  });
+
+  it("just after you finish in the top list but the cached list doesn't have you yet: says the board updates soon", () => {
+    render(<DailyLeaderboard board={board({ loggedIn: true, you: you(entry(3, "zed", 190), 5) })} />);
+    expect(rows().filter((r) => r.getAttribute("aria-current"))).toHaveLength(0);
+    expect(screen.getByText(/your rank/i).closest("p")).toHaveTextContent("Your rank: 3 of 5, with 190 points.");
+    expect(screen.getByText(/updates within a minute/i)).toBeInTheDocument();
+    // The count is the fresh one, so it agrees with your rank.
+    expect(screen.getByText(/5 players finished today's daily/i)).toBeInTheDocument();
+  });
+
+  it("doesn't say the board will update when you're simply below the top list", () => {
+    render(<DailyLeaderboard board={board({ loggedIn: true, players: 40, you: you(entry(23, "zed", 40), 40) })} />);
+    expect(screen.queryByText(/updates within a minute/i)).not.toBeInTheDocument();
+  });
+
+  it("doesn't mark an 'Unknown player' row as you (names that don't decrypt all look alike)", () => {
+    const unknown = TOP.map((e) => ({ ...e, username: "Unknown player" }));
+    render(<DailyLeaderboard board={board({ top: unknown, loggedIn: true, you: you(entry(2, "Unknown player", 180), 4) })} />);
+    expect(rows().filter((r) => r.getAttribute("aria-current"))).toHaveLength(0);
+  });
+
+  it("when the board is only for logged-in players (LEADERBOARD_PUBLIC off): asks to log in instead of 'nobody has finished'", () => {
+    render(<DailyLeaderboard board={board({ top: [], players: 0, topHidden: true })} />);
+    expect(screen.queryByText(/nobody has finished/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/log in to see today's board/i)).toBeInTheDocument();
   });
 });

@@ -17,15 +17,12 @@ import { sql } from "drizzle-orm";
 
 import { USERNAME_FIELD } from "../auth/user-row.ts";
 import type { Vault } from "../crypto/vault.ts";
+import { LEADERBOARD_SIZE, UNKNOWN_PLAYER } from "../game/leaderboard.ts";
 import type { LeaderboardEntry } from "../game/types.ts";
 import type { AnyDb } from "./content.ts";
 import { rowsOf } from "./rows.ts";
 
-/** How many players the board shows. */
-export const LEADERBOARD_SIZE = 10;
-
-/** Shown for a username that doesn't decrypt (e.g. a tier's key was changed). */
-export const UNKNOWN_PLAYER = "Unknown player";
+export { LEADERBOARD_SIZE, UNKNOWN_PLAYER };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -38,10 +35,11 @@ const onBoard = (date: string) => sql`
 
 /**
  * Beat the AI (#56, #66): images in game `g` the player got right at an
- * earlier zoom level than the AI's first correct guess. An image the AI never
- * got, or wasn't run on (`ai_solved_level` NULL), doesn't count.
- * PROVISIONAL until #66 settles the rule; it's only here, so changing it is
- * one edit.
+ * earlier zoom level than the AI's first correct guess. The same level is a
+ * tie, not a win. An image the AI never got, or wasn't run on
+ * (`ai_solved_level` NULL), doesn't count. The same rule as `aiVerdict` in
+ * src/game/beat-ai.ts (the round screen and the final screen); change both
+ * together.
  */
 const beatAiCount = sql`(
   SELECT count(*)::int FROM game_rounds r JOIN puzzles pz ON pz.id = r.puzzle_id
@@ -73,7 +71,9 @@ function toEntries(vault: Vault, rows: Row[]): LeaderboardEntry[] {
  * The top `LEADERBOARD_SIZE` players on `date` (a `YYYY-MM-DD` daily date),
  * best first, and how many players finished that day. Ranks are competition
  * ranks: a tie shares a rank and the next rank skips (1, 2, 2, 4). Ties are
- * listed by who finished first.
+ * listed by who finished first. The cut at `LEADERBOARD_SIZE` can fall inside
+ * a tie (ranks 9, 10, 10, 10 lists only the first rank-10 player to finish);
+ * that's intended, and the others still see their rank from `getDailyRank`.
  */
 export async function getDailyTop(db: AnyDb, vault: Vault, date: string): Promise<{ top: LeaderboardEntry[]; players: number }> {
   const rows = rowsOf(
@@ -94,22 +94,28 @@ export async function getDailyTop(db: AnyDb, vault: Vault, date: string): Promis
   return { top: toEntries(vault, rows), players: Number(rows[0]?.players ?? 0) };
 }
 
+/** Your own entry, and how many players finished that day, counted at the same moment. */
+export type DailyRank = { entry: LeaderboardEntry; players: number };
+
 /**
  * `userId`'s own entry on `date`, ranked like `getDailyTop` (1 + the number of
- * players with a higher score), or null if they have no finished daily game
- * that day.
+ * players with a higher score), and the day's player count from the same
+ * query, or null if they have no finished daily game that day. The count is
+ * here so "Your rank: X of N" never mixes a fresh rank with a cached count.
  */
-export async function getDailyRank(db: AnyDb, vault: Vault, date: string, userId: string): Promise<LeaderboardEntry | null> {
+export async function getDailyRank(db: AnyDb, vault: Vault, date: string, userId: string): Promise<DailyRank | null> {
   if (!UUID.test(userId)) return null;
   const rows = rowsOf(
     await db.execute(sql`
       SELECT g.total AS score, g.user_id, u.username_encrypted, ${beatAiCount} AS beat_ai,
-             1 + (SELECT count(*) FROM games g WHERE ${onBoard(date)} AND g.total > me.total)::int AS rank
+             1 + (SELECT count(*) FROM games g WHERE ${onBoard(date)} AND g.total > me.total)::int AS rank,
+             (SELECT count(*) FROM games g WHERE ${onBoard(date)})::int AS players
       FROM games g
       JOIN users u ON u.id = g.user_id
       CROSS JOIN LATERAL (SELECT g.total) AS me(total)
       WHERE ${onBoard(date)} AND g.user_id = ${userId}::uuid
     `),
   );
-  return toEntries(vault, rows)[0] ?? null;
+  const entry = toEntries(vault, rows)[0];
+  return entry === undefined ? null : { entry, players: Number(rows[0]!.players) };
 }

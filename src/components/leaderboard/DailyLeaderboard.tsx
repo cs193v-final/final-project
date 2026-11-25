@@ -1,18 +1,28 @@
 import { ButtonLink, TextLink } from "@/components/ui/controls";
+import { LEADERBOARD_SIZE, UNKNOWN_PLAYER } from "@/game/leaderboard";
 import type { LeaderboardEntry } from "@/game/types";
 
+/** The shape `loadDailyLeaderboard` returns (src/server/leaderboard.ts). */
 export type DailyLeaderboardProps = {
   board: {
     date: string;
+    /** Cached for about a minute. */
     top: LeaderboardEntry[];
     players: number;
-    you: LeaderboardEntry | null;
+    /** Your entry and a fresh player count. */
+    you: { entry: LeaderboardEntry; players: number } | null;
     loggedIn: boolean;
+    topHidden?: boolean;
   };
 };
 
+/**
+ * Your row in the top list: same rank and username (usernames are unique).
+ * The top list carries no user ids, so this is the only way to match it. A
+ * name that didn't decrypt is never "you": those all look alike.
+ */
 const isYou = (entry: LeaderboardEntry, you: LeaderboardEntry | null) =>
-  you !== null && entry.rank === you.rank && entry.username === you.username;
+  you !== null && entry.username !== UNKNOWN_PLAYER && entry.rank === you.rank && entry.username === you.username;
 
 /**
  * Today's daily leaderboard (#62): the top players, your own rank, and what to
@@ -20,12 +30,22 @@ const isYou = (entry: LeaderboardEntry, you: LeaderboardEntry | null) =>
  * it renders on the server.
  */
 export function DailyLeaderboard({ board }: DailyLeaderboardProps) {
-  const { top, players, you, loggedIn } = board;
-  const youInTop = top.some((e) => isYou(e, you));
+  const { top, you, loggedIn, topHidden } = board;
+  const mineEntry = you?.entry ?? null;
+  // The top list is cached for about a minute; your entry and its count are
+  // fresh. Prefer the fresh count, so it agrees with your rank.
+  const players = you?.players ?? board.players;
+  const youInTop = top.some((e) => isYou(e, mineEntry));
+  // You finished in the top places, but the cached list doesn't have you yet.
+  const listCatchingUp = mineEntry !== null && !youInTop && mineEntry.rank <= LEADERBOARD_SIZE;
   return (
     <div className="flex w-full max-w-md flex-col gap-4">
-      {top.length === 0 ? (
-        <p className="text-center text-zinc-700 dark:text-zinc-300">Nobody has finished today&apos;s daily yet.</p>
+      {topHidden ? (
+        <p className="text-center text-zinc-700 dark:text-zinc-300">Log in to see today&apos;s board.</p>
+      ) : top.length === 0 ? (
+        you === null ? (
+          <p className="text-center text-zinc-700 dark:text-zinc-300">Nobody has finished today&apos;s daily yet.</p>
+        ) : null
       ) : (
         <>
           <table className="w-full border-collapse text-left">
@@ -45,7 +65,7 @@ export function DailyLeaderboard({ board }: DailyLeaderboardProps) {
             </thead>
             <tbody>
               {top.map((entry) => {
-                const mine = isYou(entry, you);
+                const mine = isYou(entry, mineEntry);
                 return (
                   <tr
                     key={`${entry.rank}-${entry.username}`}
@@ -69,9 +89,10 @@ export function DailyLeaderboard({ board }: DailyLeaderboardProps) {
         </>
       )}
 
-      {you !== null && !youInTop ? (
+      {mineEntry !== null && !youInTop ? (
         <p className="text-zinc-700 dark:text-zinc-300">
-          <strong>Your rank:</strong> {you.rank} of {players}, with {you.score} {you.score === 1 ? "point" : "points"}.
+          <strong>Your rank:</strong> {mineEntry.rank} of {players}, with {mineEntry.score} {mineEntry.score === 1 ? "point" : "points"}.
+          {listCatchingUp ? " The list updates within a minute." : null}
         </p>
       ) : null}
       {!loggedIn ? (

@@ -128,6 +128,21 @@ describe("getDailyTop", () => {
     expect(top).toHaveLength(LEADERBOARD_SIZE);
     expect(players).toBe(LEADERBOARD_SIZE + 2);
     expect(top[0]).toMatchObject({ rank: 1, score: 100 });
+    // The cut can fall inside a tie (intended): six players share rank 1 and six
+    // share rank 7, so only the first four rank-7 players to finish are listed.
+    // The others still get "Your rank: 7" from getDailyRank.
+    expect(top.map((e) => e.rank)).toEqual([1, 1, 1, 1, 1, 1, 7, 7, 7, 7]);
+    expect(top.map((e) => e.username)).not.toContain("p10");
+    expect(await getDailyRank(db, vault, day, userIds.get("p10")!)).toMatchObject({ entry: { rank: 7, username: "p10" }, players: LEADERBOARD_SIZE + 2 });
+  });
+
+  it("has one entry per player: starting the day's daily again resumes it, not adds one", async () => {
+    const bob = { userId: userIds.get("Bob")! };
+    const again = await startOrResumeDaily(deps, DAILY, DAY, bob, CONFIG);
+    expect(again.finished).toBe(true);
+    const { top, players } = await getDailyTop(db, vault, DAY);
+    expect(players).toBe(4);
+    expect(top.filter((e) => e.username === "Bob")).toHaveLength(1);
   });
 
   it("is empty for a day nobody finished", async () => {
@@ -144,9 +159,24 @@ describe("getDailyTop", () => {
 });
 
 describe("getDailyRank", () => {
-  it("is your own entry, ranked the same way as the top list", async () => {
-    expect(await getDailyRank(db, vault, DAY, userIds.get("cara_99")!)).toEqual({ rank: 2, username: "cara_99", score: 180, beatAiCount: 0 });
-    expect(await getDailyRank(db, vault, DAY, userIds.get("Dan")!)).toEqual({ rank: 4, username: "Dan", score: 0, beatAiCount: 0 });
+  it("is your own entry, ranked the same way as the top list, and the day's player count", async () => {
+    expect(await getDailyRank(db, vault, DAY, userIds.get("cara_99")!)).toEqual({
+      entry: { rank: 2, username: "cara_99", score: 180, beatAiCount: 0 },
+      players: 4,
+    });
+    expect(await getDailyRank(db, vault, DAY, userIds.get("Dan")!)).toEqual({
+      entry: { rank: 4, username: "Dan", score: 0, beatAiCount: 0 },
+      players: 4,
+    });
+  });
+
+  it("counts the players fresh, so it never disagrees with your own rank", async () => {
+    // The top list is cached for about a minute; this count isn't. A player who
+    // just finished is counted at once.
+    const day = "2026-11-21";
+    expect((await getDailyTop(db, vault, day)).players).toBe(0);
+    await play(await user("Ivy"), day, [["guess"], ["guess"]]);
+    expect(await getDailyRank(db, vault, day, userIds.get("Ivy")!)).toMatchObject({ entry: { rank: 1 }, players: 1 });
   });
 
   it("is null without a finished game that day", async () => {
