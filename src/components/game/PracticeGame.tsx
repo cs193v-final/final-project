@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GameError, GameResult } from "@/game/game-result";
 import type { GameAction, GameView, Puzzle, PublicRound } from "@/game/types";
+import { AiBadge } from "./AiBadge";
 import { Confetti } from "./Confetti";
 import { FinalScore } from "./FinalScore";
 import { GuessPanel } from "./GuessPanel";
@@ -205,6 +206,7 @@ export function PracticeGame({ initial, start, act, get, gameHref = playHref, re
         <FinalScore
           puzzles={finalScoreLabels(view, answers)}
           score={{ rounds: view.results, total: view.total }}
+          beatAi={view.beatAi}
           {...(replay ? { onPlayAgain: () => void newGame() } : {})}
           after={typeof afterFinish === "function" ? afterFinish(view) : afterFinish}
         />
@@ -243,6 +245,7 @@ export function PracticeGame({ initial, start, act, get, gameHref = playHref, re
           <Credit credit={round.credit} />
         ) : null}
         <RoundValue round={roundView} result={roundResult} pointsNow={round.pointsAvailable} />
+        <AiBadge round={round} result={roundResult} />
       </div>
 
       <GuessPanel
