@@ -5,7 +5,7 @@
 // Error messages and stacks never go to the browser, only these codes.
 
 import type { GameView } from "./types.ts";
-import { GameConflictError, GameNotFoundError, InvalidGameActionError } from "./server-game.ts";
+import { GameConflictError, GameNotFoundError, GuessLimitError, InvalidGameActionError } from "./server-game.ts";
 import { errorForLog, type LoggedError } from "./log-safe.ts";
 
 export type GameError =
@@ -13,6 +13,12 @@ export type GameError =
   | "not-found"
   /** The request wasn't a valid game action. Like a 400. */
   | "invalid"
+  /**
+   * A guess in a round that has reached the wrong-guess safety cap
+   * (`MAX_WRONG_GUESSES_PER_ROUND`, #209). Nothing was changed; zoom out and
+   * skip still work. Like a 400.
+   */
+  | "guess-limit"
   /**
    * The game changed since the view this action was sent from, so the action
    * was NOT applied: another tab moved it on, a request saved between this
@@ -59,6 +65,8 @@ export async function runGameCall(
   } catch (error) {
     if (error instanceof GameConflictError) return { ok: false, error: "conflict" };
     if (error instanceof GameNotFoundError) return { ok: false, error: "not-found" };
+    // Before InvalidGameActionError: it's a subclass with its own message for the player.
+    if (error instanceof GuessLimitError) return { ok: false, error: "guess-limit" };
     if (error instanceof InvalidGameActionError) return { ok: false, error: "invalid" };
     if (error instanceof RateLimitedError) return { ok: false, error: "rate-limited" };
     log(errorForLog(error));

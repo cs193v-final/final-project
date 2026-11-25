@@ -8,6 +8,7 @@ import {
   GameConflictError,
   GameNotFoundError,
   getGame,
+  GuessLimitError,
   InvalidGameActionError,
   MemoryGameStore,
   puzzleSourceFrom,
@@ -53,6 +54,12 @@ describe("runGameCall", () => {
       ok: false,
       error: "invalid",
     });
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("maps the wrong-guess safety cap to its own code, so the player is told to zoom out or skip (#209)", async () => {
+    const log = vi.fn();
+    expect(await runGameCall(() => Promise.reject(new GuessLimitError()), log)).toEqual({ ok: false, error: "guess-limit" });
     expect(log).not.toHaveBeenCalled();
   });
 

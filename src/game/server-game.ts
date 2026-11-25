@@ -215,12 +215,42 @@ export class InvalidGameActionError extends Error {
   }
 }
 
+/**
+ * A guess in a round that already has `MAX_WRONG_GUESSES_PER_ROUND` wrong
+ * guesses (#209). An `InvalidGameActionError`, so it's still a 400, but
+ * `runGameCall` gives it its own code so the player is told to zoom out or skip.
+ */
+export class GuessLimitError extends InvalidGameActionError {
+  constructor() {
+    super(`at most ${MAX_WRONG_GUESSES_PER_ROUND} wrong guesses per round; zoom out or skip`);
+    this.name = "GuessLimitError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Untrusted input
 // ---------------------------------------------------------------------------
 
 /** Longest guess accepted from a client. Far longer than any answer. */
 export const MAX_GUESS_LENGTH = 200;
+
+/**
+ * Safety cap on wrong guesses in one round (#209, #85), not a gameplay rule:
+ * no real player gets near it. Each wrong guess adds an event to the game's
+ * stored (encrypted) state, so without a cap one game could grow without
+ * limit. With it, a round stores at most this many wrong guesses, plus one
+ * event per zoom level and one for the answer or skip, so a game's state is
+ * bounded by its number of rounds.
+ *
+ * Once a round has this many, every further guess in it is refused with
+ * `GuessLimitError`, a correct one too (simpler, and nothing to probe), and
+ * nothing is saved. Zoom out and skip still work, so the player can always
+ * move on. Points are unaffected: they already stop at `minPoints`.
+ *
+ * Whether to have a real guess limit is still open (#21); if one is chosen,
+ * it can lower this.
+ */
+export const MAX_WRONG_GUESSES_PER_ROUND = 50;
 
 /**
  * Check untrusted input (e.g. a parsed request body) and return it as a
@@ -496,6 +526,11 @@ export async function act(
   }
   if (expectedRevision !== game.revision) throw new GameConflictError(game.id);
   const { state } = game;
+  // Checked before `step`, so a refused guess changes nothing, like any rejected action (#209).
+  const playing = !state.finished && state.round.state === "playing";
+  if (parsed.type === "guess" && playing && state.round.wrongGuesses >= MAX_WRONG_GUESSES_PER_ROUND) {
+    throw new GuessLimitError();
+  }
 
   const current: Game = { puzzles, index: state.index, round: state.round, finished: state.finished };
   const result = step(current, parsed);
