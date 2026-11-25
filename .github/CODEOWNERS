@@ -5,7 +5,8 @@
 #
 # GitHub uses the LAST matching line for each file, so keep broader rules first.
 # Paths without an owner here need the usual one approval from anyone.
-# src/test/codeowners.test.ts checks that every path below exists.
+# src/test/codeowners.test.ts checks that every path below exists, and that every
+# script in scripts/ that talks to the database (and its test) is listed (#205).
 
 # Database: schema, queries, migrations, and the scripts that connect to it.
 /src/db/                         @Hombobow @Joseph-G-McD
