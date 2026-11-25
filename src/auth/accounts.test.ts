@@ -12,6 +12,7 @@ import { deleteExpiredRateLimits, deleteExpiredSessions, deleteSession, hitRateL
 import * as schema from "@/db/schema";
 
 import {
+  DEVICE_TOKEN_DAYS,
   ipKey,
   isDeviceTokenFor,
   limitsAddress,
@@ -251,9 +252,47 @@ describe("login", () => {
 
     it("gets a device token for that username at sign-up and every login", async () => {
       const signup = expectOk(await register(db, { username: "Mallory", password: PASSWORD }, req("192.0.2.2")));
-      expect(isDeviceTokenFor(vault, "mallory", signup.device)).toBe(true);
-      expect(isDeviceTokenFor(vault, "ETHAN", device)).toBe(true);
-      expect(isDeviceTokenFor(vault, "Ethan", signup.device)).toBe(false);
+      expect(isDeviceTokenFor(vault, "mallory", signup.device, T0)).toBe(true);
+      expect(isDeviceTokenFor(vault, "ETHAN", device, T0)).toBe(true);
+      expect(isDeviceTokenFor(vault, "Ethan", signup.device, T0)).toBe(false);
+    });
+
+    it(`stops being trusted ${DEVICE_TOKEN_DAYS} days after it was made, whatever the cookie says`, async () => {
+      const DAY = 24 * 60 * 60 * 1000;
+      expect(isDeviceTokenFor(vault, "Ethan", device, at((DEVICE_TOKEN_DAYS - 1) * DAY))).toBe(true);
+      expect(isDeviceTokenFor(vault, "Ethan", device, at(DEVICE_TOKEN_DAYS * DAY))).toBe(false);
+      // Nor before the day it was made (a clock set back).
+      expect(isDeviceTokenFor(vault, "Ethan", device, at(-DAY))).toBe(false);
+    });
+
+    it("keeps its token on later logins, so logging in again doesn't add another guessing budget", async () => {
+      expect(expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("192.0.2.1", T0, device))).device).toBe(device);
+      // A browser without one gets a new one.
+      const fresh = expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("192.0.2.1"))).device;
+      expect(fresh).not.toBe(device);
+      expect(isDeviceTokenFor(vault, "Ethan", fresh, T0)).toBe(true);
+    });
+
+    it("logging in with it doesn't reset the username's count, so it gives a guesser no new attempts", async () => {
+      await lockEthan();
+      expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("203.0.113.50", T0, device)));
+      // The guesser, without the token, is still locked out, even with the right password.
+      expect(await login(db, { username: "Ethan", password: PASSWORD }, req("198.51.100.201"))).toMatchObject({
+        reason: "rate-limited",
+      });
+    });
+
+    it(`still counts against, and is stopped by, the address's limit of ${RATE_LIMITS.loginPerIp.max}`, async () => {
+      const ip = "198.51.100.77";
+      for (let i = 0; i < RATE_LIMITS.loginPerIp.max; i++) {
+        await login(db, { username: `guess${i}`, password: "wrong pass" }, req(ip));
+      }
+      expect(await login(db, { username: "Ethan", password: PASSWORD }, req(ip, T0, device))).toMatchObject({
+        reason: "rate-limited",
+      });
+      // Stopped before the device's own count, so a blocked address can't use it up.
+      const keys = (await rows<{ key: string }>("SELECT key FROM rate_limits")).map((r) => r.key);
+      expect(keys).not.toContain(loginDeviceKey(vault, device));
     });
 
     it("still logs in with the right password while the username is locked by someone else's guesses", async () => {
@@ -278,11 +317,13 @@ describe("login", () => {
     it("isn't trusted with another username's token, a forged one or junk", async () => {
       const mallory = expectOk(await register(db, { username: "Mallory", password: PASSWORD }, req("192.0.2.3"))).device;
       await lockEthan();
-      const [nonce, mac] = device.split(".") as [string, string];
+      const [nonce, day, mac] = device.split(".") as [string, string, string];
       const forged = [
         mallory,
-        `${nonce}.${mac.slice(0, -1)}${mac.endsWith("0") ? "1" : "0"}`,
-        `${"A".repeat(nonce.length)}.${mac}`,
+        `${nonce}.${day}.${mac.slice(0, -1)}${mac.endsWith("0") ? "1" : "0"}`,
+        `${"A".repeat(nonce.length)}.${day}.${mac}`,
+        `${nonce}.${Number(day) - 1}.${mac}`, // an older day, to dodge expiry
+        `${nonce}.${mac}`,
         "",
         "junk",
         `${device}.extra`,

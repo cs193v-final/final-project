@@ -29,7 +29,7 @@ vi.mock("@/auth/session", async (importOriginal) => ({
   requestIp: async () => "203.0.113.7",
   requestDeviceToken: async () => "device-from-cookie",
 }));
-vi.mock("@/auth/accounts", () => ({ login, register }));
+vi.mock("@/auth/accounts", () => ({ DEVICE_TOKEN_DAYS: 365, login, register }));
 
 const form = (username: string, password: string, next?: string) => {
   const data = new FormData();

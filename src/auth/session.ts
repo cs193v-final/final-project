@@ -22,14 +22,15 @@ import type { PublicUser } from "@/game/types";
 import { errorSummary } from "@/server/error-summary";
 import { isHttpsRequest } from "@/server/https";
 
-import { sessionUser } from "./accounts";
+import { DEVICE_TOKEN_DAYS, sessionUser } from "./accounts";
 import { isToken, sha256Hex } from "./crypto";
 import { loginPath } from "./next-path";
 
 export const SESSION_COOKIE = "zo_session";
 /** The login device token (#151, see `isDeviceTokenFor`). Kept at logout: it only says this browser logged in before. */
 export const DEVICE_COOKIE = "zo_device";
-export const DEVICE_COOKIE_DAYS = 365;
+/** The server stops trusting a token this long after it was made, whatever the cookie says. */
+export const DEVICE_COOKIE_DAYS = DEVICE_TOKEN_DAYS;
 
 /**
  * A failed session lookup. Its message describes the error by `errorForLog`'s

@@ -145,36 +145,50 @@ export const loginDeviceKey = (vault: Vault, token: string) =>
 /**
  * Device tokens (#151, the "device cookie" defence from OWASP's
  * authentication cheat sheet). A successful sign-up or login gives the browser
- * `<random>.<HMAC of the username and the random part>`, stored in a cookie.
- * Nothing is stored on the server: the HMAC key is the vault's, so only we can
- * make a token, and one is only good for the username it was made for. It
- * doesn't contain the username, only a keyed hash that can't be reversed.
+ * `<random>.<day made>.<HMAC of the username, the random part and the day>`,
+ * stored in a cookie. Nothing is stored on the server: the HMAC key is the
+ * vault's, so only we can make a token, and one is only good for the username
+ * it was made for, for `DEVICE_TOKEN_DAYS` from the day it was made. It doesn't
+ * contain the username, only a keyed hash that can't be reversed.
  *
  * Login attempts that bring a valid token count against that token's own limit
  * instead of the username's. So someone guessing from elsewhere can lock out
  * only browsers that have never logged into the account, and a stolen token
- * buys no more than `RATE_LIMITS.loginPerDevice` guesses per window.
+ * buys no more than `RATE_LIMITS.loginPerDevice` guesses per window. A login
+ * that brings a valid token keeps it rather than getting another, so logging
+ * in again doesn't add a budget.
+ *
+ * Nothing can revoke a token before it expires. Whoever adds password change
+ * or account deletion must make them invalidate the account's tokens, e.g. by
+ * putting a per-user counter in the HMAC and bumping it.
  */
-const DEVICE_TOKEN = /^[A-Za-z0-9_-]{22}\.[0-9a-f]{64}$/;
-const deviceMac = (vault: Vault, username: string, nonce: string) =>
-  vault.blindIndex(PURPOSE.device, `${usernameKey(username)}\0${nonce}`);
+export const DEVICE_TOKEN_DAYS = 365;
+const DEVICE_TOKEN = /^[A-Za-z0-9_-]{22}\.\d{1,7}\.[0-9a-f]{64}$/;
+const dayNumber = (now: Date) => Math.floor(now.getTime() / DAY_MS);
+const deviceMac = (vault: Vault, username: string, nonce: string, day: string) =>
+  vault.blindIndex(PURPOSE.device, `${usernameKey(username)}\0${nonce}\0${day}`);
 
-export function newDeviceToken(vault: Vault, username: string): string {
+export function newDeviceToken(vault: Vault, username: string, now: Date): string {
   const nonce = randomBytes(16).toString("base64url");
-  return `${nonce}.${deviceMac(vault, username, nonce)}`;
+  const day = String(dayNumber(now));
+  return `${nonce}.${day}.${deviceMac(vault, username, nonce, day)}`;
 }
 
-/** Whether `token` is a device token this server made for `username` (any case). Never throws. */
-export function isDeviceTokenFor(vault: Vault, username: string, token: unknown): token is string {
+/** Whether `token` is a device token this server made for `username` (any case), still in date at `now`. Never throws. */
+export function isDeviceTokenFor(vault: Vault, username: string, token: unknown, now: Date): token is string {
   if (typeof token !== "string" || !DEVICE_TOKEN.test(token)) return false;
-  const [nonce, mac] = token.split(".") as [string, string];
-  return timingSafeEqual(Buffer.from(mac, "hex"), Buffer.from(deviceMac(vault, username, nonce), "hex"));
+  const [nonce, day, mac] = token.split(".") as [string, string, string];
+  const age = dayNumber(now) - Number(day);
+  // Check the MAC whatever the age, so the time taken says nothing about the day.
+  const genuine = timingSafeEqual(Buffer.from(mac, "hex"), Buffer.from(deviceMac(vault, username, nonce, day), "hex"));
+  return genuine && age >= 0 && age < DEVICE_TOKEN_DAYS;
 }
 
 const RATE_LIMITED = "Too many attempts. Wait a few minutes and try again.";
 const WRONG_CREDENTIALS = "That username and password don't match.";
 
-async function startSession(db: PgDb, vault: Vault, user: PublicUser, now: Date): Promise<AuthResult> {
+/** `device` is the browser's token if `login` trusted it (kept, see above); otherwise a new one is made. */
+async function startSession(db: PgDb, vault: Vault, user: PublicUser, now: Date, device?: string): Promise<AuthResult> {
   const token = newToken();
   const expiresAt = new Date(now.getTime() + SESSION_DAYS * DAY_MS);
   const tokenHash = sha256Hex(token);
@@ -183,7 +197,7 @@ async function startSession(db: PgDb, vault: Vault, user: PublicUser, now: Date)
   // it (its own included) and never deletes its own; logins at the same
   // moment can't leave more than the cap once both have finished.
   await trimSessions(db, user.id, tokenHash, MAX_SESSIONS_PER_USER, now);
-  return { ok: true, user, session: { token, expiresAt }, device: newDeviceToken(vault, user.username) };
+  return { ok: true, user, session: { token, expiresAt }, device: device ?? newDeviceToken(vault, user.username, now) };
 }
 
 export async function register(
@@ -260,7 +274,7 @@ export async function login(
   }
   // Then the username's count, or this browser's own if it has logged into
   // this username before (#151), so a stranger's guesses can't lock it out.
-  const trusted = isDeviceTokenFor(vault, username, req.device);
+  const trusted = isDeviceTokenFor(vault, username, req.device, req.now);
   const limitKey = trusted ? loginDeviceKey(vault, req.device as string) : loginUserKey(vault, username);
   const limit = trusted ? RATE_LIMITS.loginPerDevice : RATE_LIMITS.loginPerUser;
   if ((await hitRateLimit(db, limitKey, limit.windowMs, req.now)) > limit.max) {
@@ -274,7 +288,9 @@ export async function login(
 
   // Decrypt before clearing the limit: if the key is wrong, the attempt still counts.
   const user = toPublicUser(vault, row);
-  await clearRateLimit(db, loginUserKey(vault, username));
-  if (trusted) await clearRateLimit(db, limitKey);
-  return startSession(db, vault, user, req.now);
+  // Clear only the count this attempt was made against. A trusted login
+  // mustn't clear the username's: while someone else is guessing, that would
+  // hand them a fresh set of attempts every time the owner logs in.
+  await clearRateLimit(db, limitKey);
+  return startSession(db, vault, user, req.now, trusted ? (req.device as string) : undefined);
 }
