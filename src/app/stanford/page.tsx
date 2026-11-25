@@ -9,6 +9,7 @@ import { loadStanfordIntro } from "@/server/stanford";
 import { GAME_NAME } from "@/site";
 
 import { startStanfordAction } from "./actions";
+import { errorSummary } from "@/server/error-summary";
 
 export const metadata: Metadata = {
   title: `Stanford · ${GAME_NAME}`,
@@ -48,7 +49,7 @@ async function Stanford({ searchParams }: Pick<PageProps<"/stanford">, "searchPa
   const { game } = await searchParams;
   const [intro, initial] = await Promise.all([
     loadStanfordIntro().catch((error: unknown) => {
-      console.error("Couldn't load the Stanford pack", error);
+      console.error(`Couldn't load the Stanford pack: ${errorSummary(error)}`);
       return null;
     }),
     typeof game === "string" ? loadGame(game) : null,
