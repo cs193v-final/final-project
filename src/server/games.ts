@@ -98,6 +98,7 @@ async function requestIpHash(): Promise<string | null> {
  * practice, and at the cap there is always a game of this pack to resume.
  */
 export async function startPracticeGame(): Promise<GameResult> {
+  await connection(); // request time before `new Date()`; see loadGame (#169)
   return runGameCall(async () => {
     const owner = await currentOrNewOwner();
     const db = getDb();
@@ -122,6 +123,7 @@ export async function startPracticeGame(): Promise<GameResult> {
  * or a response was lost) gives `conflict`, and the action is not retried.
  */
 export async function actOnGame(gameId: unknown, action: unknown, revision: unknown): Promise<GameResult> {
+  await connection(); // request time before `new Date()`; see loadGame (#169)
   return runGameCall(async () => {
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();
@@ -135,10 +137,12 @@ export async function actOnGame(gameId: unknown, action: unknown, revision: unkn
 /** The current owner's game as it is now (resume after a refresh). Counts toward the action limits (#85). */
 export async function loadGame(gameId: unknown): Promise<GameResult> {
   // Finding the owner reads the request (cookies, and the session for a
-  // logged-in player). Mark request time here, outside runGameCall: while Next
-  // prerenders /play, connection() rejects to stop the render, and that
-  // signal has to reach Next. Inside runGameCall it would be caught, logged as
-  // "game call failed" and turned into "unavailable".
+  // logged-in player), and the rate limits read the clock (`new Date()`).
+  // Mark request time first, outside runGameCall: while Next prerenders
+  // /play, connection() rejects to stop the render, and that signal has to
+  // reach Next. Inside runGameCall it would be caught, logged as "game call
+  // failed" and turned into "unavailable". startPracticeGame and actOnGame do
+  // the same (#169).
   await connection();
   return runGameCall(async () => {
     const owner = await currentOwner();

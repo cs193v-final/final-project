@@ -27,7 +27,8 @@ const NO_CROP = { focus: { x: 0.5, y: 0.5 }, zoomLevels: [1, 1, 1] };
 const viewer = (imageUrl: string, revealLevel: number) => (
   <ImageViewer puzzle={{ imageUrl, reveal: NO_CROP }} revealLevel={revealLevel} />
 );
-const frame = (container: HTMLElement) => container.querySelector("figure > div") as HTMLElement;
+/** The image's own box (at the image's shape), inside the fixed frame (#183). */
+const frame = (container: HTMLElement) => container.querySelector("[data-frame] > div") as HTMLElement;
 
 describe("ImageViewer with one image per level", () => {
   it("shows the first level by itself", () => {
@@ -114,5 +115,28 @@ describe("ImageViewer with one image per level", () => {
     fireEvent.error(screen.getByRole("img"));
     expect(screen.getByText("The image couldn't load")).toBeInTheDocument();
     expect(document.querySelectorAll("img")).toHaveLength(0);
+  });
+});
+
+describe("the frame's fixed shape (#183)", () => {
+  const outer = (container: HTMLElement) => container.querySelector("[data-frame]") as HTMLElement;
+  /** jsdom writes an aspect ratio as "a / b" (e.g. "1.33333 / 1"). */
+  const ratio = (el: HTMLElement) => {
+    const [a, b = "1"] = el.style.aspectRatio.split("/");
+    return Number(a) / Number(b);
+  };
+
+  it.each([
+    ["a wide photo", 400, 200, { width: "100%", height: "" }],
+    ["a tall photo", 200, 400, { width: "", height: "100%" }],
+    ["a 4:3 photo", 400, 300, { width: "100%", height: "" }],
+  ])("keeps the frame 4:3 for %s, and fits the photo inside it at its own shape", (_name, w, h, fit) => {
+    width = w;
+    height = h;
+    const { container } = render(viewer("/img/level-0.webp", 0));
+    fireEvent.load(screen.getByRole("img"));
+    expect(ratio(outer(container))).toBeCloseTo(4 / 3, 4);
+    expect(ratio(frame(container))).toBeCloseTo(w / h, 4);
+    expect({ width: frame(container).style.width, height: frame(container).style.height }).toEqual(fit);
   });
 });

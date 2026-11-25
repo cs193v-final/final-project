@@ -14,6 +14,12 @@ export type ImageViewerProps = {
 
 type LoadState = "loading" | "loaded" | "error";
 
+/**
+ * The frame's fixed shape (#183): every photo, wide or tall, sits inside the
+ * same 4:3 box, so the controls under it don't move between photos.
+ */
+export const FRAME_ASPECT = 4 / 3;
+
 /** How long a new level takes to fade in. Matches `duration-500` on the image. */
 const FADE_MS = 500;
 
@@ -34,9 +40,10 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
   const level = showFull ? levels - 1 : clampRevealLevel(reveal, revealLevel);
   const transform = cropTransformCss(reveal, level);
 
-  // Size the frame to the image's own shape once it loads, so the focus point
-  // (a fraction of the image) maps exactly onto the frame. 4:3 until the first
-  // image loads. Each result is tagged with the URL it belongs to.
+  // The frame is always 4:3 (FRAME_ASPECT). The box inside it takes the image's
+  // own shape once it loads, so the focus point (a fraction of the image) maps
+  // exactly onto the box. 4:3 until the first image loads. Each result is tagged
+  // with the URL it belongs to.
   const [result, setResult] = useState<{ url: string; load: LoadState; aspect: number }>({
     url: imageUrl,
     load: "loading",
@@ -87,58 +94,66 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
 
   const caption = showFull ? "Full image" : `Zoom level ${level + 1} of ${levels}`;
 
+  // The image's own box, at its own shape (so the focus point maps exactly
+  // onto it), fitted inside the fixed frame: full width for a photo wider
+  // than the frame, full height for a taller one, centered either way.
+  const fit = aspect >= FRAME_ASPECT ? { width: "100%" } : { height: "100%" };
+
   return (
     <figure className="flex w-full max-w-md flex-col gap-2">
       <div
-        className="relative w-full overflow-hidden rounded-xl bg-zinc-200 dark:bg-zinc-800"
-        style={{ aspectRatio: String(aspect) }}
+        data-frame
+        className="flex w-full items-center justify-center overflow-hidden rounded-xl bg-zinc-200 dark:bg-zinc-800"
+        style={{ aspectRatio: String(FRAME_ASPECT) }}
       >
-        {imageUrl === "" || load === "error" ? (
-          <p className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-zinc-600 dark:text-zinc-400">
-            {imageUrl === "" ? "No image for this puzzle yet" : "The image couldn't load"}
-          </p>
-        ) : (
-          <>
-            {previous && (
-              // The last level, kept on screen until the new one has loaded.
-              // A copy for sighted players only: screen readers hear the new one.
-              // eslint-disable-next-line @next/next/no-img-element
+        <div className="relative overflow-hidden" style={{ ...fit, aspectRatio: String(aspect) }}>
+          {imageUrl === "" || load === "error" ? (
+            <p className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-zinc-600 dark:text-zinc-400">
+              {imageUrl === "" ? "No image for this puzzle yet" : "The image couldn't load"}
+            </p>
+          ) : (
+            <>
+              {previous && (
+                // The last level, kept on screen until the new one has loaded.
+                // A copy for sighted players only: screen readers hear the new one.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={previous.url}
+                  src={previous.url}
+                  alt=""
+                  aria-hidden="true"
+                  data-previous-level
+                  draggable={false}
+                  className="absolute inset-0 h-full w-full select-none"
+                />
+              )}
+              {/* A plain <img>, not next/image: next/image serves a copy sized to
+                  the frame, which looks blocky when scaled up 8×. This needs the
+                  full-resolution file. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                key={previous.url}
-                src={previous.url}
-                alt=""
-                aria-hidden="true"
-                data-previous-level
+                key={imageUrl}
+                ref={img}
+                src={imageUrl}
+                // Never put the answer in alt text: screen readers (and anyone
+                // inspecting the page) would get it for free.
+                alt={`Mystery image, ${caption.toLowerCase()}`}
                 draggable={false}
-                className="absolute inset-0 h-full w-full select-none"
+                onLoad={(e) => measure(e.currentTarget, imageUrl)}
+                onError={() => setResult({ url: imageUrl, load: "error", aspect: 4 / 3 })}
+                onContextMenu={(e) => e.preventDefault()}
+                // Its fade-in is done, so the kept image under it can go.
+                onTransitionEnd={() => {
+                  if (load === "loaded") setUnder(null);
+                }}
+                // While a later level loads over the last one, it stays invisible,
+                // then fades in over it (instantly with reduced motion).
+                className={`absolute inset-0 h-full w-full origin-top-left select-none transition-[transform,opacity] duration-500 ease-out motion-reduce:transition-none ${previous && load !== "loaded" ? "opacity-0" : "opacity-100"}`}
+                style={{ transform }}
               />
-            )}
-            {/* A plain <img>, not next/image: next/image serves a copy sized to
-                the frame, which looks blocky when scaled up 8×. This needs the
-                full-resolution file. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              key={imageUrl}
-              ref={img}
-              src={imageUrl}
-              // Never put the answer in alt text: screen readers (and anyone
-              // inspecting the page) would get it for free.
-              alt={`Mystery image, ${caption.toLowerCase()}`}
-              draggable={false}
-              onLoad={(e) => measure(e.currentTarget, imageUrl)}
-              onError={() => setResult({ url: imageUrl, load: "error", aspect: 4 / 3 })}
-              onContextMenu={(e) => e.preventDefault()}
-              // Its fade-in is done, so the kept image under it can go.
-              onTransitionEnd={() => {
-                if (load === "loaded") setUnder(null);
-              }}
-              // While a later level loads over the last one, it stays invisible,
-              // then fades in over it (instantly with reduced motion).
-              className={`absolute inset-0 h-full w-full origin-top-left select-none transition-[transform,opacity] duration-500 ease-out motion-reduce:transition-none ${previous && load !== "loaded" ? "opacity-0" : "opacity-100"}`}
-              style={{ transform }}
-            />
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
       <figcaption aria-live="polite" className="text-center text-sm text-zinc-600 dark:text-zinc-400">
         {caption}
