@@ -11,6 +11,7 @@ import { loadStreakAfterDaily } from "@/server/streaks";
 
 import { dailyStatsAction, startDailyAction } from "./actions";
 import { GAME_NAME } from "@/site";
+import { errorSummary } from "@/server/error-summary";
 
 export const metadata: Metadata = {
   title: `Daily challenge · ${GAME_NAME}`,
@@ -57,7 +58,7 @@ async function Today() {
     // For the result screen (#63): the streak once today's daily is finished.
     // `undefined` if it can't be loaded, so the result just leaves it out.
     loadStreakAfterDaily(dailyDateAt(now)).catch((error: unknown) => {
-      console.error("Couldn't load this player's streak", error);
+      console.error(`Couldn't load this player's streak: ${errorSummary(error)}`);
       return undefined;
     }),
   ]);

@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { StreakNote } from "@/components/daily/StreakNote";
 import { StartScreen } from "@/components/StartScreen";
 import { loadStreak } from "@/server/streaks";
+import { errorSummary } from "@/server/error-summary";
 
 export default function Home() {
   return (
@@ -23,7 +24,7 @@ export default function Home() {
 async function HomeStreak() {
   await connection();
   const streak = await loadStreak(new Date()).catch((error: unknown) => {
-    console.error("Couldn't load this player's streak", error);
+    console.error(`Couldn't load this player's streak: ${errorSummary(error)}`);
     return null;
   });
   return <StreakNote streak={streak} where="home" />;
