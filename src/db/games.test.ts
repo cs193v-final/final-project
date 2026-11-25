@@ -16,7 +16,7 @@ import type { Pack, ScoringConfig } from "@/game/types";
 
 import { Vault } from "@/crypto/vault";
 
-import { ensurePackRow, PgGameStore, STATE_FIELD, stateKeyId } from "./games";
+import { ensurePackRow, PgGameStore, STATE_FIELD, stateKeyId, UnfinishedGamesCapError } from "./games";
 import type { Db } from "./index";
 import * as schema from "./schema";
 
@@ -319,5 +319,68 @@ describe("ensurePackRow", () => {
     await ensurePackRow(db, { ...pack, title: "Changed" });
     const { rows } = await pg.query("SELECT id, kind, title, theme FROM packs WHERE id = $1", [pack.id]);
     expect(rows).toEqual([{ id: "pk_ensure_test", kind: "practice", title: "Practice", theme: "Mixed" }]);
+  });
+});
+
+describe("PgGameStore with maxUnfinishedPerPack (#85, #225)", () => {
+  const CAP = 3;
+  const capped = () => new PgGameStore(db, vault, { maxUnfinishedPerPack: CAP });
+
+  async function unfinishedCount(owner: GameOwner, packId: string): Promise<number> {
+    const [column, value] = "userId" in owner ? ["user_id", owner.userId] : ["anon_owner_hash", owner.anonId];
+    const { rows } = await pg.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM games WHERE ${column} = $1 AND pack_id = $2 AND finished_at IS NULL`,
+      [value, packId],
+    );
+    return rows[0]!.n;
+  }
+
+  it("never goes over the cap when several starts for one owner run at once", async () => {
+    const pack: Pack = { ...PACK, id: "pk_cap_parallel" };
+    await ensurePackRow(db, pack);
+    const owner = anon("parallel starter's cookie token");
+    const d = deps(capped());
+
+    const results = await Promise.allSettled(Array.from({ length: 3 * CAP }, () => startGame(d, pack, owner, CONFIG)));
+
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(CAP);
+    for (const r of results) {
+      if (r.status === "rejected") expect(r.reason).toBeInstanceOf(UnfinishedGamesCapError);
+    }
+    expect(await unfinishedCount(owner, pack.id)).toBe(CAP);
+  });
+
+  it("at the cap inserts nothing and throws UnfinishedGamesCapError, so the caller resumes a game", async () => {
+    const pack: Pack = { ...PACK, id: "pk_cap_full" };
+    await ensurePackRow(db, pack);
+    const d = deps(capped());
+    const started = [];
+    for (let i = 0; i < CAP; i++) started.push(await startGame(d, pack, alice, CONFIG));
+
+    await expect(startGame(d, pack, alice, CONFIG)).rejects.toBeInstanceOf(UnfinishedGamesCapError);
+    expect(await unfinishedCount(alice, pack.id)).toBe(CAP);
+
+    // Other owners and other packs have their own caps.
+    await expect(startGame(d, pack, bob, CONFIG)).resolves.toMatchObject({ revision: 0 });
+    const otherPack: Pack = { ...PACK, id: "pk_cap_other" };
+    await ensurePackRow(db, otherPack);
+    await expect(startGame(d, otherPack, alice, CONFIG)).resolves.toMatchObject({ revision: 0 });
+
+    // Finished games don't count: finishing one makes room for one more, which reads back like any game.
+    await pg.query("UPDATE games SET finished_at = now() WHERE id = $1", [started[0]!.gameId]);
+    const next = await startGame(d, pack, alice, CONFIG);
+    expect(await getGame(d, next.gameId, alice)).toEqual(next);
+    expect(await unfinishedCount(alice, pack.id)).toBe(CAP);
+  });
+
+  it("leaves daily games out of the cap (one per owner and day already, #58)", async () => {
+    const pack: Pack = { ...PACK, id: "pk_cap_daily", kind: "daily" };
+    await ensurePackRow(db, pack);
+    const owner = anon("daily player's cookie token");
+    const d = deps(capped());
+    for (let i = 0; i <= CAP; i++) {
+      await startGame(d, pack, owner, CONFIG, { dailyDate: `2030-01-0${i + 1}` });
+    }
+    expect(await unfinishedCount(owner, pack.id)).toBe(CAP + 1);
   });
 });

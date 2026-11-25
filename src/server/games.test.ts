@@ -258,6 +258,18 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
   });
 
+  it(`keeps the cap when several starts run at once one game below it: one inserts, the rest resume (#225)`, async () => {
+    for (let i = 0; i < MAX_UNFINISHED_GAMES_PER_PACK - 1; i++) {
+      await actNow((await started()).gameId, { type: "reveal" });
+    }
+    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK - 1);
+
+    const results = await Promise.all(Array.from({ length: 5 }, () => startPracticeGame()));
+
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
+  });
+
   it("starts a new game after a finished one (Play again), even with other unfinished games", async () => {
     const view = await started();
     for (let i = 0; i < view.round!.puzzleCount; i++) {

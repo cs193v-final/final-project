@@ -14,7 +14,7 @@ import { requestIp } from "@/auth/session";
 import { getVault } from "@/crypto/vault";
 import { getDb, type Db } from "@/db";
 import { getPuzzles } from "@/db/content";
-import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
+import { ensurePackRow, findUnfinishedGames, PgGameStore, UnfinishedGamesCapError } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
 import { getScoringConfig } from "@/db/scoring";
 import { runGameCall, type GameResult } from "@/game/game-result";
@@ -50,7 +50,11 @@ export function deps(db: Db): GameDeps {
     // (they're read from the repo), so practice games don't record rounds;
     // every other pack's puzzles are in the database, so those do (the daily
     // result's per-image stats, #58, and leaderboards, #62, read them).
-    games: new PgGameStore(db, getVault(), { recordRounds: (state) => state.pack.kind !== "practice" }),
+    // The unfinished-games cap (#85) is checked by the store, atomically (#225).
+    games: new PgGameStore(db, getVault(), {
+      recordRounds: (state) => state.pack.kind !== "practice",
+      maxUnfinishedPerPack: MAX_UNFINISHED_GAMES_PER_PACK,
+    }),
     // Practice puzzles from the repo copy (so /play works on an unseeded
     // database); everything else, e.g. the daily (#58), from the database.
     puzzles: {
@@ -110,7 +114,15 @@ export async function startPracticeGame(): Promise<GameResult> {
     if (reuse !== null) return getGame(deps(db), reuse, owner);
     // The pack's stored scoring (#64), read once here and kept in the game's
     // state, so changing it only affects games started afterwards.
-    return startGame(deps(db), PRACTICE_PACK, owner, await getScoringConfig(PRACTICE_PACK.id));
+    try {
+      return await startGame(deps(db), PRACTICE_PACK, owner, await getScoringConfig(PRACTICE_PACK.id));
+    } catch (error) {
+      // Another start for this owner took the last slot first (#225): resume, as at the cap.
+      if (!(error instanceof UnfinishedGamesCapError)) throw error;
+      const { latestId } = await findUnfinishedGames(db, owner, PRACTICE_PACK.id);
+      if (latestId === null) throw error;
+      return getGame(deps(db), latestId, owner);
+    }
   });
 }
 

@@ -14,7 +14,8 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, is, sql, type SQL } from "drizzle-orm";
+import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 
 import { DecryptionError, type Vault } from "@/crypto/vault";
 
@@ -40,7 +41,46 @@ export type PgGameStoreOptions = {
    * in code (`SAMPLE_PUZZLES`) until packs land (#52). Default: true.
    */
   recordRounds?: boolean | ((state: GameState) => boolean);
+  /**
+   * At most this many unfinished games per owner and pack (#85): `create`
+   * throws `UnfinishedGamesCapError` instead of inserting one more. Exact even
+   * when several starts for one owner run at once (#225). Daily games are
+   * left out (one per owner and day already, #58). Default: no cap.
+   */
+  maxUnfinishedPerPack?: number;
 };
+
+/**
+ * `create` found the owner already at `maxUnfinishedPerPack` unfinished games
+ * of this pack (#85, #225), usually because another start for the same owner
+ * got there first. Nothing was inserted: resume one of those games instead.
+ */
+export class UnfinishedGamesCapError extends Error {
+  constructor(readonly packId: string) {
+    super(`The owner already has the maximum number of unfinished games of pack ${packId}`);
+    this.name = "UnfinishedGamesCapError";
+  }
+}
+
+/**
+ * Run `statements` in order in one transaction and return each result. The
+ * Neon HTTP driver has no interactive transactions, but its `batch` is one
+ * (non-interactive) transaction; node-postgres and PGlite use `transaction`.
+ * Read committed either way, so each statement sees what was committed
+ * before it started, e.g. by whoever held a lock it waited for.
+ */
+async function inOneTransaction(db: Db, statements: [SQL, ...SQL[]]): Promise<unknown[]> {
+  if (is(db, NeonHttpDatabase)) {
+    const neonDb = db as unknown as NeonHttpDatabase<Record<string, unknown>>;
+    const [first, ...rest] = statements.map((s) => neonDb.execute(s));
+    return neonDb.batch([first!, ...rest]);
+  }
+  return db.transaction(async (tx) => {
+    const results: unknown[] = [];
+    for (const statement of statements) results.push(await tx.execute(statement));
+    return results;
+  });
+}
 
 /** The columns that say who owns a game. Exactly one is set. */
 function ownerColumns(owner: GameOwner): { userId: string | null; anonOwnerHash: string | null } {
@@ -186,6 +226,7 @@ function withState(row: MetaRow, state: GameState): StoredGame {
  */
 export class PgGameStore implements GameStore {
   private readonly recordRounds: (state: GameState) => boolean;
+  private readonly maxUnfinishedPerPack: number | undefined;
 
   constructor(
     private readonly db: Db,
@@ -194,6 +235,7 @@ export class PgGameStore implements GameStore {
   ) {
     const record = options.recordRounds ?? true;
     this.recordRounds = typeof record === "function" ? record : () => record;
+    this.maxUnfinishedPerPack = options.maxUnfinishedPerPack;
   }
 
   async get(id: string): Promise<StoredGame | null> {
@@ -218,6 +260,8 @@ export class PgGameStore implements GameStore {
     // The id is made here, not by the database, so the encrypted state can be
     // bound to it before the row exists.
     const id = randomUUID();
+    const cap = this.maxUnfinishedPerPack;
+    if (cap !== undefined && game.dailyDate === undefined) return this.createCapped(id, game, cap);
     let row: MetaRow | undefined;
     try {
       [row] = await this.db
@@ -238,6 +282,37 @@ export class PgGameStore implements GameStore {
       throw error;
     }
     if (row === undefined) throw new Error("PgGameStore: insert returned no row");
+    return withState(row, game.state);
+  }
+
+  /**
+   * `create` under the unfinished-games cap (#85), atomically (#225). One
+   * transaction of two statements:
+   * 1. a transaction-level advisory lock on (owner, pack), so two starts for
+   *    the same owner and pack take turns (others don't wait);
+   * 2. `INSERT ... SELECT ... WHERE (unfinished count) < cap`, which inserts
+   *    nothing at the cap. It starts after the lock is held, so its count
+   *    includes a game the previous holder just committed.
+   * A single conditional INSERT without the lock isn't enough: under read
+   * committed, two at once both count from before either inserted.
+   */
+  private async createCapped(id: string, game: NewStoredGame, cap: number): Promise<StoredGame> {
+    const { userId, anonOwnerHash } = ownerColumns(game.owner);
+    const mine = userId !== null ? sql`user_id = ${userId}::uuid` : sql`anon_owner_hash = ${anonOwnerHash}`;
+    const lockKey = `games:unfinished:${userId !== null ? `user:${userId}` : `anon:${anonOwnerHash}`}:${game.packId}`;
+    const results = await inOneTransaction(this.db, [
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
+      sql`
+        INSERT INTO games (id, pack_id, user_id, anon_owner_hash, state, state_encrypted, revision, total)
+        SELECT ${id}::uuid, ${game.packId}, ${userId}::uuid, ${anonOwnerHash}, NULL,
+               ${this.vault.encryptJson(stateKeyId(id), STATE_FIELD, game.state)}, 0, 0
+        WHERE (SELECT count(*) FROM games WHERE ${mine} AND pack_id = ${game.packId} AND finished_at IS NULL) < ${cap}
+        RETURNING id, pack_id AS "packId", user_id AS "userId", anon_owner_hash AS "anonOwnerHash", revision,
+                  daily_date::text AS "dailyDate"
+      `,
+    ]);
+    const [row] = rowsOf(results[1]) as MetaRow[];
+    if (row === undefined) throw new UnfinishedGamesCapError(game.packId);
     return withState(row, game.state);
   }
 
@@ -327,12 +402,10 @@ export type UnfinishedGames = {
 
 /**
  * The owner's unfinished games of one pack, for the per-pack cap and for
- * reuse (#85). One query.
- *
- * TODO(#85): this read and the insert that may follow aren't atomic, so two
- * starts at the same moment can each insert a game and overshoot the cap by
- * one or two. Fine at our scale (the start limits bound it); an
- * `INSERT ... SELECT ... WHERE (count) < cap` would close it if it matters.
+ * reuse (#85). One query. Only a hint for the caller: another start may
+ * insert a game right after it. The cap itself is enforced atomically by
+ * `PgGameStore.create` (`maxUnfinishedPerPack`, #225), which throws
+ * `UnfinishedGamesCapError` at the cap.
  */
 export async function findUnfinishedGames(db: Db, owner: GameOwner, packId: string): Promise<UnfinishedGames> {
   const { userId, anonOwnerHash } = ownerColumns(owner);
