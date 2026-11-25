@@ -67,7 +67,7 @@ A **daily image-guessing game**. Each image starts tightly zoomed in. Players ei
 
 Anything committed, including `public/` and `src/puzzles/`, is visible to everyone.
 - Only the **practice pack** lives in the repo.
-- **Daily, Stanford and lobby answers and images are never committed.** A seed/admin script loads them into the database from content kept outside the repo (#52). Where that content lives is an open decision (below).
+- **Daily, Stanford and lobby answers and images are never committed.** A seed/admin script loads them into the database from content kept outside the repo (#52), in the private `final-project-content` repo (#196).
 
 ## Week 8 milestone: three-image practice game (done)
 
@@ -257,6 +257,7 @@ The values in use are in `src/game/scoring-config.ts`, and that's the only place
 | Beat the AI | CLIP's labels are the day's answers plus a large committed list of generic wrong answers, never a day's real answers. CLIP suggests the top 3 starting points, and a person picks one. The solver runs after the final seed, on the stored level images, and writes `aiSolvedLevel` into the content too, so a re-seed keeps it. The badge says "view N of 5" (#56, #66). |
 | Loading content into production | Jacky, who holds the preview and production credentials (#181, #182) |
 | Image storage | Postgres. Each zoom level is cut ahead of time into its own WebP in `image_files`, served at `/img/<random id>.webp`; the server only sends the current level's URL. Not Vercel Blob, whose store and token only the Vercel owner could manage (#57; details in `TECHNICAL.md`) |
+| Where non-public puzzle content lives | The private repo `cs193v-final/final-project-content`, cloned into each checkout's git-ignored `content/` folder (or symlinked there). All four of us push to its `main`; nothing from it is ever copied into this repo. The seed script still refuses content git would commit (#52, #196). |
 
 ### Still open (NOT settled)
 
@@ -264,7 +265,6 @@ Don't treat these as decided. Ask the owner, or keep them configurable.
 
 | Decision | Notes | Issue |
 |---|---|---|
-| Where non-public puzzle content lives | **Proposal:** a private repo in the cs193v-final org, e.g. cloned into the git-ignored `content/` folder; **the team confirms.** Only approved photos and content files go there, not every candidate. The seed script refuses committable content (#52). | #181, #52 |
 | Scoring values and wrong-guess rules | Placeholders in `src/game/scoring-config.ts`; flat or increasing penalties; a guess limit? Decide by Dec 2, or the "Prototype" label on the home screen stays. A pack's values can change without a deploy (#64). | #21, #64 |
 | Number of reveal steps | Fixed or per puzzle | #21 (typo tolerance: Ethan decided it on #21 after the #115 user test; see "`GuessOutcome` and round states") |
 | Stanford mode | A fixed pack (suggested: no schema change), or its own daily rotation | #65 |
