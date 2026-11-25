@@ -83,7 +83,7 @@ function ensurePracticePack(db: Db): Promise<void> {
  * loopback or a missing address, so local and e2e runs don't share one count.
  * The per-owner limits apply either way.
  */
-async function requestIpHash(): Promise<string | null> {
+export async function requestIpHash(): Promise<string | null> {
   const ip = await requestIp();
   return limitsAddress(ip) ? hashIp(ip, ipHmacKey()) : null;
 }

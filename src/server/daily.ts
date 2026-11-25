@@ -12,7 +12,8 @@ import type { DailyIntro } from "@/game/daily";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { GameNotFoundError, resumeDaily, startOrResumeDaily } from "@/game/server-game";
 
-import { deps } from "./games";
+import { deps, requestIpHash } from "./games";
+import { checkStartLimits } from "./limits";
 import { currentOrNewOwner, currentOwner } from "./owner";
 
 /** The day `now` is in: one rule, `DEFAULT_DAILY_RESET` (#63, decided in #58). */
@@ -55,7 +56,11 @@ export type DailyStartResult = GameResult | { ok: false; error: "day-over" | "no
  * still be today, so a player who opened the page before the reset doesn't
  * silently get the next day's game ("day-over"). The pack is always the one
  * the server schedules for today; the browser only says which day it saw.
- * Creates the anonymous owner cookie on first play, like practice.
+ * Creates the anonymous owner cookie on first play, like practice, and counts
+ * toward the same start limits, per owner and per IP (#85, #210): a client
+ * without a cookie is a new owner each time, so only the IP limit stops it
+ * creating games. Reloading /daily resumes through `loadTodaysDailyGame`,
+ * which doesn't count.
  */
 export async function startTodaysDaily(date: unknown, now = new Date()): Promise<DailyStartResult> {
   const today = dailyDateAt(now);
@@ -72,6 +77,7 @@ export async function startTodaysDaily(date: unknown, now = new Date()): Promise
   const daily = pack;
   return runGameCall(async () => {
     const owner = await currentOrNewOwner();
+    await checkStartLimits(db, owner, await requestIpHash(), now);
     // The pack's own scoring (#64) when it has one, checked like any stored
     // override: an invalid one (hand-written SQL) is logged and the default used.
     return startOrResumeDaily(deps(db), daily, today, owner, scoringFromStored(daily.id, daily.scoring ?? null));
