@@ -25,6 +25,8 @@ export type PracticeGameProps = {
   /** Whether the final score offers Play again. The daily (#58) is one game per day: false, with `afterFinish`. */
   replay?: boolean;
   afterFinish?: ReactNode | ((view: GameView) => ReactNode);
+  /** The final score's heading. Default: "Practice complete". Stanford mode (#65): "Stanford complete". */
+  finishedTitle?: string;
 };
 
 const playHref = (gameId: string) => `/play?game=${encodeURIComponent(gameId)}`;
@@ -44,7 +46,7 @@ const PROBLEMS: Record<GameError, string> = {
  * and this component only renders that view. It never sees answers before a
  * round ends, and it doesn't score anything.
  */
-export function PracticeGame({ initial, start, act, get, gameHref = playHref, replay = true, afterFinish }: PracticeGameProps) {
+export function PracticeGame({ initial, start, act, get, gameHref = playHref, replay = true, afterFinish, finishedTitle }: PracticeGameProps) {
   const [view, setView] = useState<GameView | null>(initial?.ok ? initial.view : null);
   // The latest view, updated as soon as a result arrives. `send` reads the
   // game id and revision from here rather than from `view`, which only
@@ -206,6 +208,7 @@ export function PracticeGame({ initial, start, act, get, gameHref = playHref, re
           puzzles={finalScoreLabels(view, answers)}
           score={{ rounds: view.results, total: view.total }}
           {...(replay ? { onPlayAgain: () => void newGame() } : {})}
+          {...(finishedTitle === undefined ? {} : { title: finishedTitle })}
           after={typeof afterFinish === "function" ? afterFinish(view) : afterFinish}
         />
       </div>
