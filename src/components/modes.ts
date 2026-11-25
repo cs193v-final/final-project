@@ -8,6 +8,8 @@ export type GameMode =
       href: string;
       /** The link text, e.g. "Start practice". */
       cta: string;
+      /** The home screen's main action: shown first, full width, with the one primary button (#145). At most one mode. */
+      featured?: boolean;
     }
   | {
       id: string;
@@ -34,6 +36,7 @@ export const MODES: readonly GameMode[] = [
     status: "available", // #58
     href: "/daily",
     cta: "Play today's",
+    featured: true, // the main mode (user test #90, #145)
   },
   {
     id: "stanford",

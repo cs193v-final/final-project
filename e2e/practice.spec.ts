@@ -320,3 +320,33 @@ test("the browser only ever gets the image of the level reached (#57)", async ({
   // The original, full-size photo was never fetched.
   expect(requested.filter((path) => path.startsWith("/puzzles/"))).toEqual([]);
 });
+
+test("the controls under the image stay in the same place for a wide and a tall photo (#183)", async ({ page }) => {
+  // Serve every image as a plain SVG of the given shape, so the test controls the photo's shape.
+  async function controlsFor(w: number, h: number) {
+    await page.unroute("**/*");
+    await page.route("**/*", (route) =>
+      route.request().resourceType() === "image"
+        ? route.fulfill({
+            contentType: "image/svg+xml",
+            body: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="#888"/></svg>`,
+          })
+        : route.fallback(),
+    );
+    await page.goto("/play");
+    await expect(guessBox(page)).toBeVisible({ timeout: 10_000 });
+    const img = page.getByRole("img", { name: /^Mystery image/ });
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth / el.naturalHeight)).toBeCloseTo(w / h, 2);
+    // From the image figure's top, not the viewport's: focusing the guess box can
+    // scroll the page by a different amount each time.
+    const frame = await page.locator("figure").first().boundingBox();
+    const zoom = await page.getByRole("button", { name: "Zoom out" }).boundingBox();
+    const box = await guessBox(page).boundingBox();
+    return { zoomY: zoom!.y - frame!.y, guessY: box!.y - frame!.y };
+  }
+
+  const wide = await controlsFor(1600, 800);
+  const tall = await controlsFor(800, 1600);
+  expect(Math.abs(wide.zoomY - tall.zoomY)).toBeLessThanOrEqual(1);
+  expect(Math.abs(wide.guessY - tall.guessY)).toBeLessThanOrEqual(1);
+});
