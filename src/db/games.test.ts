@@ -16,7 +16,7 @@ import type { Pack, ScoringConfig } from "@/game/types";
 
 import { Vault } from "@/crypto/vault";
 
-import { ensurePackRow, PgGameStore, STATE_FIELD, stateKeyId } from "./games";
+import { ensurePackRow, findUnfinishedGames, PgGameStore, STATE_FIELD, stateKeyId } from "./games";
 import type { Db } from "./index";
 import * as schema from "./schema";
 
@@ -319,5 +319,77 @@ describe("ensurePackRow", () => {
     await ensurePackRow(db, { ...pack, title: "Changed" });
     const { rows } = await pg.query("SELECT id, kind, title, theme FROM packs WHERE id = $1", [pack.id]);
     expect(rows).toEqual([{ id: "pk_ensure_test", kind: "practice", title: "Practice", theme: "Mixed" }]);
+  });
+});
+
+describe("findUnfinishedGames (#85)", () => {
+  // Packs and owners no other test in this file uses, so only this block's games count.
+  const OWN_PACK: Pack = { ...PACK, id: "pk_unfinished_test" };
+  const OTHER_PACK: Pack = { ...PACK, id: "pk_unfinished_other" };
+  const carol = anon("carol's cookie token");
+  const dave = anon("dave's cookie token");
+
+  /** Pins a game's timestamps, so the "newest" and "most recently played" picks don't depend on clock resolution. */
+  async function setTimes(id: string, createdAt: string, updatedAt: string) {
+    await pg.query("UPDATE games SET created_at = $2, updated_at = $3 WHERE id = $1", [id, createdAt, updatedAt]);
+  }
+
+  it("counts and picks only this owner's unfinished games of this pack, never another player's", async () => {
+    await ensurePackRow(db, OWN_PACK);
+    await ensurePackRow(db, OTHER_PACK);
+    const d = deps(new PgGameStore(db, vault));
+
+    expect(await findUnfinishedGames(db, carol, OWN_PACK.id)).toEqual({ count: 0, untouchedId: null, latestId: null });
+
+    // Carol: an old played game, a newer played one, an untouched one, and a finished one.
+    const older = await startGame(d, OWN_PACK, carol, CONFIG);
+    await act(d, older.gameId, carol, { type: "reveal" }, older.revision);
+    const newer = await startGame(d, OWN_PACK, carol, CONFIG);
+    await act(d, newer.gameId, carol, { type: "reveal" }, newer.revision);
+    const untouched = await startGame(d, OWN_PACK, carol, CONFIG);
+    const done = await startGame(d, OWN_PACK, carol, CONFIG);
+    await pg.query("UPDATE games SET finished_at = now() WHERE id = $1", [done.gameId]);
+    await setTimes(older.gameId, "2030-01-01T00:00:00Z", "2030-01-01T00:05:00Z");
+    await setTimes(newer.gameId, "2030-01-01T00:01:00Z", "2030-01-01T00:02:00Z");
+    await setTimes(untouched.gameId, "2030-01-01T00:03:00Z", "2030-01-01T00:03:00Z");
+    // The finished game is Carol's newest and most recently updated, and must still be left out.
+    await setTimes(done.gameId, "2030-01-01T00:09:00Z", "2030-01-01T00:09:00Z");
+
+    // Other players' untouched games of the same pack, newer than all of Carol's
+    // (an anonymous owner and a logged-in user), and Carol's own game of another pack.
+    const daves = await startGame(d, OWN_PACK, dave, CONFIG);
+    const alices = await startGame(d, OWN_PACK, alice, CONFIG);
+    const elsewhere = await startGame(d, OTHER_PACK, carol, CONFIG);
+    for (const id of [daves.gameId, alices.gameId, elsewhere.gameId]) {
+      await setTimes(id, "2030-01-02T00:00:00Z", "2030-01-02T00:00:00Z");
+    }
+
+    expect(await findUnfinishedGames(db, carol, OWN_PACK.id)).toEqual({
+      count: 3,
+      untouchedId: untouched.gameId,
+      latestId: older.gameId, // played most recently, though created first
+    });
+    expect(await findUnfinishedGames(db, dave, OWN_PACK.id)).toEqual({ count: 1, untouchedId: daves.gameId, latestId: daves.gameId });
+    expect(await findUnfinishedGames(db, alice, OWN_PACK.id)).toEqual({ count: 1, untouchedId: alices.gameId, latestId: alices.gameId });
+    expect(await findUnfinishedGames(db, carol, OTHER_PACK.id)).toEqual({
+      count: 1,
+      untouchedId: elsewhere.gameId,
+      latestId: elsewhere.gameId,
+    });
+  });
+
+  it("has no untouched game once every unfinished one has been played", async () => {
+    const pack: Pack = { ...PACK, id: "pk_unfinished_played" };
+    await ensurePackRow(db, pack);
+    const d = deps(new PgGameStore(db, vault));
+    const frank = anon("frank's cookie token");
+    const game = await startGame(d, pack, frank, CONFIG);
+    await act(d, game.gameId, frank, { type: "skip" }, game.revision);
+    expect(await findUnfinishedGames(db, frank, pack.id)).toEqual({ count: 1, untouchedId: null, latestId: game.gameId });
+  });
+
+  it("refuses an owner id that isn't a users.id or a hashed cookie, instead of querying with it", async () => {
+    await expect(findUnfinishedGames(db, { userId: "not-a-uuid" }, OWN_PACK.id)).rejects.toThrow(/userId must be a users.id/);
+    await expect(findUnfinishedGames(db, { anonId: "raw-cookie-token" }, OWN_PACK.id)).rejects.toThrow(/never the raw token/);
   });
 });
