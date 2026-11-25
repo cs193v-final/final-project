@@ -9,10 +9,14 @@
 // - Beat the AI: the first view where CLIP's top guess is the answer is
 //   `aiSolvedLevel`, or `null` if it never is.
 //
-// "CLIP's guess is the answer" uses the game's own rule (checkGuess), so the AI
-// is right exactly when a player typing the same words would be.
+// "CLIP's guess is the answer" (isAnswer) compares the label with the answer
+// and its alternates the way the game normalizes guesses (case, punctuation),
+// but without the player's typo tolerance: CLIP's labels are never misspelled,
+// so tolerance would only count a different word one letter off, like "towel"
+// for "Tower" or "house" for "Horse" (#192 review). A regular plural ("peanuts"
+// for "Peanut") still counts, as it would for a player.
 
-import { checkGuess } from "../../game/guess.ts";
+import { checkGuess, type AnswerMatcher } from "../../game/guess.ts";
 import type { Puzzle, RevealLevel } from "../../game/types.ts";
 
 export type Guess = { label: string; probability: number };
@@ -48,9 +52,28 @@ export function rank(labels: readonly string[], similarities: readonly number[],
     .map(({ label, probability }) => ({ label, probability }));
 }
 
-/** True if a player typing `label` would get the puzzle right. */
+/**
+ * True if normalized `plural` is a regular English plural of normalized
+ * `singular`: +s, +es, y → ies, f or fe → ves. The ending is the last word's,
+ * so "green beans" is the plural of "green bean".
+ */
+function isPluralOf(plural: string, singular: string): boolean {
+  if (singular === "") return false;
+  return (
+    plural === `${singular}s` ||
+    plural === `${singular}es` ||
+    (singular.endsWith("y") && plural === `${singular.slice(0, -1)}ies`) ||
+    (singular.endsWith("f") && plural === `${singular.slice(0, -1)}ves`) ||
+    (singular.endsWith("fe") && plural === `${singular.slice(0, -2)}ves`)
+  );
+}
+
+/** The same words, or one is the other's plural: never one letter off. */
+const sameOrPlural: AnswerMatcher = (label, answer) => label === answer || isPluralOf(label, answer) || isPluralOf(answer, label);
+
+/** True if `label` is the answer or an alternate, up to case, punctuation and a plural; a near spelling doesn't count. */
 export function isAnswer(answer: Answer, label: string): boolean {
-  return checkGuess(answer, label).kind === "correct";
+  return checkGuess(answer, label, { matcher: sameOrPlural }).kind === "correct";
 }
 
 /** CLIP's top guess. */
