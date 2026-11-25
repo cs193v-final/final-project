@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { RateLimitedError, runGameCall } from "./game-result.ts";
 import { errorForLog, type LoggedError } from "./log-safe.ts";
 import { SAMPLE_PUZZLES } from "../puzzles/index.ts";
+import { SCORING_CONFIG } from "./scoring-config.ts";
 import {
   act,
   GameConflictError,
@@ -25,6 +26,7 @@ const VIEW: GameView = {
   round: null,
   results: [],
   total: 0,
+  scoring: SCORING_CONFIG,
   finished: true,
 };
 

@@ -339,6 +339,14 @@ export function toGameView(
     round,
     results: rounds,
     total,
+    // Copied field by field, like the pack, so nothing else in the stored config can leak.
+    scoring: {
+      basePoints: state.scoring.basePoints,
+      revealPenalty: state.scoring.revealPenalty,
+      wrongGuessPenalty: state.scoring.wrongGuessPenalty,
+      minPoints: state.scoring.minPoints,
+      skipPoints: state.scoring.skipPoints,
+    },
     finished: state.finished,
   };
   if (state.lastOutcome !== null) view.lastOutcome = publicOutcome(state.lastOutcome, puzzles[state.index]);

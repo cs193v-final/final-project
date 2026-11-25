@@ -205,6 +205,7 @@ export function PracticeGame({ initial, start, act, get, gameHref = playHref, re
         <FinalScore
           puzzles={finalScoreLabels(view, answers)}
           score={{ rounds: view.results, total: view.total }}
+          config={view.scoring}
           {...(replay ? { onPlayAgain: () => void newGame() } : {})}
           after={typeof afterFinish === "function" ? afterFinish(view) : afterFinish}
         />
@@ -242,7 +243,7 @@ export function PracticeGame({ initial, start, act, get, gameHref = playHref, re
         ) : round.credit ? (
           <Credit credit={round.credit} />
         ) : null}
-        <RoundValue round={roundView} result={roundResult} pointsNow={round.pointsAvailable} />
+        <RoundValue round={roundView} result={roundResult} pointsNow={round.pointsAvailable} config={view.scoring} />
       </div>
 
       <GuessPanel
