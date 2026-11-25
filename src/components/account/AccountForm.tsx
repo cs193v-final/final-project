@@ -1,12 +1,12 @@
 "use client";
 // The log-in and sign-up form (#53). The action runs on the server; this only
 // shows the fields and the errors it returns.
-import Link from "next/link";
 import { useActionState, useId } from "react";
 
 import type { AccountFormState } from "@/app/account/actions";
 import { DEFAULT_NEXT } from "@/auth/next-path";
 import { PASSWORD_MAX, PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN } from "@/auth/rules";
+import { Button, TextInput, TextLink } from "@/components/ui/controls";
 
 export type AccountFormProps = {
   mode: "login" | "register";
@@ -15,8 +15,8 @@ export type AccountFormProps = {
   next?: string;
 };
 
-const inputClass =
-  "w-full rounded-md border border-zinc-400 bg-white px-3 py-2 text-base text-zinc-900 dark:border-zinc-500 dark:bg-zinc-900 dark:text-zinc-100";
+// The shared controls (#89, #183), so these pages match the game's.
+const inputClass = "w-full";
 const errorClass = "text-sm font-medium text-rose-700 dark:text-rose-400";
 // Field errors and hints take no space when empty (not the form's role="alert",
 // which must stay rendered for screen readers to announce it).
@@ -39,7 +39,7 @@ export function AccountForm({ mode, action, next = DEFAULT_NEXT }: AccountFormPr
         <label htmlFor={`${id}-username`} className="font-medium">
           Username
         </label>
-        <input
+        <TextInput
           id={`${id}-username`}
           name="username"
           className={inputClass}
@@ -64,7 +64,7 @@ export function AccountForm({ mode, action, next = DEFAULT_NEXT }: AccountFormPr
         <label htmlFor={`${id}-password`} className="font-medium">
           Password
         </label>
-        <input
+        <TextInput
           id={`${id}-password`}
           name="password"
           type="password"
@@ -87,22 +87,14 @@ export function AccountForm({ mode, action, next = DEFAULT_NEXT }: AccountFormPr
         {state?.message ?? ""}
       </p>
 
-      <button
-        type="submit"
-        disabled={pending}
-        className="rounded-md bg-zinc-900 px-4 py-2 font-semibold text-white hover:bg-zinc-700 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-      >
+      {/* aria-disabled while pending (Button), so focus stays on it and a second press doesn't submit again. */}
+      <Button type="submit" disabled={pending}>
         {pending ? "Please wait…" : isRegister ? "Create account" : "Log in"}
-      </button>
+      </Button>
 
       <p className="text-sm">
         {isRegister ? "Already have an account? " : "New here? "}
-        <Link
-          href={`${isRegister ? "/login" : "/register"}${keepNext}`}
-          className="font-medium underline underline-offset-2"
-        >
-          {isRegister ? "Log in" : "Create an account"}
-        </Link>
+        <TextLink href={`${isRegister ? "/login" : "/register"}${keepNext}`}>{isRegister ? "Log in" : "Create an account"}</TextLink>
       </p>
     </form>
   );

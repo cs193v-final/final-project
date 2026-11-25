@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ModePicker } from "./ModePicker";
 import { MODES, type GameMode } from "./modes";
+import { buttonClass } from "./ui/styles";
 
 // Spec for #50: the home screen lists the ways to play. Only built modes are
 // links; the rest are clearly marked in text, never just greyed out.
@@ -54,6 +55,22 @@ describe("ModePicker", () => {
     expect(within(card("Daily challenge")).getByRole("link", { name: "Play today's" })).toHaveAttribute("href", "/daily");
   });
 
+  it("makes the daily the most prominent mode: first, the only primary button, and a bigger heading (#145)", () => {
+    const { picker, cards, card } = setup();
+    expect(cards[0]).toBe(card("Daily challenge"));
+    const links = within(picker).getAllByRole("link");
+    const primary = links.filter((a) => a.className === buttonClass("primary", "mt-auto self-start"));
+    expect(primary.map((a) => a.textContent)).toEqual(["Play today's"]);
+    expect(within(card("Practice")).getByRole("link").className).toBe(buttonClass("secondary", "mt-auto self-start"));
+    expect(within(card("Daily challenge")).getByRole("heading").className).toContain("text-2xl");
+  });
+
+  it("puts a featured mode first even if it's listed later", () => {
+    const featuredLast = [...MODES.map((m): GameMode => (m.status === "available" ? { ...m, featured: m.id === "practice" } : m))];
+    const { cards } = setup(featuredLast);
+    expect(within(cards[0]!).getByRole("heading").textContent).toBe("Practice");
+  });
+
   it("doesn't list custom lobbies yet (stretch goal, #67)", () => {
     setup();
     expect(screen.queryByText(/lobb/i)).not.toBeInTheDocument();
@@ -92,6 +109,10 @@ describe("MODES", () => {
       expect(mode.title.trim()).not.toBe("");
       expect(mode.description.trim()).not.toBe("");
     }
+  });
+
+  it("features at most one mode", () => {
+    expect(MODES.filter((m) => m.status === "available" && m.featured)).toHaveLength(1);
   });
 
   it("points every available mode at a page in this app, with link text", () => {
