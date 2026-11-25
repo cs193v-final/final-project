@@ -101,11 +101,22 @@ test("the header links to today's leaderboard, which asks a logged-out player to
   await expect(page.getByRole("main").getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/login?next=%2Fleaderboard");
 });
 
-test("a page that doesn't exist still has the way home", async ({ page }) => {
+test("a page that doesn't exist shows our 404, with the way home and to practice (#229)", async ({ page }) => {
   const response = await page.goto("/no-such-page");
   expect(response?.status()).toBe(404);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Page not found");
+  await expect(page).toHaveTitle(`Page not found · ${GAME_NAME}`);
+  const main = page.getByRole("main");
+  await expect(main.getByRole("link", { name: "Start practice" })).toHaveAttribute("href", "/play");
+
+  // The page's own Home link, then the header's.
+  await main.getByRole("link", { name: "Home", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(GAME_NAME);
+  await page.goto("/no-such-page");
   await homeLink(page).click();
   await expect(page).toHaveURL(/\/$/);
+  await expect(picker(page)).toBeVisible();
 });
 
 test("nothing scrolls sideways on the home screen or in the game", async ({ page }) => {
