@@ -7,7 +7,7 @@ import { getDb } from "@/db";
 import { getDailyIntro, getDailyPack } from "@/db/daily";
 import { getDailyStats, type DailyStats } from "@/db/daily-stats";
 import { scoringFromStored } from "@/db/scoring";
-import { dailyDateFor, DEFAULT_DAILY_RESET } from "@/game/daily-date";
+import { assertDailyDate, dailyDateFor, DEFAULT_DAILY_RESET } from "@/game/daily-date";
 import type { DailyIntro } from "@/game/daily";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { GameNotFoundError, resumeDaily, startOrResumeDaily } from "@/game/server-game";
@@ -106,7 +106,14 @@ export async function loadTodaysDailyGame(now = new Date()): Promise<GameResult 
  * and a date only ever finds this owner's game. Aggregates only.
  */
 export async function loadDailyStats(date: unknown): Promise<DailyStats | null> {
-  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(date)) return null;
+  if (typeof date !== "string") return null;
+  // A real calendar date only: "2026-02-30" matches YYYY-MM-DD, but Postgres
+  // can't cast it to a date and the query would throw.
+  try {
+    assertDailyDate(date);
+  } catch {
+    return null;
+  }
   const owner = await currentOwner();
   if (owner === null) return null;
   const db = getDb();

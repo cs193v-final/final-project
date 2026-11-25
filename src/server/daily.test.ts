@@ -194,4 +194,13 @@ describe("the daily on the server", () => {
     for (const date of [null, 42, "", "tomorrow", "2026-11-1"]) expect(await loadDailyStats(date)).toBeNull();
     expect(await loadDailyStats(NOV1)).toBeNull(); // a new player
   });
+
+  it("gives no stats, without a database error, for a date that matches YYYY-MM-DD but doesn't exist", async () => {
+    // A player with a cookie, so the date reaches the query. Postgres can't
+    // cast these to a date and throws; the action would log it as a failure.
+    ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
+    for (const date of ["2026-02-30", "2026-13-01", "2026-11-00", "0000-01-01"]) {
+      await expect(loadDailyStats(date)).resolves.toBeNull();
+    }
+  }, 60_000);
 });
