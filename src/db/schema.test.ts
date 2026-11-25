@@ -414,6 +414,7 @@ describe("games and rounds", () => {
         "games_user_id_created_at_idx",
         "games_anon_owner_hash_idx",
         "games_finished_pack_id_total_idx",
+        "games_daily_date_total_idx", // daily leaderboard (#206)
       ]),
     );
   });

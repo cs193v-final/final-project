@@ -1,0 +1,1 @@
+CREATE INDEX "games_daily_date_total_idx" ON "games" USING btree ("daily_date","total" DESC NULLS FIRST) WHERE "games"."finished_at" IS NOT NULL AND "games"."user_id" IS NOT NULL;
