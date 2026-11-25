@@ -71,7 +71,7 @@ A **daily image-guessing game**. Each image starts tightly zoomed in. Players ei
 
 Anything committed, including `public/` and `src/puzzles/`, is visible to everyone.
 - Only the **practice pack** lives in the repo.
-- **Daily, Stanford and lobby answers and images are never committed.** A seed/admin script loads them into the database from content kept outside the repo (#52). Where that content lives is an open decision (below).
+- **Daily, Stanford and lobby answers and images are never committed.** A seed/admin script loads them into the database from content kept outside the repo (#52), in the private `final-project-content` repo (#196).
 
 ## Week 8 milestone: three-image practice game (done)
 
@@ -245,6 +245,7 @@ The values in use are in `src/game/scoring-config.ts`, and that's the only place
 | Anonymous play | Anyone can play the daily without an account; only games started while logged in get leaderboard entries and streaks, and an anonymous game never moves to an account (Joseph, #58; Ethan and Jacky agreed in the reviews of #100 and #119). #62 and #63 filter on `user_id IS NOT NULL`. |
 | Daily replays | One daily game per logged-in player per day, enforced by the database (#58, part 2); after it, you see your result. An anonymous player gets one per browser (cookie), which can't be enforced: a private window is a new player. |
 | Image storage | Postgres. Each zoom level is cut ahead of time into its own WebP in `image_files`, served at `/img/<random id>.webp`; the server only sends the current level's URL. Not Vercel Blob, whose store and token only the Vercel owner could manage (#57; details in `TECHNICAL.md`) |
+| Where non-public puzzle content lives | The private repo `cs193v-final/final-project-content`, cloned into each checkout's git-ignored `content/` folder (or symlinked there). All four of us push to its `main`; nothing from it is ever copied into this repo. The seed script still refuses content git would commit (#52, #196). |
 
 ### Still open (NOT settled)
 
@@ -252,7 +253,6 @@ Don't treat these as decided. Ask the owner, or keep them configurable.
 
 | Decision | Notes | Issue |
 |---|---|---|
-| Where non-public puzzle content lives | **Proposal (#52):** each of us keeps it in the git-ignored `content/` folder, and the seed script refuses committable content. Still to decide: how we share the files with each other (e.g. a private repo or a shared drive). | #52 |
 | Scoring values and wrong-guess rules | Placeholders in `src/game/scoring-config.ts`; flat or increasing penalties; a guess limit? | #21, #64 |
 | Number of reveal steps | Fixed or per puzzle | #21 (typo tolerance: Ethan decided it on #21 after the #115 user test; see "`GuessOutcome` and round states") |
 | Stanford mode | A fixed pack, or its own daily rotation | #65 |
