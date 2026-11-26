@@ -5,7 +5,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { parsePuzzle } from "@/game/puzzles";
-import { SCORING_CONFIG } from "@/game/scoring-config";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import { act as playMove, getGame, MemoryGameStore, puzzleSourceFrom, startGame, type GameOwner } from "@/game/server-game";
 import type { GameAction, Pack, Puzzle } from "@/game/types";
 import { fakeAnimate, fakeMotionSetting, removeFakeAnimate } from "@/test/fakeMotion";
@@ -32,11 +32,16 @@ const PUZZLES = [puzzle("p1", "Golden Gate Bridge"), puzzle("p2", "Big Ben")];
 const PACK: Pack = { id: "pk", kind: "practice", title: "Practice", theme: "Mixed", puzzleIds: ["p1", "p2"] };
 const OWNER: GameOwner = { anonId: "test-owner" };
 
-/** Stand-ins for the Server Actions: the real game service (#54) on an in-memory store. */
+/**
+ * Stand-ins for the Server Actions: the real game service (#54) on an
+ * in-memory store. Its clock (`advance`, in seconds) only moves by hand.
+ */
 function backend() {
-  const deps = { games: new MemoryGameStore(), puzzles: puzzleSourceFrom(PUZZLES) };
+  let now = Date.UTC(2030, 0, 1, 12);
+  const deps = { games: new MemoryGameStore(), puzzles: puzzleSourceFrom(PUZZLES), now: () => now };
   return {
-    start: vi.fn(() => runGameCall(() => startGame(deps, PACK, OWNER, SCORING_CONFIG))),
+    advance: (seconds: number) => (now += seconds * 1000),
+    start: vi.fn(() => runGameCall(() => startGame(deps, PACK, OWNER, TIMED_SCORING_CONFIG))),
     act: vi.fn((gameId: string, action: GameAction, revision: number) =>
       runGameCall(() => playMove(deps, gameId, OWNER, action, revision)),
     ),
@@ -45,12 +50,12 @@ function backend() {
 }
 type Backend = ReturnType<typeof backend>;
 
-/** A game started on `server` and played up to `moves`, as a page refresh would load it. */
+/** A game started on `server`, its first round started and played up to `moves`, as a page refresh would load it. */
 async function gameAfter(server: Backend, moves: GameAction[]): Promise<GameResult> {
   const started = await server.start();
   if (!started.ok) throw new Error("start failed");
   let revision = started.view.revision;
-  for (const move of moves) {
+  for (const move of [{ type: "start" } as const, ...moves]) {
     const result = await server.act(started.view.gameId, move, revision);
     if (result.ok) revision = result.view.revision;
   }
@@ -74,17 +79,26 @@ function animated(): HTMLElement[] {
 const shakes = () => animated().filter((el) => el.hasAttribute("data-guess-row"));
 const pops = () => animated().filter((el) => el.hasAttribute("data-image-box"));
 
-/** Renders the game (a new one, or `initial` as loaded on the server) and waits for its first image. */
+/** Renders the game (a new one, or `initial` as loaded on the server), waits for its first image and starts its round if it's ready. */
 async function setup({ server = backend(), initial = null }: { server?: Backend; initial?: GameResult | null } = {}) {
   const user = userEvent.setup();
   const { container } = render(<PracticeGame initial={initial} start={server.start} act={server.act} get={server.get} />);
   await screen.findByText(/^Image \d+ of 2$/);
+  /** Presses Start round if the round is ready (timed rounds, #255). */
+  const startIfReady = async () => {
+    const start = screen.queryByRole("button", { name: "Start round" });
+    if (start === null) return;
+    await user.click(start);
+    await screen.findByRole("textbox", { name: "What is it?" });
+  };
+  await startIfReady();
   const input = () => screen.getByRole("textbox", { name: "What is it?" });
   const status = () => screen.getByRole("status");
   const confetti = () => container.querySelector("[data-confetti]");
   const icon = () => status().querySelector("[data-feedback-icon]");
   /** Sends a guess and waits for the server's answer to show. */
   const guess = async (text: string, shown: string | RegExp) => {
+    await startIfReady();
     await user.type(input(), `${text}{Enter}`);
     await waitFor(() => expect(status()).toHaveTextContent(shown));
   };
@@ -123,12 +137,14 @@ describe("answer feedback with motion allowed", () => {
     expect(shakes()).toHaveLength(2);
   });
 
-  it("doesn't shake again when you zoom out after a wrong guess", async () => {
+  it("doesn't shake again when the next image starts after a wrong guess", async () => {
     const { user, guess } = await setup();
     await guess("bay bridge", "isn't it");
-    await user.click(screen.getByRole("button", { name: /zoom out/i }));
-    expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
-    expect(animated()).toHaveLength(1);
+    await guess("golden gate bridge", "Correct!");
+    await user.click(screen.getByRole("button", { name: "Next image" }));
+    await user.click(await screen.findByRole("button", { name: "Start round" }));
+    expect(await screen.findByRole("textbox", { name: "What is it?" })).toBeInTheDocument();
+    expect(shakes()).toHaveLength(1);
   });
 
   it("celebrates a correct guess: confetti, a pop on the image, and ✓ with text", async () => {
@@ -173,12 +189,13 @@ describe("answer feedback with motion allowed", () => {
     expect(confetti()).toBeInTheDocument();
   });
 
-  it("doesn't celebrate or shake on a skip or a blank guess", async () => {
-    const { user, status, icon, confetti } = await setup();
+  it("doesn't celebrate or shake on a time-out or a blank guess", async () => {
+    const { user, server, input, status, icon, confetti } = await setup();
     await user.click(screen.getByRole("button", { name: "Guess" }));
     expect(icon()).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Skip this image" }));
-    await waitFor(() => expect(status()).toHaveTextContent("Skipped."));
+    server.advance(40);
+    await user.type(input(), "golden gate bridge{Enter}"); // too late
+    await waitFor(() => expect(status()).toHaveTextContent("Time's up."));
     expect(confetti()).not.toBeInTheDocument();
     expect(icon()).not.toBeInTheDocument();
     expect(animated()).toHaveLength(0);
@@ -220,8 +237,10 @@ describe("answer feedback with motion allowed", () => {
     const { user, server, input, status, confetti } = await setup();
     const started = await (server.start.mock.results[0]!.value as Promise<GameResult>);
     if (!started.ok) throw new Error("start failed");
+    const current = await server.get(started.view.gameId);
+    if (!current.ok) throw new Error("get failed");
     // Another tab solves the image first, so this tab's guess is a conflict and the game is reloaded.
-    await server.act(started.view.gameId, { type: "guess", guess: "golden gate bridge" }, started.view.revision);
+    await server.act(started.view.gameId, { type: "guess", guess: "golden gate bridge" }, current.view.revision);
     server.act.mockResolvedValueOnce({ ok: false, error: "conflict" });
 
     await user.type(input(), "golden gate bridge{Enter}");
