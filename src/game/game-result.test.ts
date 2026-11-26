@@ -8,6 +8,7 @@ import {
   act,
   GameConflictError,
   GameNotFoundError,
+  GameUnreadableError,
   getGame,
   InvalidGameActionError,
   MemoryGameStore,
@@ -65,6 +66,13 @@ describe("runGameCall", () => {
       error: "rate-limited",
     });
     expect(log).not.toHaveBeenCalled();
+  });
+
+  it("maps the player's own game that can't be decrypted to `unreadable`, and still logs it (#164)", async () => {
+    const log = vi.fn<(error: LoggedError) => void>();
+    const error = new GameUnreadableError("g1", { anonId: "a" });
+    expect(await runGameCall(() => Promise.reject(error), log)).toEqual({ ok: false, error: "unreadable" });
+    expect(log).toHaveBeenCalledWith(errorForLog(error));
   });
 
   it("reports a conflict without running the call again", async () => {

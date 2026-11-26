@@ -144,6 +144,16 @@ describe("DailyPlay", () => {
     expect(screen.queryByText(/Image 1 of/u)).not.toBeInTheDocument();
   });
 
+  it("says today's game can't be loaded and points to practice, since there's one daily per day (#164)", async () => {
+    const server = backend();
+    render(<DailyPlay intro={INTRO} initial={{ ok: false, error: "unreadable" }} start={server.start} act={server.act} get={server.get} loadStats={server.stats} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Today's game can't be loaded anymore");
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/connection/i);
+    expect(screen.queryByRole("button", { name: /new game|try again/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Play practice" })).toHaveAttribute("href", "/play");
+    expect(server.start).not.toHaveBeenCalled();
+  });
+
   it("says nothing is scheduled, not practice's \"another browser\" message, when there's no daily", async () => {
     const user = userEvent.setup();
     const server = backend();

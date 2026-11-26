@@ -88,6 +88,7 @@ describe("DailyResult", () => {
   it("links home", () => {
     setup();
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "Leaderboard" })).toHaveAttribute("href", "/leaderboard"); // #62
   });
 
   it("shows how the player did on each image against everyone who finished", async () => {

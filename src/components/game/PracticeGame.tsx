@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GameError, GameResult } from "@/game/game-result";
 import type { GameAction, GameView, Puzzle, PublicRound } from "@/game/types";
+import { AiBadge } from "./AiBadge";
 import { Confetti } from "./Confetti";
 import { FinalScore } from "./FinalScore";
 import { GuessPanel } from "./GuessPanel";
@@ -11,7 +12,7 @@ import { POP, POP_TIMING, useAnimateOn } from "./motion";
 import { feedbackFor, finalScoreLabels, learnAnswer, NO_FEEDBACK, type Feedback, type KnownAnswers } from "./practice";
 import { RoundValue, ScoreHeader } from "./LiveScore";
 import { ZoomOutButton } from "./ZoomOutButton";
-import { Button } from "../ui/controls";
+import { Button, ButtonLink } from "../ui/controls";
 
 export type PracticeGameProps = {
   /** The game from the URL (`/play?game=<id>`), loaded on the server; null starts a new one. */
@@ -25,6 +26,13 @@ export type PracticeGameProps = {
   /** Whether the final score offers Play again. The daily (#58) is one game per day: false, with `afterFinish`. */
   replay?: boolean;
   afterFinish?: ReactNode | ((view: GameView) => ReactNode);
+  /**
+   * For a mode that can't start over (the daily, one game per day): what to
+   * say when this game can't be loaded anymore (`unreadable`, #164). Then
+   * there's no "Start a new game", only a link to practice. Practice leaves it
+   * out and offers a new game.
+   */
+  lostGameMessage?: string;
 };
 
 const playHref = (gameId: string) => `/play?game=${encodeURIComponent(gameId)}`;
@@ -35,6 +43,7 @@ const PROBLEMS: Record<GameError, string> = {
   conflict: "This game was updated since you last saw it, so it was reloaded.",
   "rate-limited": "You're going faster than we allow right now. Please wait a while (up to an hour), then try again.",
   unavailable: "Couldn't reach the server. Check your connection and try again, or reload the page.",
+  unreadable: "This game can't be loaded anymore. That's a problem on our side, not yours. Start a new one.",
 };
 
 /**
@@ -44,7 +53,16 @@ const PROBLEMS: Record<GameError, string> = {
  * and this component only renders that view. It never sees answers before a
  * round ends, and it doesn't score anything.
  */
-export function PracticeGame({ initial, start, act, get, gameHref = playHref, replay = true, afterFinish }: PracticeGameProps) {
+export function PracticeGame({
+  initial,
+  start,
+  act,
+  get,
+  gameHref = playHref,
+  replay = true,
+  afterFinish,
+  lostGameMessage,
+}: PracticeGameProps) {
   const [view, setView] = useState<GameView | null>(initial?.ok ? initial.view : null);
   // The latest view, updated as soon as a result arrives. `send` reads the
   // game id and revision from here rather than from `view`, which only
@@ -167,11 +185,24 @@ export function PracticeGame({ initial, start, act, get, gameHref = playHref, re
   const solvedRound = justSolved && view?.round && !view.finished ? view.round.position : null;
   const imageBox = useAnimateOn<HTMLDivElement>(solvedRound, POP, POP_TIMING);
 
+  // A lost game (#164) in a mode that can't start over gets that mode's message.
+  const lost = problem === "unreadable" && lostGameMessage !== undefined;
+  const message = problem === null ? null : lost ? lostGameMessage : PROBLEMS[problem];
+  // What a lost game offers: a new one, or (one game per day) practice.
+  const lostAction = lost ? (
+    <ButtonLink href="/play">Play practice</ButtonLink>
+  ) : (
+    <Button disabled={pending} onClick={() => void newGame()}>
+      Start a new game
+    </Button>
+  );
+
   const alert = problem && view ? (
     <div className="flex flex-col items-center gap-2">
       <p role="alert" className="text-center text-sm text-rose-700 dark:text-rose-400">
-        {PROBLEMS[problem]}
+        {message}
       </p>
+      {problem === "unreadable" ? lostAction : null}
       {problem === "unavailable" ? (
         // After a redeploy only a reload fixes "Failed to find Server Action".
         // Always underlined: it sits next to the message, and on a touch screen
@@ -189,10 +220,14 @@ export function PracticeGame({ initial, start, act, get, gameHref = playHref, re
     }
     return (
       <div className="flex flex-col items-center gap-3 text-center">
-        <p role="alert">{PROBLEMS[problem]}</p>
-        <Button disabled={pending} onClick={() => void newGame()}>
-          {problem === "not-found" ? "Start a new game" : "Try again"}
-        </Button>
+        <p role="alert">{message}</p>
+        {problem === "unreadable" ? (
+          lostAction
+        ) : (
+          <Button disabled={pending} onClick={() => void newGame()}>
+            {problem === "not-found" ? "Start a new game" : "Try again"}
+          </Button>
+        )}
       </div>
     );
   }
@@ -205,6 +240,7 @@ export function PracticeGame({ initial, start, act, get, gameHref = playHref, re
         <FinalScore
           puzzles={finalScoreLabels(view, answers)}
           score={{ rounds: view.results, total: view.total }}
+          beatAi={view.beatAi}
           config={view.scoring}
           {...(replay ? { onPlayAgain: () => void newGame() } : {})}
           after={typeof afterFinish === "function" ? afterFinish(view) : afterFinish}
@@ -244,6 +280,7 @@ export function PracticeGame({ initial, start, act, get, gameHref = playHref, re
           <Credit credit={round.credit} />
         ) : null}
         <RoundValue round={roundView} result={roundResult} pointsNow={round.pointsAvailable} config={view.scoring} />
+        <AiBadge round={round} result={roundResult} />
       </div>
 
       <GuessPanel
