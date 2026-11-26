@@ -5,7 +5,7 @@
 // Error messages and stacks never go to the browser, only these codes.
 
 import type { GameView } from "./types.ts";
-import { GameConflictError, GameNotFoundError, InvalidGameActionError } from "./server-game.ts";
+import { GameConflictError, GameNotFoundError, GameUnreadableError, GuessLimitError, InvalidGameActionError } from "./server-game.ts";
 import { errorForLog, type LoggedError } from "./log-safe.ts";
 
 export type GameError =
@@ -13,6 +13,12 @@ export type GameError =
   | "not-found"
   /** The request wasn't a valid game action. Like a 400. */
   | "invalid"
+  /**
+   * A guess in a round that has reached the wrong-guess safety cap
+   * (`MAX_WRONG_GUESSES_PER_ROUND`, #209). Nothing was changed; zoom out and
+   * skip still work. Like a 400.
+   */
+  | "guess-limit"
   /**
    * The game changed since the view this action was sent from, so the action
    * was NOT applied: another tab moved it on, a request saved between this
@@ -25,6 +31,13 @@ export type GameError =
    * src/server/limits.ts). Nothing was changed. Like a 429.
    */
   | "rate-limited"
+  /**
+   * The player's own game is stored but can't be decrypted (another tier's
+   * DATA_ENCRYPTION_KEY, or a damaged row, #84). It's lost: retrying won't
+   * help, so the browser says so instead of blaming the connection (#164).
+   * Logged on the server. A stranger gets `not-found`, as for any other game.
+   */
+  | "unreadable"
   /** Anything else (database down, ...). Logged on the server. */
   | "unavailable";
 
@@ -59,9 +72,11 @@ export async function runGameCall(
   } catch (error) {
     if (error instanceof GameConflictError) return { ok: false, error: "conflict" };
     if (error instanceof GameNotFoundError) return { ok: false, error: "not-found" };
+    // Before InvalidGameActionError: it's a subclass with its own message for the player.
+    if (error instanceof GuessLimitError) return { ok: false, error: "guess-limit" };
     if (error instanceof InvalidGameActionError) return { ok: false, error: "invalid" };
     if (error instanceof RateLimitedError) return { ok: false, error: "rate-limited" };
     log(errorForLog(error));
-    return { ok: false, error: "unavailable" };
+    return { ok: false, error: error instanceof GameUnreadableError ? "unreadable" : "unavailable" };
   }
 }

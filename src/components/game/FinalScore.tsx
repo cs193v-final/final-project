@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import type { GameScore } from "@/game/scoring";
 import { SCORING_CONFIG } from "@/game/scoring-config";
-import type { Puzzle, RoundResult, ScoringConfig } from "@/game/types";
+import type { BeatAiSummary, Puzzle, RoundResult, ScoringConfig } from "@/game/types";
 import { Button } from "../ui/controls";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -27,21 +27,36 @@ export function actionsText(result: RoundResult): string {
 }
 
 /**
- * The final score screen (#16): the total, one line per image with how its
- * points were worked out, and Play again.
+ * How the player did against the AI (#66), e.g. "You beat the AI on 2 of 5."
+ * Null when the AI has no result for any image.
+ */
+export function beatAiText({ beaten, played }: BeatAiSummary, imageCount: number): string | null {
+  if (played === 0) return null;
+  return played === imageCount ? `You beat the AI on ${beaten} of ${played}.` : `You beat the AI on ${beaten} of the ${played} images it played.`;
+}
+
+/**
+ * The final score screen (#16): the total, how the player did against the AI
+ * (#66), one line per image with how its points were worked out, and Play again.
  */
 export function FinalScore({
   puzzles,
   score,
+  beatAi,
   onPlayAgain,
   after,
+  title = "Practice complete",
   config = SCORING_CONFIG,
 }: {
   puzzles: readonly Pick<Puzzle, "id" | "answer">[];
   score: GameScore;
+  /** From the server (`GameView.beatAi`). Omit it, or give 0 played, and nothing is shown. */
+  beatAi?: BeatAiSummary | undefined;
   /** Omit for a game you can't replay (the daily, #58); show `after` instead. */
   onPlayAgain?: () => void;
   after?: ReactNode;
+  /** The heading, e.g. "Stanford complete" (#65). */
+  title?: string;
   config?: ScoringConfig;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -53,16 +68,18 @@ export function FinalScore({
 
   const answers = new Map(puzzles.map((p) => [p.id, p.answer]));
   const max = config.basePoints * puzzles.length;
+  const versusAi = beatAi === undefined ? null : beatAiText(beatAi, score.rounds.length);
 
   return (
     <section aria-labelledby="final-score" className="flex w-full max-w-md flex-col items-center gap-6 text-center">
       <div className="flex flex-col items-center gap-1">
         <h2 id="final-score" ref={heading} tabIndex={-1} className="text-2xl font-semibold outline-none">
-          Practice complete
+          {title}
         </h2>
         <p className="text-lg">
           You scored <strong className="text-3xl font-semibold">{score.total}</strong> out of {max}
         </p>
+        {versusAi === null ? null : <p className="text-zinc-700 dark:text-zinc-300">{versusAi}</p>}
       </div>
 
       <ol className="flex w-full flex-col gap-2 text-left">

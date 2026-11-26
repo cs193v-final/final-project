@@ -18,15 +18,18 @@ import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
 import { getScoringConfig } from "@/db/scoring";
 import { runGameCall, type GameResult } from "@/game/game-result";
+import { errorForLog } from "@/game/log-safe";
 import {
   act,
   GameNotFoundError,
+  GameUnreadableError,
   getGame,
   puzzleSourceFrom,
   startGame,
   type GameDeps,
+  type GameOwner,
 } from "@/game/server-game";
-import type { GameAction } from "@/game/types";
+import type { GameAction, GameView, Pack, ScoringConfig } from "@/game/types";
 import { PRACTICE_PACK, SAMPLE_PUZZLES } from "@/puzzles";
 
 import { hashIp, ipHmacKey } from "./ip-key";
@@ -83,34 +86,66 @@ function ensurePracticePack(db: Db): Promise<void> {
  * loopback or a missing address, so local and e2e runs don't share one count.
  * The per-owner limits apply either way.
  */
-async function requestIpHash(): Promise<string | null> {
+export async function requestIpHash(): Promise<string | null> {
   const ip = await requestIp();
   return limitsAddress(ip) ? hashIp(ip, ipHmacKey()) : null;
 }
 
 /**
  * Start a practice game for the current owner, creating the owner cookie if
- * needed. Rate-limited per owner and per IP (#85). Reuses a game instead of
- * creating a row when the owner has one nobody has played yet (a refresh of
- * /play, a second "Start practice"), or already has
- * `MAX_UNFINISHED_GAMES_PER_PACK` unfinished practice games (then the latest
- * one is resumed). The cap is per pack, so other packs' games never block
- * practice, and at the cap there is always a game of this pack to resume.
+ * needed. Rate-limited per owner and per IP (#85); see `startOrReuseGame`.
  */
 export async function startPracticeGame(): Promise<GameResult> {
+  await connection(); // request time before `new Date()`; see loadGame (#169)
   return runGameCall(async () => {
     const owner = await currentOrNewOwner();
     const db = getDb();
     await checkStartLimits(db, owner, await requestIpHash(), new Date());
     await ensurePracticePack(db);
-    const unfinished = await findUnfinishedGames(db, owner, PRACTICE_PACK.id);
-    const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;
-    const reuse = unfinished.untouchedId ?? (atCap ? unfinished.latestId : null);
-    if (reuse !== null) return getGame(deps(db), reuse, owner);
     // The pack's stored scoring (#64), read once here and kept in the game's
     // state, so changing it only affects games started afterwards.
-    return startGame(deps(db), PRACTICE_PACK, owner, await getScoringConfig(PRACTICE_PACK.id));
+    return startOrReuseGame(db, owner, PRACTICE_PACK, () => getScoringConfig(PRACTICE_PACK.id));
   });
+}
+
+/**
+ * Start a game of `pack` for `owner`, after the start limits were checked.
+ * Reuses a game instead of creating a row when the owner has one of this pack
+ * nobody has played yet (a refresh, a second "Start"), or already has
+ * `MAX_UNFINISHED_GAMES_PER_PACK` unfinished games of it (then the latest one
+ * that can be read is resumed). The cap is per pack, so other packs' games never block this
+ * one, and at the cap there is always a game of this pack to resume.
+ * `scoring` is only read when a new game is created. Used by practice and
+ * Stanford mode (#65); the daily has its own one-game-per-day rule.
+ */
+export async function startOrReuseGame(
+  db: Db,
+  owner: GameOwner,
+  pack: Pack,
+  scoring: () => Promise<ScoringConfig> | ScoringConfig,
+): Promise<GameView> {
+  const unfinished = await findUnfinishedGames(db, owner, pack.id, MAX_UNFINISHED_GAMES_PER_PACK);
+  const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;
+  // The untouched game first; at the cap, then the others, latest first.
+  const reuse = [unfinished.untouchedId, ...(atCap ? unfinished.recentIds : [])].filter(
+    (id, i, ids): id is string => id !== null && ids.indexOf(id) === i,
+  );
+  let unreadable: GameUnreadableError | null = null;
+  for (const id of reuse) {
+    try {
+      return await getGame(deps(db), id, owner);
+    } catch (error) {
+      // A game that can't be decrypted (#164) is skipped and logged, so
+      // "Start a new game" doesn't land on it again. Below the cap a new game
+      // is started; at the cap the next one is tried.
+      if (!(error instanceof GameUnreadableError)) throw error;
+      console.error("skipped an unreadable game:", JSON.stringify(errorForLog(error)));
+      unreadable = error;
+    }
+  }
+  // At the cap with none that loads (most likely a wrong key): report it.
+  if (atCap && unreadable !== null) throw unreadable;
+  return startGame(deps(db), pack, owner, await scoring());
 }
 
 /**
@@ -122,6 +157,7 @@ export async function startPracticeGame(): Promise<GameResult> {
  * or a response was lost) gives `conflict`, and the action is not retried.
  */
 export async function actOnGame(gameId: unknown, action: unknown, revision: unknown): Promise<GameResult> {
+  await connection(); // request time before `new Date()`; see loadGame (#169)
   return runGameCall(async () => {
     const owner = await currentOwner();
     if (owner === null || typeof gameId !== "string") throw new GameNotFoundError();
@@ -135,10 +171,12 @@ export async function actOnGame(gameId: unknown, action: unknown, revision: unkn
 /** The current owner's game as it is now (resume after a refresh). Counts toward the action limits (#85). */
 export async function loadGame(gameId: unknown): Promise<GameResult> {
   // Finding the owner reads the request (cookies, and the session for a
-  // logged-in player). Mark request time here, outside runGameCall: while Next
-  // prerenders /play, connection() rejects to stop the render, and that
-  // signal has to reach Next. Inside runGameCall it would be caught, logged as
-  // "game call failed" and turned into "unavailable".
+  // logged-in player), and the rate limits read the clock (`new Date()`).
+  // Mark request time first, outside runGameCall: while Next prerenders
+  // /play, connection() rejects to stop the render, and that signal has to
+  // reach Next. Inside runGameCall it would be caught, logged as "game call
+  // failed" and turned into "unavailable". startPracticeGame and actOnGame do
+  // the same (#169).
   await connection();
   return runGameCall(async () => {
     const owner = await currentOwner();

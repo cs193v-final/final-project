@@ -45,9 +45,9 @@ export async function finishPractice(page: Page) {
 }
 
 /**
- * Open the home screen and Tab to Start practice: the home link, Log in (#53),
- * then the playable modes, Daily (#58) and then Practice (coming-soon cards are
- * skipped). Leaves focus on Start practice.
+ * Open the home screen and Tab to Start practice: the home link, Leaderboard (#62), Log in (#53),
+ * then the playable modes, Daily (#58), Stanford (#65) and then Practice
+ * (coming-soon cards are skipped). Leaves focus on Start practice.
  */
 export async function tabToStartPractice(page: Page) {
   await page.goto("/");
@@ -55,9 +55,13 @@ export async function tabToStartPractice(page: Page) {
   await page.keyboard.press("Tab");
   await expect(homeLink(page)).toBeFocused();
   await page.keyboard.press("Tab");
+  await expect(siteNav(page).getByRole("link", { name: "Leaderboard" })).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(siteNav(page).getByRole("link", { name: "Log in" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Play today's" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Play Stanford" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Start practice" })).toBeFocused();
 }

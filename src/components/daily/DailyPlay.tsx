@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/controls";
 import type { DailyIntro } from "@/game/daily";
 import type { DailyStats } from "@/game/daily-result";
 import type { GameResult } from "@/game/game-result";
+import type { StreakSummary } from "@/game/streak";
 import type { GameAction } from "@/game/types";
 
 /** What starting the daily can return: a game, or why not (src/server/daily.ts). */
@@ -25,6 +26,8 @@ export type DailyPlayProps = {
   intro: DailyIntro;
   /** This player's per-image stats for a day once they've finished it (the Server Action). */
   loadStats: (date: string) => Promise<DailyStats | null>;
+  /** The streak once today's daily is finished (#63): `null` logged out, left out if it couldn't be loaded. */
+  streak?: StreakSummary | null;
 };
 
 const NOT_STARTED: Record<"day-over" | "no-daily", string> = {
@@ -40,7 +43,7 @@ const NOT_STARTED: Record<"day-over" | "no-daily", string> = {
  * to their result once it's finished. One game per player per day, so there's
  * no Play again.
  */
-export function DailyPlay({ initial, start, act, get, intro, loadStats }: DailyPlayProps) {
+export function DailyPlay({ initial, start, act, get, intro, loadStats, streak }: DailyPlayProps) {
   const [game, setGame] = useState<GameResult | null>(initial);
   const [notStarted, setNotStarted] = useState<"day-over" | "no-daily" | null>(null);
   const [pending, setPending] = useState(false);
@@ -107,7 +110,10 @@ export function DailyPlay({ initial, start, act, get, intro, loadStats }: DailyP
       get={get}
       gameHref={() => "/daily"}
       replay={false}
-      afterFinish={(view) => <DailyResult intro={intro} view={view} loadStats={loadStats} />}
+      // One daily per player per day, so a lost one can't be restarted (#164).
+      // TODO(Joseph, #58): or let the server replace the unreadable row.
+      lostGameMessage="Today's game can't be loaded anymore. That's a problem on our side, not yours. A new daily starts tomorrow; meanwhile you can play practice."
+      afterFinish={(view) => <DailyResult intro={intro} view={view} loadStats={loadStats} streak={streak} />}
     />
   );
 }
