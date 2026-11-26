@@ -13,10 +13,9 @@ import { limitsAddress } from "@/auth/limits-address";
 import { requestIp } from "@/auth/session";
 import { getVault } from "@/crypto/vault";
 import { getDb, type Db } from "@/db";
-import { getPuzzles } from "@/db/content";
 import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
-import { getLobbyAnswers, LobbyGoneError } from "@/db/lobbies";
+import { getPuzzlesWithLobbyAnswers } from "@/db/lobbies";
 import { getScoringConfig } from "@/db/scoring";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { errorForLog } from "@/game/log-safe";
@@ -60,37 +59,13 @@ export function deps(db: Db): GameDeps {
     // with a lobby puzzle's answers (#67) decrypted from `lobby_puzzles`.
     puzzles: {
       getPuzzles: (ids) =>
-        ids.every((id) => practiceIds.has(id)) ? practice.getPuzzles(ids) : getPuzzlesWithLobbyAnswers(db, ids, new Date()),
+        ids.every((id) => practiceIds.has(id)) ? practice.getPuzzles(ids) : getPuzzlesWithLobbyAnswers(db, getVault(), ids, new Date()),
     },
     // Per-level images (#57), cut by `npm run db:seed`. A practice puzzle that
     // isn't cut yet is still shown whole and cropped in the browser; any other
     // puzzle without levels can't be shown (server-game.ts refuses it).
     levels: { getLevelSrcs: (puzzleIds) => getLevelSrcs(db, puzzleIds) },
   };
-}
-
-/**
- * Puzzles from the database, with each lobby puzzle's answers (#67) filled in
- * from `lobby_puzzles` (its `puzzles` row has an empty answer). A puzzle of a
- * lobby that can't be played any more (deleted, expired, hidden by reports)
- * ends the game as `not-found`; so does any puzzle still without an answer,
- * so an empty answer is never played.
- */
-async function getPuzzlesWithLobbyAnswers(db: Db, ids: readonly string[], now: Date) {
-  const found = await getPuzzles(db, ids);
-  let answers;
-  try {
-    answers = await getLobbyAnswers(db, getVault(), ids, now);
-  } catch (error) {
-    if (error instanceof LobbyGoneError) throw new GameNotFoundError();
-    throw error;
-  }
-  return found.map((puzzle) => {
-    const lobby = answers.get(puzzle.id);
-    const filled = lobby === undefined ? puzzle : { ...puzzle, answer: lobby.answer, acceptedAnswers: [...lobby.acceptedAnswers] };
-    if (filled.answer === "") throw new GameNotFoundError();
-    return filled;
-  });
 }
 
 let practicePackRow: Promise<void> | undefined;

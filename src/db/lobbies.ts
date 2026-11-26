@@ -25,8 +25,10 @@ import {
   type LobbyStatus,
   type OwnLobby,
 } from "@/game/lobby";
-import type { LeaderboardEntry, Pack } from "@/game/types";
+import { GameNotFoundError } from "@/game/server-game";
+import type { LeaderboardEntry, Pack, Puzzle } from "@/game/types";
 
+import { getPuzzles } from "./content";
 import { imageSrc, newImageId, type LevelImageInput } from "./images";
 import type { Db } from "./index";
 import { beatAiCount, LEADERBOARD_SIZE, toEntries } from "./leaderboard";
@@ -341,6 +343,31 @@ export async function getLobbyAnswers(db: Db, vault: Vault, puzzleIds: readonly 
 }
 
 /**
+ * Puzzles from the database (`getPuzzles`), with each lobby puzzle's answers
+ * filled in from `lobby_puzzles` (its `puzzles` row has an empty answer). The
+ * game's puzzle source for every pack but practice (src/server/games.ts). A
+ * puzzle of a lobby that can't be played any more (deleted, expired, hidden)
+ * throws `GameNotFoundError`, so the game ends as `not-found`; so does any
+ * puzzle still without an answer, so an empty answer is never played.
+ */
+export async function getPuzzlesWithLobbyAnswers(db: Db, vault: Vault, ids: readonly string[], now: Date): Promise<Puzzle[]> {
+  const found = await getPuzzles(db, ids);
+  let answers: Map<string, LobbyAnswers>;
+  try {
+    answers = await getLobbyAnswers(db, vault, ids, now);
+  } catch (error) {
+    if (error instanceof LobbyGoneError) throw new GameNotFoundError();
+    throw error;
+  }
+  return found.map((puzzle) => {
+    const lobby = answers.get(puzzle.id);
+    const filled = lobby === undefined ? puzzle : { ...puzzle, answer: lobby.answer, acceptedAnswers: [...lobby.acceptedAnswers] };
+    if (filled.answer === "") throw new GameNotFoundError();
+    return filled;
+  });
+}
+
+/**
  * The current lobbies of `userId` (not deleted, not expired), newest first,
  * each with its code (decrypted for its owner only) and how many games of it
  * have been finished.
@@ -354,8 +381,9 @@ export async function listOwnLobbies(db: Db, vault: Vault, userId: string, now: 
       createdAt: lobbies.createdAt,
       expiresAt: lobbies.expiresAt,
       hiddenAt: lobbies.hiddenAt,
-      puzzleCount: sql<number>`(SELECT count(*)::int FROM pack_puzzles pp WHERE pp.pack_id = ${lobbies.packId})`,
-      plays: sql<number>`(SELECT count(*)::int FROM games g WHERE g.pack_id = ${lobbies.packId} AND g.finished_at IS NOT NULL)`,
+      // Spelled out: inside a subquery, drizzle's unqualified "pack_id" would mean the subquery's own column.
+      puzzleCount: sql<number>`(SELECT count(*)::int FROM pack_puzzles pp WHERE pp.pack_id = "lobbies"."pack_id")`,
+      plays: sql<number>`(SELECT count(*)::int FROM games g WHERE g.pack_id = "lobbies"."pack_id" AND g.finished_at IS NOT NULL)`,
     })
     .from(lobbies)
     .where(
