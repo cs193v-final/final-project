@@ -11,7 +11,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { newUserRow } from "@/auth/user-row";
 import { Vault } from "@/crypto/vault";
-import { LOBBY_LIFETIME_MS, LOBBY_ZOOM_LEVELS } from "@/game/lobby";
+import { LOBBY_LIFETIME_MS } from "@/game/lobby";
 import { GameNotFoundError } from "@/game/server-game";
 
 import type { Db } from "./index";
@@ -24,11 +24,14 @@ import {
   getUploads,
   insertUpload,
   LobbyGoneError,
+  LOBBY_PUZZLE_ZOOM_LEVELS,
   lobbyImageBytes,
+  listOwnLobbies,
   markLobbyDeleted,
   purgeDeadLobbies,
   purgeLobby,
   reportLobby,
+  UNFINISHED_LOBBY_MS,
   type LobbyCaps,
   type NewLobbyRound,
 } from "./lobbies";
@@ -61,32 +64,27 @@ async function user(): Promise<string> {
   return row.id;
 }
 
-const round = (answer: string, levelBytes = 100): NewLobbyRound => ({
+const round = (answer: string, extra: Partial<NewLobbyRound> = {}): NewLobbyRound => ({
   answer,
   acceptedAnswers: [`${answer} alt`],
   focus: { x: 0.5, y: 0.5 },
-  levels: LOBBY_ZOOM_LEVELS.map((_, level) => ({
-    level,
-    width: 10,
-    height: 10,
-    contentType: "image/webp" as const,
-    bytes: new Uint8Array(levelBytes).fill(level + 1),
-  })),
+  photo: { bytes: new Uint8Array(100).fill(1), width: 16, height: 12 },
+  ...extra,
 });
 
 let codeCounter = 0;
 const nextCode = () => `CODE${String(++codeCounter).padStart(12, "0")}`;
 
-async function make(owner: string, caps = CAPS, now = NOW) {
+async function make(owner: string, caps = CAPS, now = NOW, rounds = [round("Kiwi"), round("Lime"), round("Fig")]) {
   const code = nextCode();
-  const created = await createLobby(db, vault, { ownerUserId: owner, code, rounds: [round("Kiwi"), round("Lime"), round("Fig")], caps, now });
+  const created = await createLobby(db, vault, { ownerUserId: owner, code, rounds, caps, now });
   return { code, created };
 }
 
 const count = async (sql: string, params: unknown[] = []) => Number((await pg.query<{ n: number }>(sql, params)).rows[0]!.n);
 
 describe("createLobby", () => {
-  it("stores a ready, playable lobby whose answers are encrypted and level images too", async () => {
+  it("stores a ready, playable lobby whose answers are encrypted and photos too", async () => {
     const owner = await user();
     const { code, created } = await make(owner);
     expect(created).not.toBeNull();
@@ -99,12 +97,67 @@ describe("createLobby", () => {
       { answer: "Lime", acceptedAnswers: ["Lime alt"] },
       { answer: "Fig", acceptedAnswers: ["Fig alt"] },
     ]);
-    // Level bytes are stored encrypted, not as given.
+    // Photo bytes are stored encrypted, not as given.
     const [file] = (await pg.query<{ bytes: Uint8Array }>(
       "SELECT f.bytes FROM image_files f JOIN lobby_puzzles lp ON lp.puzzle_id = f.puzzle_id LIMIT 1",
     )).rows;
     expect(Buffer.from(file!.bytes).equals(Buffer.alloc(100, 1))).toBe(false);
-    expect(await lobbyImageBytes(db)).toBe(3 * LOBBY_ZOOM_LEVELS.length * (100 + 29));
+    // One image per photo (timed rounds, #254: no cut levels).
+    expect(await lobbyImageBytes(db)).toBe(3 * (100 + 29));
+  });
+
+  it("stores one image per photo, the whole photo, which every zoom level points to (timed rounds, #254)", async () => {
+    const owner = await user();
+    const { code } = await make(owner);
+    const { puzzleIds } = (await findPlayableLobby(db, vault, code, NOW))!;
+    for (const puzzleId of puzzleIds) {
+      const files = (await pg.query<{ id: string; width: number; height: number }>(
+        "SELECT id, width, height FROM image_files WHERE puzzle_id = $1",
+        [puzzleId],
+      )).rows;
+      expect(files).toHaveLength(1);
+      expect(files[0]).toMatchObject({ width: 16, height: 12 });
+      const levels = (await pg.query<{ level: number; src: string }>(
+        "SELECT level, src FROM puzzle_images WHERE puzzle_id = $1 ORDER BY level",
+        [puzzleId],
+      )).rows;
+      expect(levels.map((l) => l.level)).toEqual(LOBBY_PUZZLE_ZOOM_LEVELS.map((_, i) => i));
+      expect(new Set(levels.map((l) => l.src))).toEqual(new Set([`/img/${files[0]!.id}.webp`]));
+    }
+    const [puzzle] = await getPuzzlesWithLobbyAnswers(db, vault, puzzleIds, NOW);
+    expect(puzzle!.imageUrl).toBe(`/img/${(await pg.query<{ id: string }>("SELECT id FROM image_files WHERE puzzle_id = $1", [puzzleIds[0]])).rows[0]!.id}.webp`);
+    expect(puzzle!.reveal).toEqual({ focus: { x: 0.5, y: 0.5 }, zoomLevels: [...LOBBY_PUZZLE_ZOOM_LEVELS] });
+  });
+
+  it("stores each photo's effect, and none when none was chosen", async () => {
+    const owner = await user();
+    const { code } = await make(owner, CAPS, NOW, [round("Kiwi", { effect: "swirl" }), round("Lime"), round("Fig", { effect: "tiles" })]);
+    const { puzzleIds } = (await findPlayableLobby(db, vault, code, NOW))!;
+    const puzzles = await getPuzzlesWithLobbyAnswers(db, vault, puzzleIds, NOW);
+    expect(puzzles.map((p) => p.effect)).toEqual(["swirl", undefined, "tiles"]);
+  });
+
+  it("doesn't leave the pack behind if the lobby insert fails", async () => {
+    const packs = await count("SELECT count(*)::int AS n FROM packs");
+    // An owner that doesn't exist breaks the lobby row's foreign key.
+    await expect(
+      createLobby(db, vault, { ownerUserId: crypto.randomUUID(), code: nextCode(), rounds: [round("Kiwi"), round("Lime"), round("Fig")], caps: CAPS, now: NOW }),
+    ).rejects.toThrow();
+    expect(await count("SELECT count(*)::int AS n FROM packs")).toBe(packs);
+  });
+
+  it("a create that stopped partway holds a slot for an hour, then no longer counts", async () => {
+    const owner = await user();
+    for (let i = 0; i < CAPS.perUser; i++) expect((await make(owner)).created).not.toBeNull();
+    const [stuck] = (await pg.query<{ id: string }>("SELECT id FROM lobbies WHERE owner_user_id = $1 LIMIT 1", [owner])).rows;
+    // As if creating it had stopped before `ready_at`: the owner can't see it.
+    await pg.query("UPDATE lobbies SET ready_at = NULL WHERE id = $1", [stuck!.id]);
+    expect((await listOwnLobbies(db, vault, owner, NOW)).map((l) => l.id)).not.toContain(stuck!.id);
+    expect(await countActiveLobbies(db, owner, NOW)).toBe(CAPS.perUser);
+    expect((await make(owner)).created).toBeNull();
+    const later = new Date(NOW.getTime() + UNFINISHED_LOBBY_MS + 1000);
+    expect(await countActiveLobbies(db, owner, later)).toBe(CAPS.perUser - 1);
+    expect((await make(owner, CAPS, later)).created).not.toBeNull();
   });
 
   it("refuses at the per-user cap, the total cap or the image budget, leaving nothing behind", async () => {
@@ -199,8 +252,8 @@ describe("deleting", () => {
     expect(await count("SELECT count(*)::int AS n FROM lobby_reports")).toBe(0);
     expect(await count("SELECT count(*)::int AS n FROM lobby_puzzles")).toBe(3);
     expect(await count("SELECT count(*)::int AS n FROM puzzles WHERE id LIKE 'lobby-%'")).toBe(3);
-    expect(await count("SELECT count(*)::int AS n FROM puzzle_images WHERE puzzle_id LIKE 'lobby-%'")).toBe(3 * LOBBY_ZOOM_LEVELS.length);
-    expect(await count("SELECT count(*)::int AS n FROM image_files WHERE puzzle_id LIKE 'lobby-%'")).toBe(3 * LOBBY_ZOOM_LEVELS.length);
+    expect(await count("SELECT count(*)::int AS n FROM puzzle_images WHERE puzzle_id LIKE 'lobby-%'")).toBe(3 * LOBBY_PUZZLE_ZOOM_LEVELS.length);
+    expect(await count("SELECT count(*)::int AS n FROM image_files WHERE puzzle_id LIKE 'lobby-%'")).toBe(3);
     expect(await findPlayableLobby(db, vault, keep.code, NOW)).not.toBeNull();
   });
 

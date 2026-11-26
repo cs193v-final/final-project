@@ -16,16 +16,10 @@ describe("uploaded images and answers are never committed", () => {
   });
 });
 
-import { LOBBY_ZOOM_LEVELS } from "@/game/lobby";
+import { MAX_LEVEL_WIDTH } from "@/game/levels";
+import { MAX_INPUT_PIXELS } from "@/images/cut";
 
-import {
-  cutLobbyLevels,
-  LOBBY_LEVEL_MAX_WIDTH,
-  MAX_UPLOAD_BYTES,
-  MAX_UPLOAD_SIDE,
-  reencodeUpload,
-  UploadRefusedError,
-} from "./lobby-images";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_PIXELS, MAX_UPLOAD_SIDE, reencodeUpload, UploadRefusedError } from "./lobby-images";
 
 const solid = (width: number, height: number) =>
   sharp({ create: { width, height, channels: 3, background: { r: 30, g: 120, b: 200 } } });
@@ -78,15 +72,12 @@ describe("reencodeUpload", () => {
     for (const text of ["Hoover", "PhoneCo", "Pocket", "Exif", "GPS"]) expect(Buffer.from(bytes).includes(text)).toBe(false);
   });
 
-  it("and so do the levels cut from it", async () => {
-    const { bytes } = await reencodeUpload(await phoneJpeg());
-    const levels = await cutLobbyLevels(bytes, { x: 0.3, y: 0.6 });
-    expect(levels.map((l) => l.level)).toEqual(LOBBY_ZOOM_LEVELS.map((_, i) => i));
-    for (const level of levels) {
-      const meta = await sharp(level.bytes).metadata();
-      expect(meta.exif).toBeUndefined();
-      expect(meta.width).toBeLessThanOrEqual(LOBBY_LEVEL_MAX_WIDTH);
-    }
+  it("keeps the same limits as seeded photos: the full photo's width and the pixel cap", () => {
+    // Lobbies play timed rounds (#254) on the whole photo, so the stored copy
+    // is the photo the round shows, no bigger than a seeded puzzle's.
+    expect(MAX_UPLOAD_SIDE).toBe(MAX_LEVEL_WIDTH);
+    // Not imported from src/images/cut.ts (scripts only), so checked here.
+    expect(MAX_UPLOAD_PIXELS).toBe(MAX_INPUT_PIXELS);
   });
 
   it("turns a sideways phone photo upright before dropping its orientation flag", async () => {
@@ -97,7 +88,7 @@ describe("reencodeUpload", () => {
 
   it(`scales big photos down to ${MAX_UPLOAD_SIDE} px on the longest side, and never scales up`, async () => {
     const big = new Uint8Array(await solid(4000, 3000).jpeg().toBuffer());
-    expect(await reencodeUpload(big)).toMatchObject({ width: MAX_UPLOAD_SIDE, height: 1800 });
+    expect(await reencodeUpload(big)).toMatchObject({ width: MAX_UPLOAD_SIDE, height: (MAX_UPLOAD_SIDE * 3) / 4 });
     const small = new Uint8Array(await solid(300, 200).png().toBuffer());
     expect(await reencodeUpload(small)).toMatchObject({ width: 300, height: 200 });
   });

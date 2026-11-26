@@ -19,6 +19,7 @@ import {
   parseLobbyRounds,
   type LobbyStatus,
 } from "./lobby";
+import { EFFECTS } from "./puzzles";
 
 const upload = (n: number) => n.toString(16).padStart(32, "0");
 const round = (n: number, extra: Record<string, unknown> = {}) => ({
@@ -111,6 +112,19 @@ describe("parseLobbyRounds", () => {
   it("refuses a focus point outside the photo", () => {
     for (const focus of [undefined, null, { x: -0.1, y: 0.5 }, { x: 0.5, y: 1.1 }, { x: Number.NaN, y: 0 }, { x: "0.5", y: 0.5 }]) {
       expect(() => parseLobbyRounds([round(1, { focus }), round(2), round(3)])).toThrow(InvalidLobbyError);
+    }
+  });
+
+  it("keeps a chosen effect (timed rounds, #254), and leaves it out when none is chosen", () => {
+    for (const effect of EFFECTS) {
+      expect(parseLobbyRounds([round(1, { effect }), round(2), round(3)])[0]!.effect).toBe(effect);
+    }
+    expect(parseLobbyRounds(rounds(3))[0]).not.toHaveProperty("effect");
+  });
+
+  it("refuses an unknown effect", () => {
+    for (const effect of ["blur", "", null, 3, "Pixelate"]) {
+      expect(() => parseLobbyRounds([round(1, { effect }), round(2), round(3)])).toThrow(InvalidLobbyError);
     }
   });
 

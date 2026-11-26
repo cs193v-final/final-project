@@ -125,7 +125,13 @@ export async function saveLevelImages(
   return stored.map(({ level, src, width, height }) => ({ level, src, width, height }));
 }
 
-/** One stored image, or null if there's no image with this id. */
+/**
+ * One stored image's row, or null if there's no image with this id. For
+ * scripts and tests only: `GET /img/<id>.webp` reads through
+ * `findServableImage` (src/db/lobbies.ts), which checks a lobby image's lobby
+ * and decrypts it. A lobby image's `bytes` here are **ciphertext**
+ * (`Vault.encryptBytes`), so never serve them from this.
+ */
 export async function getImageFile(
   db: AnyDb,
   id: string,

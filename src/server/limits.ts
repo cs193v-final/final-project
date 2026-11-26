@@ -113,7 +113,7 @@ export const LOBBY_LIMITS = {
   /** Photo uploads (`POST /api/lobby-uploads`): each runs sharp, so they're the most expensive call. */
   uploadsPerOwner: { max: 30, windowMs: HOUR },
   uploadsPerIp: { max: 60, windowMs: HOUR },
-  /** New lobbies (each cuts 3-5 photos into levels). */
+  /** New lobbies (each stores 3-5 photos). */
   createsPerOwner: { max: 5, windowMs: DAY },
   createsPerIp: { max: 20, windowMs: DAY },
   /** Anything that looks a code up (join, start, leaderboard, report): also stops guessing codes. */
@@ -129,11 +129,11 @@ export const LOBBY_LIMITS = {
 
 /** Caps on what lobbies store (#85: anything that grows per user is capped). */
 export const LOBBY_CAPS = {
-  /** Lobbies one player may have at once (not deleted or expired; hidden ones count). */
+  /** Lobbies one player may have at once (not deleted or expired, and ready or created in the last hour; hidden ones count). */
   lobbiesPerUser: 3,
   /** Such lobbies across everyone. */
   lobbiesTotal: 200,
-  /** All lobby level images together (about 0.5-1 MB a lobby), well inside Neon's free 0.5 GB. */
+  /** All lobby photos together (one image a photo, about 0.3-1.5 MB a lobby), well inside Neon's free 0.5 GB. A soft cap (see `createLobby`). */
   lobbyImageBytes: 150 * 1024 * 1024,
   /** Uploads one player may have waiting (not made into a lobby yet). */
   uploadsPerUser: 8,

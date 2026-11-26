@@ -41,7 +41,8 @@ const { actOnGame, loadGame } = await import("./games");
 const { imageResponse } = await import("./images");
 const { sweepExpired } = await import("./sweep");
 const { LOBBY_CAPS, LOBBY_LIMITS } = await import("./limits");
-const { LOBBY_LIFETIME_MS, LOBBY_ZOOM_LEVELS, MAX_LOBBY_PUZZLES, REPORTS_TO_HIDE } = await import("@/game/lobby");
+const { LOBBY_LIFETIME_MS, MAX_LOBBY_PUZZLES, REPORTS_TO_HIDE } = await import("@/game/lobby");
+const { LOBBY_PUZZLE_ZOOM_LEVELS } = await import("@/db/lobbies");
 const { MAX_UPLOAD_BYTES } = await import("./lobby-images");
 
 let pg: PGlite;
@@ -325,7 +326,7 @@ describe("hard-to-guess codes, and joining by code", () => {
     expect(await joinLobby("0000-0000-0000-0000")).toEqual({ ok: false, error: "rate-limited" });
   });
 
-  it("serves a lobby's level images, never to the CDN, and only while it can be played", async () => {
+  it("serves a lobby's photos whole (timed rounds, #254), never to the CDN, and only while it can be played", async () => {
     const owner = await newUser();
     const { code, lobbyId } = await lobbyBy(owner);
     as(null);
@@ -339,7 +340,9 @@ describe("hard-to-guess codes, and joining by code", () => {
     const bytes = new Uint8Array(await served.arrayBuffer());
     const meta = await sharp(bytes).metadata();
     expect([meta.format, meta.exif]).toEqual(["webp", undefined]);
-    expect(start.view.round!.levelCount).toBe(LOBBY_ZOOM_LEVELS.length);
+    // The whole uploaded photo (640 × 480), not a crop of it.
+    expect([meta.width, meta.height]).toEqual([640, 480]);
+    expect(start.view.round!.levelCount).toBe(LOBBY_PUZZLE_ZOOM_LEVELS.length);
 
     // Stored encrypted.
     const id = file.replace(".webp", "");
@@ -396,7 +399,7 @@ describe("delete and report; lobbies expire", () => {
     expect(await deleteMyLobby(lobbyId)).toEqual({ ok: true });
     expect(await deleteMyLobby(lobbyId)).toEqual({ ok: false, error: "not-found" });
     expect(await joinLobby(code)).toEqual({ ok: false, error: "not-found" });
-    expect(await tableCount("image_files")).toBe(before.images - 3 * LOBBY_ZOOM_LEVELS.length);
+    expect(await tableCount("image_files")).toBe(before.images - 3);
     expect(await tableCount("puzzles")).toBe(before.puzzles - 3);
     expect(await tableCount("games")).toBe(before.games - 1);
     expect((await pg.query("SELECT 1 FROM lobbies WHERE id = $1", [lobbyId])).rows).toEqual([]);

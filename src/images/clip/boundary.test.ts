@@ -1,7 +1,8 @@
 // CLIP is for scripts only (#56): the app must never import it. It would pull
 // onnxruntime and the model into a server bundle, and it isn't even installed
 // with the app (its install is in tools/clip). This also covers the packages
-// themselves, and src/images/cut.ts's `sharp`, which is scripts-only too.
+// themselves, and src/images/cut.ts's `sharp`, which is scripts-only too (but for one
+// file that re-encodes lobby uploads, below).
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,11 +38,11 @@ function isScriptOnly(specifier: string, fromFile: string): boolean {
 }
 
 /**
- * The one exception (#67, open for the team): lobby uploads re-encode and cut
- * photos at request time, so this file may use `sharp` and the cutter
- * (`@/images/cut`), and nothing else from src/images. Never CLIP.
+ * The one exception (#67): lobby uploads are re-encoded at request time, so
+ * this file may use the `sharp` package directly. Nothing from src/images
+ * (not the cutter, never CLIP): those stay scripts only.
  */
-const REQUEST_TIME_IMAGES = { file: join(srcDir, "server", "lobby-images.ts"), allowed: ["sharp", "@/images/cut"] };
+const REQUEST_TIME_IMAGES = { file: join(srcDir, "server", "lobby-images.ts"), allowed: ["sharp"] };
 
 const allowed = (specifier: string, file: string) => file === REQUEST_TIME_IMAGES.file && REQUEST_TIME_IMAGES.allowed.includes(specifier);
 
@@ -68,9 +69,10 @@ describe("scripts-only boundary", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("lets only the lobby upload code use sharp and the cutter at request time (#67), and never CLIP", () => {
+  it("lets only the lobby upload code use sharp at request time (#67), and nothing from src/images", () => {
     expect(allowed("sharp", REQUEST_TIME_IMAGES.file)).toBe(true);
-    expect(allowed("@/images/cut", REQUEST_TIME_IMAGES.file)).toBe(true);
+    expect(allowed("@/images/cut", REQUEST_TIME_IMAGES.file)).toBe(false);
+    expect(allowed("../images/cut", REQUEST_TIME_IMAGES.file)).toBe(false);
     expect(allowed("@/images/clip/analyze", REQUEST_TIME_IMAGES.file)).toBe(false);
     expect(allowed("@huggingface/transformers", REQUEST_TIME_IMAGES.file)).toBe(false);
     expect(allowed("sharp", join(srcDir, "server", "games.ts"))).toBe(false);

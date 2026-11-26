@@ -1,25 +1,22 @@
 // Photos uploaded for custom lobbies (#67). Server-only: runs `sharp` on
 // untrusted bytes at request time.
 //
-// Two steps, because a request body on Vercel is at most 4.5 MB, so 3-5
-// photos can't arrive in one request:
-// 1. Upload (`POST /api/lobby-uploads`, one photo per request):
-//    `reencodeUpload` checks the type from the file's own bytes (never the
-//    name or Content-Type), refuses anything too big before decoding it,
-//    turns it upright, scales it to at most `MAX_UPLOAD_SIDE`, and writes a
-//    new WebP **with no metadata** (no EXIF, GPS, XMP, IPTC or ICC profile).
-//    Only that re-encoded copy is ever stored, encrypted.
-// 2. Create: `cutLobbyLevels` cuts the stored copy into one image per zoom
-//    level with the same code as the seeded puzzles (`cutLevels`, #57).
+// A request body on Vercel is at most 4.5 MB, so 3-5 photos can't arrive in
+// one request: each is uploaded on its own (`POST /api/lobby-uploads`), and
+// creating the lobby then uses the uploads. `reencodeUpload` checks the type
+// from the file's own bytes (never the name or Content-Type), refuses
+// anything too big before decoding it, turns it upright, scales it to at most
+// `MAX_UPLOAD_SIDE`, and writes a new WebP **with no metadata** (no EXIF,
+// GPS, XMP, IPTC or ICC profile). Only that re-encoded copy is ever stored,
+// encrypted, and it is the lobby's photo as played: lobbies use timed rounds
+// (#254), so nothing is cut into zoom levels.
 //
-// NOTE for AGENTS.md: src/images/ is "scripts only"; lobbies are the first
-// app code that needs it at request time, so sharp moves to `dependencies`.
+// `sharp` is used directly here, not through src/images/ (scripts only, per
+// AGENTS.md), so it is a runtime dependency. src/images/clip/boundary.test.ts
+// lets only this file import it.
 import "server-only";
 
 import sharp from "sharp";
-
-import { LOBBY_ZOOM_LEVELS } from "@/game/lobby";
-import { cutLevels, MAX_INPUT_PIXELS, type LevelImage } from "@/images/cut";
 
 /**
  * Biggest upload, in bytes: under Vercel's 4.5 MB request limit with room
@@ -28,20 +25,18 @@ import { cutLevels, MAX_INPUT_PIXELS, type LevelImage } from "@/images/cut";
  */
 export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
-/** Most pixels an upload may have, checked from its header before decoding: 50 MP, like seeded originals. */
-export const MAX_UPLOAD_PIXELS = MAX_INPUT_PIXELS;
+/** Most pixels an upload may have, checked from its header before decoding: 50 MP, like seeded originals (`MAX_INPUT_PIXELS` in src/images/cut.ts). */
+export const MAX_UPLOAD_PIXELS = 50_000_000;
 
 /**
- * Longest side of the stored copy. Bigger than a level (1200 px): the 14×
- * level shows 1/14 of the photo, so it needs pixels to spare to not be a blur.
+ * Longest side of the stored copy, which is the photo the round shows. The
+ * same as the widest full photo of a seeded puzzle (1600 px): the viewer is at
+ * most 448 CSS px, so this covers 3× screens with room for the zoom effect.
  */
-export const MAX_UPLOAD_SIDE = 2400;
+export const MAX_UPLOAD_SIDE = 1600;
 
 /** Biggest stored copy, in bytes (the `lobby_uploads_bytes_max` CHECK allows this plus encryption). */
 export const MAX_STORED_UPLOAD_BYTES = 3 * 1024 * 1024;
-
-/** Widest a lobby level is cut to: the viewer is at most 448 CSS px, so this covers 2.5× screens, at less storage than the 1600 px of seeded puzzles. */
-export const LOBBY_LEVEL_MAX_WIDTH = 1200;
 
 /**
  * Formats sharp reports that we accept, from the file's own bytes. "heif" is
@@ -96,9 +91,4 @@ export async function reencodeUpload(input: Uint8Array): Promise<ReencodedUpload
     // e.g. an HEIC photo (no HEVC decoder), or a truncated file.
     throw new UploadRefusedError("unsupported-image");
   }
-}
-
-/** A stored upload cut into one WebP per lobby zoom level (`LOBBY_ZOOM_LEVELS`), tightest first. */
-export function cutLobbyLevels(stored: Uint8Array, focus: { x: number; y: number }): Promise<LevelImage[]> {
-  return cutLevels(stored, { focus, zoomLevels: [...LOBBY_ZOOM_LEVELS] }, { maxWidth: LOBBY_LEVEL_MAX_WIDTH, quality: 80 });
 }

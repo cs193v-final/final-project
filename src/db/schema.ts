@@ -394,13 +394,16 @@ export const gameRounds = pgTable(
 // ---------------------------------------------------------------------------
 //
 // A lobby is a pack of kind "lobby" (`packs`), whose 3-5 puzzles are ordinary
-// `puzzles` rows with their levels in `puzzle_images` / `image_files`, so the
-// server game (#54), level images (#57) and `game_rounds` work unchanged. What
-// differs is that it's user data (#84):
+// `puzzles` rows with their photo in `puzzle_images` / `image_files`, so the
+// server game (#54), images (#57) and `game_rounds` work unchanged. Lobbies
+// play timed rounds (#254), so each puzzle stores one image, the whole photo
+// (both of its placeholder zoom levels point to it, see
+// `LOBBY_PUZZLE_ZOOM_LEVELS` in src/db/lobbies.ts), and an optional `effect`.
+// What differs is that it's user data (#84):
 // - The answers are only in `lobby_puzzles.answers_encrypted`. The puzzle row's
 //   `answer` is '' and `accepted_answers` is empty; src/server/games.ts fills
 //   them in from here, and only for a lobby that can still be played.
-// - Each level's bytes in `image_files` are encrypted (`Vault.encryptBytes`),
+// - The photo's bytes in `image_files` are encrypted (`Vault.encryptBytes`),
 //   and `/img/<id>.webp` serves them only while the lobby can be played.
 // - The share code is stored only as a keyed hash (to look it up) and
 //   encrypted for its owner (to show it again), never in plain text.
@@ -481,8 +484,8 @@ export const lobbyReports = pgTable(
 
 /**
  * A photo uploaded for a lobby that isn't made yet: already re-encoded (no
- * metadata, at most 2400 px) and encrypted. Creating the lobby cuts it into
- * levels and deletes it; the sweep deletes any older than a day.
+ * metadata, at most 1600 px) and encrypted. Creating the lobby stores it as
+ * that lobby's photo and deletes it; the sweep deletes any older than a day.
  */
 export const lobbyUploads = pgTable(
   "lobby_uploads",

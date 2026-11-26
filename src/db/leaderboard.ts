@@ -41,7 +41,7 @@ const onBoard = (date: string) => sql`
  * src/game/beat-ai.ts (the round screen and the final screen); change both
  * together.
  */
-export const beatAiCount = sql`(
+const beatAiCount = sql`(
   SELECT count(*)::int FROM game_rounds r JOIN puzzles pz ON pz.id = r.puzzle_id
   WHERE r.game_id = g.id
     AND r.outcome = 'correct'

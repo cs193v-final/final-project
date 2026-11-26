@@ -2,8 +2,8 @@
 //
 // The tables and why they look the way they do are described in schema.ts
 // (search for "Custom lobbies"). In short: a lobby is a `packs` row of kind
-// "lobby" with ordinary `puzzles` rows, so games, level images and
-// `game_rounds` work as for any pack; its answers, share code, uploads and
+// "lobby" with ordinary `puzzles` rows, so games, images and `game_rounds`
+// work as for any pack; its answers, share code, uploads and
 // image bytes are user data and stored only encrypted or as keyed hashes.
 //
 // No transactions (the Neon HTTP driver has none), so every multi-step write
@@ -18,20 +18,14 @@ import { and, asc, count, eq, gt, inArray, isNull, lt, lte, or, sql } from "driz
 
 import type { Vault } from "@/crypto/vault";
 import { DecryptionError } from "@/crypto/vault";
-import {
-  isLobbyPlayable,
-  LOBBY_LIFETIME_MS,
-  LOBBY_ZOOM_LEVELS,
-  type LobbyStatus,
-  type OwnLobby,
-} from "@/game/lobby";
+import { isLobbyPlayable, LOBBY_LIFETIME_MS, type LobbyStatus, type OwnLobby } from "@/game/lobby";
 import { GameNotFoundError } from "@/game/server-game";
-import type { LeaderboardEntry, Pack, Puzzle } from "@/game/types";
+import type { LeaderboardEntry, Pack, Puzzle, PuzzleEffect } from "@/game/types";
 
 import { getPuzzles } from "./content";
-import { imageSrc, newImageId, type LevelImageInput } from "./images";
+import { imageSrc, newImageId } from "./images";
 import type { Db } from "./index";
-import { beatAiCount, LEADERBOARD_SIZE, toEntries } from "./leaderboard";
+import { LEADERBOARD_SIZE, toEntries } from "./leaderboard";
 import { rowsOf } from "./rows";
 import {
   games,
@@ -78,6 +72,22 @@ export const LOBBY_PACK = { title: "Custom lobby", theme: "Photos from a friend"
 /** Shown as the credit once a round ends. */
 const LOBBY_CREDIT = { source: "The lobby's creator", license: "Shared by its creator for this lobby" } as const;
 
+/**
+ * A lobby still being created holds one of its owner's slots (and one of
+ * the total) for this long; after that it no longer counts, and the sweep
+ * purges it (`purgeDeadLobbies`).
+ */
+export const UNFINISHED_LOBBY_MS = 60 * 60 * 1000;
+
+/**
+ * Lobbies play timed rounds (#254) on the whole photo, so a lobby puzzle has
+ * one stored image. `puzzles.zoom_levels` still needs at least two levels
+ * ending in 1 (`puzzles_zoom_levels_valid`) until zoom levels are dropped,
+ * so a lobby puzzle has two, and both levels' `puzzle_images` rows point to
+ * that same image. Whichever level is shown, it's the full photo.
+ */
+export const LOBBY_PUZZLE_ZOOM_LEVELS: readonly number[] = [2, 1];
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const hex = (bytes: number) => newImageId().slice(0, bytes * 2);
 
@@ -88,6 +98,19 @@ const statusColumns = {
   deletedAt: lobbies.deletedAt,
   hiddenAt: lobbies.hiddenAt,
 };
+
+/**
+ * The lobbies that count toward the caps at `now`: not deleted or expired,
+ * and ready or created less than `UNFINISHED_LOBBY_MS` ago. So a create that
+ * stopped partway (never shown by `listOwnLobbies`) stops holding a slot
+ * after an hour. Unqualified column names, so it works both in the create
+ * statement's subqueries and in a query builder `where` on `lobbies`.
+ */
+function countsTowardCaps(now: Date) {
+  const unfinishedSince = new Date(now.getTime() - UNFINISHED_LOBBY_MS).toISOString();
+  return sql`(deleted_at IS NULL AND expires_at > ${now.toISOString()}::timestamptz
+    AND (ready_at IS NOT NULL OR created_at > ${unfinishedSince}::timestamptz))`;
+}
 
 // ---------------------------------------------------------------------------
 // Uploads
@@ -165,8 +188,10 @@ export type NewLobbyRound = {
   answer: string;
   acceptedAnswers: string[];
   focus: { x: number; y: number };
-  /** From `cutLobbyLevels`: one per `LOBBY_ZOOM_LEVELS`, tightest first. */
-  levels: LevelImageInput[];
+  /** `Puzzle.effect`; left out, the game uses its default. */
+  effect?: PuzzleEffect;
+  /** The whole photo, as `reencodeUpload` stored it (WebP, no metadata). */
+  photo: StoredUpload;
 };
 
 export type LobbyCaps = {
@@ -174,13 +199,13 @@ export type LobbyCaps = {
   perUser: number;
   /** Such lobbies across everyone. */
   total: number;
-  /** Stored bytes of every lobby's level images together, the new one included. */
+  /** Stored bytes of every lobby's images together, the new one included. A soft cap: see `createLobby`. */
   totalImageBytes: number;
 };
 
 export type CreatedLobby = { lobbyId: string; packId: string; expiresAt: Date };
 
-/** Bytes of every lobby level image stored now. */
+/** Bytes of every lobby image stored now (encrypted). */
 export async function lobbyImageBytes(db: Db): Promise<number> {
   const [row] = rowsOf(
     await db.execute(sql`
@@ -195,12 +220,17 @@ export async function lobbyImageBytes(db: Db): Promise<number> {
  * Creates a lobby owned by `ownerUserId` that can be joined with `code`
  * (normalized) until `now + LOBBY_LIFETIME_MS`. Returns `null` if a cap is
  * reached (nothing is left behind). Rounds must already be validated
- * (`parseLobbyRounds`) and cut (`cutLobbyLevels`).
+ * (`parseLobbyRounds`), with each photo from the user's uploads.
  *
  * Order (no transaction): pack, lobby row (not ready; this insert checks the
  * per-user and total caps), then each puzzle with its encrypted answers and
- * encrypted level images, the play order, and last `ready_at`. If it stops
+ * its encrypted photo, the play order, and last `ready_at`. If it stops
  * partway the lobby is never playable and `purgeDeadLobbies` removes it.
+ *
+ * The image-bytes cap is a **soft** cap: it's checked by its own query before
+ * the inserts, so two creates at once can both pass it. The overshoot is at
+ * most one lobby's photos per create in flight, and the lobby count caps
+ * (checked by the insert itself) bound it.
  */
 export async function createLobby(
   db: Db,
@@ -208,7 +238,8 @@ export async function createLobby(
   input: { ownerUserId: string; code: string; rounds: readonly NewLobbyRound[]; caps: LobbyCaps; now: Date },
 ): Promise<CreatedLobby | null> {
   const { ownerUserId, code, rounds, caps, now } = input;
-  const newBytes = rounds.reduce((sum, r) => sum + r.levels.reduce((s, l) => s + l.bytes.byteLength + 29, 0), 0);
+  // 29 bytes of encryption overhead per image (Vault.encryptBytes).
+  const newBytes = rounds.reduce((sum, r) => sum + r.photo.bytes.byteLength + 29, 0);
   if ((await lobbyImageBytes(db)) + newBytes > caps.totalImageBytes) return null;
 
   const packId = `lobby-pack-${hex(12)}`;
@@ -216,18 +247,25 @@ export async function createLobby(
   await db.insert(packs).values({ id: packId, kind: "lobby", title: LOBBY_PACK.title, theme: LOBBY_PACK.theme });
 
   const lobbyId = crypto.randomUUID();
-  const active = sql`deleted_at IS NULL AND expires_at > ${now.toISOString()}::timestamptz`;
-  const inserted = rowsOf(
-    await db.execute(sql`
-      INSERT INTO lobbies (id, owner_user_id, pack_id, code_index, code_encrypted, created_at, expires_at)
-      SELECT ${lobbyId}::uuid, ${ownerUserId}::uuid, ${packId}, ${codeIndex(vault, code)},
-             ${vault.encrypt(lobbyKey(lobbyId), CODE_FIELD, code)},
-             ${now.toISOString()}::timestamptz, ${expiresAt.toISOString()}::timestamptz
-      WHERE (SELECT count(*) FROM lobbies WHERE owner_user_id = ${ownerUserId}::uuid AND ${active}) < ${caps.perUser}
-        AND (SELECT count(*) FROM lobbies WHERE ${active}) < ${caps.total}
-      RETURNING id
-    `),
-  );
+  const active = countsTowardCaps(now);
+  let inserted: Record<string, unknown>[];
+  try {
+    inserted = rowsOf(
+      await db.execute(sql`
+        INSERT INTO lobbies (id, owner_user_id, pack_id, code_index, code_encrypted, created_at, expires_at)
+        SELECT ${lobbyId}::uuid, ${ownerUserId}::uuid, ${packId}, ${codeIndex(vault, code)},
+               ${vault.encrypt(lobbyKey(lobbyId), CODE_FIELD, code)},
+               ${now.toISOString()}::timestamptz, ${expiresAt.toISOString()}::timestamptz
+        WHERE (SELECT count(*) FROM lobbies WHERE owner_user_id = ${ownerUserId}::uuid AND ${active}) < ${caps.perUser}
+          AND (SELECT count(*) FROM lobbies WHERE ${active}) < ${caps.total}
+        RETURNING id
+      `),
+    );
+  } catch (error) {
+    // Nothing points at the pack yet, so the sweep would never find it.
+    await db.delete(packs).where(eq(packs.id, packId));
+    throw error;
+  }
   if (inserted.length === 0) {
     await db.delete(packs).where(eq(packs.id, packId));
     return null;
@@ -235,21 +273,23 @@ export async function createLobby(
 
   const puzzleIds: string[] = [];
   for (const round of rounds) {
-    if (round.levels.length !== LOBBY_ZOOM_LEVELS.length) throw new Error("createLobby: one image per lobby zoom level");
     const puzzleId = `${LOBBY_PUZZLE_PREFIX}${hex(12)}`;
     puzzleIds.push(puzzleId);
-    const ids = round.levels.map(() => newImageId());
+    const imageId = newImageId();
+    const src = imageSrc(imageId);
+    const { photo } = round;
     await db.insert(puzzles).values({
       id: puzzleId,
       // The answers are only in lobby_puzzles, encrypted (see schema.ts).
       answer: "",
       acceptedAnswers: [],
-      imageUrl: imageSrc(ids[ids.length - 1]!),
+      imageUrl: src,
       focusX: round.focus.x,
       focusY: round.focus.y,
-      zoomLevels: [...LOBBY_ZOOM_LEVELS],
+      zoomLevels: [...LOBBY_PUZZLE_ZOOM_LEVELS],
       creditSource: LOBBY_CREDIT.source,
       creditLicense: LOBBY_CREDIT.license,
+      effect: round.effect ?? null,
     });
     await db.insert(lobbyPuzzles).values({
       puzzleId,
@@ -260,20 +300,17 @@ export async function createLobby(
       }),
     });
     // One image per statement keeps each request small (Neon HTTP limits request size).
-    for (const [i, level] of round.levels.entries()) {
-      if (level.level !== i) throw new Error("createLobby: levels must be in order");
-      await db.insert(imageFiles).values({
-        id: ids[i]!,
-        puzzleId,
-        contentType: level.contentType,
-        bytes: vault.encryptBytes(imageKey(ids[i]!), IMAGE_FIELD, level.bytes),
-        width: level.width,
-        height: level.height,
-      });
-    }
+    await db.insert(imageFiles).values({
+      id: imageId,
+      puzzleId,
+      contentType: "image/webp",
+      bytes: vault.encryptBytes(imageKey(imageId), IMAGE_FIELD, photo.bytes),
+      width: photo.width,
+      height: photo.height,
+    });
     await db
       .insert(puzzleImages)
-      .values(round.levels.map((l, i) => ({ puzzleId, level: l.level, src: imageSrc(ids[i]!), width: l.width, height: l.height })));
+      .values(LOBBY_PUZZLE_ZOOM_LEVELS.map((_, level) => ({ puzzleId, level, src, width: photo.width, height: photo.height })));
   }
   await db.insert(packPuzzles).values(puzzleIds.map((puzzleId, i) => ({ packId, puzzleId, position: i + 1 })));
   await db.update(lobbies).set({ readyAt: now }).where(eq(lobbies.id, lobbyId));
@@ -447,7 +484,9 @@ export type LobbyBoard = { top: LeaderboardEntry[]; players: number; you: Leader
  * it (so replaying a lobby you now know the answers to doesn't count),
  * ranked like the daily board (competition ranks, ties by who finished
  * first), top `LEADERBOARD_SIZE`, plus `userId`'s own entry. Anonymous games
- * don't count, as for the daily (#58).
+ * don't count, as for the daily (#58). `beatAi` is always 0: the AI (CLIP)
+ * runs only in scripts, on seeded photos, so a lobby photo never has an AI
+ * result to beat (whether by level or, after #257, by solve time).
  */
 export async function getLobbyBoard(db: Db, vault: Vault, packId: string, userId: string | null): Promise<LobbyBoard> {
   const board = sql`
@@ -459,7 +498,7 @@ export async function getLobbyBoard(db: Db, vault: Vault, packId: string, userId
     ), board AS (
       SELECT f.*, rank() OVER (ORDER BY f.total DESC) AS rank, count(*) OVER () AS players FROM firsts f
     )
-    SELECT g.rank, g.total AS score, g.user_id, g.players, u.username_encrypted, ${beatAiCount} AS beat_ai
+    SELECT g.rank, g.total AS score, g.user_id, g.players, u.username_encrypted, 0 AS beat_ai
     FROM board g JOIN users u ON u.id = g.user_id
   `;
   const top = rowsOf(await db.execute(sql`${board} ORDER BY g.rank, g.finished_at, g.id LIMIT ${LEADERBOARD_SIZE}`));
@@ -514,7 +553,7 @@ export async function purgeLobby(db: Db, lobbyId: string): Promise<void> {
  * sweep stays short. Hidden (reported) lobbies stay until they expire, for
  * review. Returns how many were purged.
  */
-export async function purgeDeadLobbies(db: Db, now: Date, { unfinishedAfterMs = 60 * 60 * 1000, limit = 50 } = {}): Promise<number> {
+export async function purgeDeadLobbies(db: Db, now: Date, { unfinishedAfterMs = UNFINISHED_LOBBY_MS, limit = 50 } = {}): Promise<number> {
   const dead = await db
     .select({ id: lobbies.id })
     .from(lobbies)
@@ -574,11 +613,14 @@ export async function reportLobby(
   return { counted: row !== undefined, hidden: row !== undefined && row.hidden_at !== null };
 }
 
-/** How many lobbies `userId` has that aren't deleted or expired. For tests and the create screen. */
+/**
+ * How many lobbies of `userId` count toward the per-user cap
+ * (`countsTowardCaps`). For tests and the create screen.
+ */
 export async function countActiveLobbies(db: Db, userId: string, now: Date): Promise<number> {
   const [row] = await db
     .select({ n: count() })
     .from(lobbies)
-    .where(and(eq(lobbies.ownerUserId, userId), isNull(lobbies.deletedAt), gt(lobbies.expiresAt, now)));
+    .where(and(eq(lobbies.ownerUserId, userId), countsTowardCaps(now)));
   return Number(row?.n ?? 0);
 }

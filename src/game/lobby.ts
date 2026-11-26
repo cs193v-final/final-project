@@ -10,6 +10,8 @@
 // Web Crypto's `crypto.getRandomValues` (a CSPRNG in Node and browsers), not
 // `node:crypto`, so #68's client components can import the limits from here.
 import { normalizeGuess } from "./guess.ts";
+import { EFFECTS } from "./puzzles.ts";
+import type { PuzzleEffect } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Limits. Every value is open for the team (see the PR for #67).
@@ -24,9 +26,6 @@ export const LOBBY_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Distinct reports that hide a lobby (from everyone but its owner) until someone reviews it. */
 export const REPORTS_TO_HIDE = 3;
-
-/** Same zoom steps as the practice and daily puzzles (#117): 14× on a detail first. */
-export const LOBBY_ZOOM_LEVELS: readonly number[] = [14, 8, 4.5, 2.5, 1];
 
 /** Longest answer or alternate, in characters (after trimming). */
 export const MAX_ANSWER_LENGTH = 60;
@@ -100,8 +99,14 @@ export type LobbyRoundInput = {
   uploadId: string;
   answer: string;
   acceptedAnswers: string[];
-  /** Where the first, tightest zoom is centred: 0-1 fractions of width and height. */
+  /** Where the effect centres (zoom, spotlight, swirl; `Puzzle.reveal.focus`): 0-1 fractions of width and height. */
   focus: { x: number; y: number };
+  /**
+   * How the photo is hidden while the round's clock runs (`Puzzle.effect`,
+   * timed-reveal redesign #254). Optional: left out, the game picks its
+   * default, as for a seeded puzzle without one.
+   */
+  effect?: PuzzleEffect;
 };
 
 export class InvalidLobbyError extends Error {
@@ -130,8 +135,8 @@ function fraction(value: unknown): number {
 
 /**
  * Checks what a client sent to create a lobby (untrusted): 3-5 photos, each
- * a distinct upload id, an answer, up to `MAX_ALTERNATES` alternates and a
- * focus point. Trims answers; drops alternates that normalize to the answer
+ * a distinct upload id, an answer, up to `MAX_ALTERNATES` alternates, a
+ * focus point and optionally one of `EFFECTS`. Trims answers; drops alternates that normalize to the answer
  * or to each other. Throws `InvalidLobbyError` (never echoing the input).
  */
 export function parseLobbyRounds(value: unknown): LobbyRoundInput[] {
@@ -162,7 +167,13 @@ export function parseLobbyRounds(value: unknown): LobbyRoundInput[] {
     }
     const focus = r.focus as Record<string, unknown> | null | undefined;
     if (typeof focus !== "object" || focus === null) throw new InvalidLobbyError("the focus point must be inside the photo");
-    return { uploadId: r.uploadId, answer, acceptedAnswers, focus: { x: fraction(focus.x), y: fraction(focus.y) } };
+    const round: LobbyRoundInput = { uploadId: r.uploadId, answer, acceptedAnswers, focus: { x: fraction(focus.x), y: fraction(focus.y) } };
+    if (r.effect !== undefined) {
+      const known: readonly unknown[] = EFFECTS;
+      if (!known.includes(r.effect)) throw new InvalidLobbyError(`photo ${i + 1} has an unknown effect`);
+      round.effect = r.effect as PuzzleEffect;
+    }
+    return round;
   });
 }
 
@@ -182,8 +193,9 @@ export type LobbyStatus = {
 /**
  * Whether anyone may join, play or see the images of a lobby at `now`:
  * finished being created, not expired, not deleted by its owner, not hidden
- * by reports, and its owner's account still exists. The SQL in
- * src/db/lobbies.ts (`visibleAt`) is the same rule; change both together.
+ * by reports, and its owner's account still exists. `reportLobby` in
+ * src/db/lobbies.ts repeats this rule in SQL (its `target` CTE); change both
+ * together.
  */
 export function isLobbyPlayable(lobby: LobbyStatus, now: Date): boolean {
   return (

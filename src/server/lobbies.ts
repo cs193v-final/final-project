@@ -55,7 +55,7 @@ import { GameNotFoundError } from "@/game/server-game";
 
 import { requestIpHash, startOrReuseGame } from "./games";
 import { checkLobbyLimits, checkStartLimits, LOBBY_CAPS, ownerKey } from "./limits";
-import { cutLobbyLevels, MAX_UPLOAD_BYTES, reencodeUpload, UploadRefusedError } from "./lobby-images";
+import { MAX_UPLOAD_BYTES, reencodeUpload, UploadRefusedError } from "./lobby-images";
 import { currentOrNewOwner, currentOwner } from "./owner";
 
 export type LobbyResult<T> = ({ ok: true } & T) | LobbyFailure;
@@ -200,15 +200,14 @@ export async function createLobbyForUser(
     const uploads = await getUploads(db, vault, userId, ids);
     // Every upload must be this user's, and still there.
     if (uploads.size !== ids.length) throw new LobbyCallError("invalid");
-    const cut = [];
-    for (const round of parsed) {
-      cut.push({ ...round, levels: await cutLobbyLevels(uploads.get(round.uploadId)!.bytes, round.focus) });
-    }
+    // Each upload is already the re-encoded photo (no metadata), and lobbies
+    // play timed rounds (#254) on the whole photo, so it's stored as it is.
+    const withPhotos = parsed.map(({ uploadId, ...round }) => ({ ...round, photo: uploads.get(uploadId)! }));
     const code = newLobbyCode();
     const created = await createLobby(db, vault, {
       ownerUserId: userId,
       code,
-      rounds: cut,
+      rounds: withPhotos,
       caps: { perUser: LOBBY_CAPS.lobbiesPerUser, total: LOBBY_CAPS.lobbiesTotal, totalImageBytes: LOBBY_CAPS.lobbyImageBytes },
       now,
     });
