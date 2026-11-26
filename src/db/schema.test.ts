@@ -209,6 +209,22 @@ describe("packs and puzzles", () => {
     await expect(pg.query("UPDATE puzzles SET effect = 'blur' WHERE id = $1", [puzzleId])).rejects.toThrow(/puzzle_effect/);
   });
 
+  it("accept an AI solve time of 0 seconds or more, or none yet (#257)", async () => {
+    const puzzleId = await addPuzzle();
+    const solvedSeconds = async () =>
+      (await rows<{ ai_solved_seconds: number | null }>("SELECT ai_solved_seconds FROM puzzles WHERE id = $1", [puzzleId]))[0]!.ai_solved_seconds;
+    expect(await solvedSeconds()).toBeNull();
+    for (const seconds of [0, 6.5, 25]) {
+      await pg.query("UPDATE puzzles SET ai_solved_seconds = $2 WHERE id = $1", [puzzleId, seconds]);
+      expect(await solvedSeconds()).toBe(seconds);
+    }
+    for (const bad of ["-0.5", "NaN", "Infinity"]) {
+      await expect(pg.query(`UPDATE puzzles SET ai_solved_seconds = '${bad}' WHERE id = $1`, [puzzleId]), bad).rejects.toThrow(
+        /puzzles_ai_solved_seconds_range/,
+      );
+    }
+  });
+
   it("keep a pack's puzzles in order, each puzzle and position at most once", async () => {
     const packId = await addPack();
     const [a, b] = [await addPuzzle(), await addPuzzle()];

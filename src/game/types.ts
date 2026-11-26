@@ -31,6 +31,14 @@ export type Puzzle = {
    * and swirl centre on `reveal.focus`. Missing = not chosen yet.
    */
   effect?: PuzzleEffect;
+  /**
+   * Beat the AI by solve time (#257, PROPOSAL, added by Darian): seconds after
+   * the round's clock starts when the AI solver's top guess was first the
+   * answer, watching this puzzle's effect (`npm run db:solve-ai`). Missing =
+   * it never got it, or the solver hasn't run yet. Replaces `aiSolvedLevel`
+   * once rounds no longer have levels.
+   */
+  aiSolvedSeconds?: number;
 };
 
 /**
@@ -181,6 +189,12 @@ export type GameView = {
   lastOutcome?: GuessOutcome;
   results: RoundResult[]; // finished rounds so far, scored on the server
   total: number;
+  /**
+   * The scoring config this game plays with (#174): the pack's, as it was
+   * when the game started (#64). The UI shows these values, not the default
+   * `SCORING_CONFIG`. Not a secret: it holds no answers.
+   */
+  scoring: ScoringConfig;
   finished: boolean;
   /**
    * Once the whole game is finished (never while a round is played, #54): each

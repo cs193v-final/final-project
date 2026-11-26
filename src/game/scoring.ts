@@ -2,17 +2,20 @@ import { SCORING_CONFIG, TIMED_SCORING_CONFIG } from "./scoring-config.ts";
 import type { RoundResult, ScoringConfig, ScoringEvent, TimedScoringConfig } from "./types.ts";
 
 /**
+ * Largest value a scoring field may have (#174). Points end up in Postgres
+ * `integer` columns (up to 2,147,483,647): `game_rounds.points`, the penalty
+ * columns, and `games.total`, which is a sum over every round. Capping each
+ * field far below the column limit keeps the sums in range too: at this cap a
+ * game can have 2,147 rounds before `games.total` could overflow. Any real
+ * pack uses values in the hundreds.
+ */
+export const MAX_SCORING_VALUE = 1_000_000;
+
+/**
  * Throws if a config can't produce sensible scores. Call it once when the
  * config changes; `scoreRound` and `scoreGame` also call it, so a bad
  * playtest tweak fails loudly in tests instead of showing odd scores.
  */
-/**
- * Largest value a scoring field may have. Points end up in Postgres `integer`
- * columns (`game_rounds.points`, the penalty columns, `games.total`), so every
- * value must be a whole number that fits one.
- */
-export const MAX_SCORING_VALUE = 2_147_483_647;
-
 export function validateScoringConfig(config: ScoringConfig): void {
   for (const [key, value] of Object.entries(config)) {
     if (!Number.isInteger(value) || value < 0 || value > MAX_SCORING_VALUE) {

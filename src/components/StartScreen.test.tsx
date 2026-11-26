@@ -54,6 +54,19 @@ describe("StartScreen", () => {
     expect(rules).toContain("for 1 point.");
   });
 
+  it("shows the scoring it's given, e.g. the practice pack's override, not the default (#204)", () => {
+    const override: ScoringConfig = { basePoints: 300, revealPenalty: 25, wrongGuessPenalty: 7, minPoints: 40, skipPoints: 3 };
+    const page = renderToStaticMarkup(<StartScreen scoring={override} />);
+    expect(page).toContain("scores up to 300 points");
+    expect(page).toContain("every zoom costs 25 points");
+    expect(page).toContain("Wrong guesses cost 7 points each");
+    expect(page).toContain("at least 40 points");
+    expect(page).toContain("for 3 points.");
+    // None of the default values are left over.
+    expect(page).not.toContain(`scores up to ${SCORING_CONFIG.basePoints} points`);
+    expect(page).not.toContain(`every zoom costs ${SCORING_CONFIG.revealPenalty} points`);
+  });
+
   it("offers the mode picker before the how-to-play steps (#50)", () => {
     const picker = html.indexOf("Choose a mode");
     expect(picker).toBeGreaterThan(-1);

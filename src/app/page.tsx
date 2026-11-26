@@ -3,12 +3,18 @@ import { Suspense } from "react";
 
 import { StreakNote } from "@/components/daily/StreakNote";
 import { StartScreen } from "@/components/StartScreen";
+import { loadPracticeScoring } from "@/server/practice-scoring";
 import { loadStreak } from "@/server/streaks";
 import { errorSummary } from "@/server/error-summary";
 
-export default function Home() {
+/**
+ * The home page. "How to play" uses the practice pack's scoring (#204), a
+ * cached read that's part of the prerendered page, not a query per request.
+ */
+export default async function Home() {
   return (
     <StartScreen
+      scoring={await loadPracticeScoring()}
       streak={
         // Reads the session cookie and the clock, so it streams in per request
         // (Cache Components); the rest of the home screen stays static.

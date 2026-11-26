@@ -114,6 +114,7 @@ describe("startGame", () => {
       },
       results: [],
       total: 0,
+      scoring: CONFIG,
       finished: false,
     });
   });
@@ -182,6 +183,17 @@ describe("a full game played through", () => {
     expect(view.round?.pointsAvailable).toBe(1000);
     view = await act(deps, view.gameId, ALICE, { type: "guess", guess: OPAQUE_SAMPLES[0]!.answer }, view.revision);
     expect(view.total).toBe(1000);
+  });
+
+  it("sends the game's own scoring config with every view, so the UI can show it (#174)", async () => {
+    const { deps, pack } = setup();
+    const generous = { ...CONFIG, basePoints: 1000, skipPoints: 5 };
+    let view = await startGame(deps, pack, ALICE, generous);
+    expect(view.scoring).toEqual(generous);
+    expect(view.scoring).not.toBe(generous);
+    view = await act(deps, view.gameId, ALICE, { type: "skip" }, view.revision);
+    expect(view.scoring).toEqual(generous);
+    expect((await getGame(deps, view.gameId, ALICE)).scoring).toEqual(generous);
   });
 
   it("updates pointsAvailable and the running total as the game goes", async () => {

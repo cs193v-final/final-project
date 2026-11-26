@@ -15,7 +15,7 @@ import {
   startGame,
   type GameOwner,
 } from "@/game/server-game";
-import type { GameAction, Pack, Puzzle } from "@/game/types";
+import type { GameAction, Pack, Puzzle, ScoringConfig } from "@/game/types";
 import { PracticeGame } from "./PracticeGame";
 
 function puzzle(id: string, answer: string, acceptedAnswers: string[] = []): Puzzle {
@@ -38,7 +38,7 @@ const OWNER: GameOwner = { anonId: "test-owner" };
  * on an in-memory store, so these tests play the same rules as the server.
  * Every result the component receives is recorded.
  */
-function backend(puzzles: readonly Puzzle[] = PUZZLES) {
+function backend(puzzles: readonly Puzzle[] = PUZZLES, scoring: ScoringConfig = SCORING_CONFIG) {
   const deps = { games: new MemoryGameStore(), puzzles: puzzleSourceFrom(puzzles) };
   const received: GameResult[] = [];
   const record = async (result: Promise<GameResult>) => {
@@ -48,7 +48,7 @@ function backend(puzzles: readonly Puzzle[] = PUZZLES) {
   };
   return {
     received,
-    start: vi.fn(() => record(runGameCall(() => startGame(deps, PACK, OWNER, SCORING_CONFIG)))),
+    start: vi.fn(() => record(runGameCall(() => startGame(deps, PACK, OWNER, scoring)))),
     // Passes the client's revision through, so a client sending a stale one would get `conflict` (#107).
     act: vi.fn((gameId: string, action: GameAction, revision: number) =>
       record(runGameCall(() => act(deps, gameId, OWNER, action, revision))),
@@ -485,6 +485,23 @@ describe("PracticeGame score (#16), worked out on the server", () => {
 
     await user.click(screen.getByRole("button", { name: "Play again" }));
     await waitFor(() => expect(score()).toHaveTextContent("Score 0"));
+  });
+
+  it("scores the final maximum with the game's own config, not the default (#174)", async () => {
+    const own: ScoringConfig = { ...SCORING_CONFIG, basePoints: SCORING_CONFIG.basePoints * 3 };
+    const server = backend(PUZZLES, own);
+    const user = userEvent.setup();
+    render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
+    await screen.findByText("Image 1 of 2");
+    expect(value()).toHaveTextContent(`Worth ${own.basePoints} points now`);
+
+    await user.click(screen.getByRole("button", { name: "Skip this image" }));
+    await user.click(await screen.findByRole("button", { name: "Next image" }));
+    await user.click(await screen.findByRole("button", { name: "Skip this image" }));
+    await user.click(await screen.findByRole("button", { name: "See results" }));
+    expect(await screen.findByText(/You scored/)).toHaveTextContent(
+      `You scored ${own.skipPoints * 2} out of ${own.basePoints * PUZZLES.length}`,
+    );
   });
 });
 

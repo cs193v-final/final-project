@@ -19,7 +19,8 @@ const round = (puzzleId: string, outcome: RoundResult["outcome"], level: number,
   revealLevelReached: level,
   wrongGuesses: 0,
   points,
-  breakdown: { base: 100, revealPenalty: 0, wrongGuessPenalty: 0 },
+  // As the server scores them: a skipped round's base is skipPoints (0), not what it could have been worth.
+  breakdown: { base: outcome === "skipped" ? 0 : 100, revealPenalty: 0, wrongGuessPenalty: 0 },
 });
 const VIEW: GameView = {
   gameId: "g1",
@@ -28,6 +29,7 @@ const VIEW: GameView = {
   round: null,
   results: [round("pz-1", "correct", 0, 100), round("pz-2", "skipped", 3, 0)],
   total: 100,
+  scoring: { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 },
   finished: true,
 };
 const STATS: DailyStats = {
@@ -125,7 +127,12 @@ describe("DailyResult", () => {
   });
 
   it("scores the share text against the game's own scoring, not the default", async () => {
-    const own = { ...VIEW, results: VIEW.results.map((r) => ({ ...r, breakdown: { ...r.breakdown, base: 50 } })), total: 50 };
+    const own: GameView = {
+      ...VIEW,
+      results: VIEW.results.map((r) => (r.outcome === "correct" ? { ...r, points: 50, breakdown: { ...r.breakdown, base: 50 } } : r)),
+      total: 50,
+      scoring: { ...VIEW.scoring, basePoints: 50, minPoints: 5 },
+    };
     const { share, user } = setup({ view: own });
     await user.click(screen.getByRole("button", { name: "Share result" }));
     expect(share.mock.calls[0]![0]).toContain("🟩⬛ 50/100");
