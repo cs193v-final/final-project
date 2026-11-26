@@ -19,7 +19,8 @@ const round = (puzzleId: string, outcome: RoundResult["outcome"], level: number,
   revealLevelReached: level,
   wrongGuesses: 0,
   points,
-  breakdown: { base: 100, revealPenalty: 0, wrongGuessPenalty: 0 },
+  // As the server scores them: a skipped round's base is skipPoints (0), not what it could have been worth.
+  breakdown: { base: outcome === "skipped" ? 0 : 100, revealPenalty: 0, wrongGuessPenalty: 0 },
 });
 const VIEW: GameView = {
   gameId: "g1",
@@ -28,6 +29,7 @@ const VIEW: GameView = {
   round: null,
   results: [round("pz-1", "correct", 0, 100), round("pz-2", "skipped", 3, 0)],
   total: 100,
+  scoring: { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 },
   finished: true,
 };
 const STATS: DailyStats = {
@@ -125,7 +127,12 @@ describe("DailyResult", () => {
   });
 
   it("scores the share text against the game's own scoring, not the default", async () => {
-    const own = { ...VIEW, results: VIEW.results.map((r) => ({ ...r, breakdown: { ...r.breakdown, base: 50 } })), total: 50 };
+    const own: GameView = {
+      ...VIEW,
+      results: VIEW.results.map((r) => (r.outcome === "correct" ? { ...r, points: 50, breakdown: { ...r.breakdown, base: 50 } } : r)),
+      total: 50,
+      scoring: { ...VIEW.scoring, basePoints: 50, minPoints: 5 },
+    };
     const { share, user } = setup({ view: own });
     await user.click(screen.getByRole("button", { name: "Share result" }));
     expect(share.mock.calls[0]![0]).toContain("🟩⬛ 50/100");
@@ -155,5 +162,31 @@ describe("DailyResult", () => {
     }
     expect(setInterval.mock.calls.length).toBe(started);
     setInterval.mockRestore();
+  });
+});
+
+describe("DailyResult streak (#63)", () => {
+  it("shows the player's streak with today counted, before the buttons", async () => {
+    setup({ streak: { current: 3, longest: 5, playedToday: true } });
+    const note = screen.getByRole("region", { name: "Daily streak" });
+    expect(note).toHaveTextContent("Daily streak: 3 days. Come back tomorrow to make it 4. Your best is 5 days.");
+    // Above Share, so it's seen without scrolling past the stats.
+    const share = screen.getByRole("button", { name: "Share result" });
+    expect(note.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await screen.findByText(/Overall you did better than/u);
+  });
+
+  it("asks a logged-out player to log in for a streak", async () => {
+    setup({ streak: null });
+    expect(screen.queryByRole("region", { name: "Daily streak" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/login?next=%2Fdaily");
+    await screen.findByText(/Overall you did better than/u);
+  });
+
+  it("leaves the streak out when it couldn't be loaded", async () => {
+    setup();
+    expect(screen.queryByRole("region", { name: "Daily streak" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/daily streak/iu)).not.toBeInTheDocument();
+    await screen.findByText(/Overall you did better than/u);
   });
 });

@@ -37,8 +37,8 @@ export type DailyLeaderboard = {
  * for everyone, so it's cached per date (like the daily intro): reloading the
  * page in a loop doesn't query the database or decrypt up to ten usernames
  * each time. Your own rank, and the player count next to it, are read fresh at
- * request time. Neither query has an index that leads with `daily_date`, so
- * both scan the day's games; that's fine at our size.
+ * request time. Both use the partial index `games_daily_date_total_idx`
+ * (migration 0008, #206).
  */
 export async function loadDailyLeaderboard(now = new Date()): Promise<DailyLeaderboard> {
   const date = dailyDateAt(now);

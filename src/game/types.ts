@@ -81,6 +81,22 @@ export type ScoringConfig = {
   skipPoints: number;
 };
 
+/**
+ * Owner: Ethan. PROPOSAL (timed-reveal redesign, #254/#256). Point values for
+ * a timed round: the score starts at `maxPoints` and drains to `minPoints`
+ * along a curve until the photo is clear at `revealSeconds`, stays at
+ * `minPoints` until `limitSeconds`, then the round ends with 0. Will replace
+ * `ScoringConfig` once the server (#255) and the round screen use it.
+ * The values in use live in `scoring-config.ts`.
+ */
+export type TimedScoringConfig = {
+  maxPoints: number; // a correct guess at 0 s
+  minPoints: number; // a correct guess once the photo is clear
+  revealSeconds: number; // when the photo is fully clear
+  limitSeconds: number; // when the round ends with 0
+  curve: number; // exponent: 1 drains evenly, higher drains faster early on
+};
+
 /** Owner: Ethan. The score for one finished round. Unchanged from the brief's proposal. */
 export type RoundResult = {
   puzzleId: string;
@@ -165,6 +181,12 @@ export type GameView = {
   lastOutcome?: GuessOutcome;
   results: RoundResult[]; // finished rounds so far, scored on the server
   total: number;
+  /**
+   * The scoring config this game plays with (#174): the pack's, as it was
+   * when the game started (#64). The UI shows these values, not the default
+   * `SCORING_CONFIG`. Not a secret: it holds no answers.
+   */
+  scoring: ScoringConfig;
   finished: boolean;
   /**
    * Once the whole game is finished (never while a round is played, #54): each
