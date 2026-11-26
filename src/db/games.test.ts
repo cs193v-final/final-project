@@ -12,7 +12,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CONTRACT_PUZZLES, describeGameStoreContract } from "@/game/game-store-contract";
 import { act, GameConflictError, GameNotFoundError, GameUnreadableError, getGame, puzzleSourceFrom, startGame, type GameDeps, type GameOwner, type GameState } from "@/game/server-game";
 import type { GameAction } from "@/game/types";
-import type { Pack, ScoringConfig } from "@/game/types";
+import type { Pack, TimedScoringConfig } from "@/game/types";
+import { START_GRACE_SECONDS } from "@/game/round";
+import { scoreAt } from "@/game/scoring";
 
 import { Vault } from "@/crypto/vault";
 
@@ -44,7 +46,11 @@ const PACK: Pack = {
   theme: "Mixed",
   puzzleIds: CONTRACT_PUZZLES.map((p) => p.id),
 };
-const CONFIG: ScoringConfig = { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 };
+const CONFIG: TimedScoringConfig = { maxPoints: 10_000, minPoints: 100, revealSeconds: 25, limitSeconds: 30, curve: 2 };
+
+/** The server's clock for these games, moved by hand (ms). */
+let now = Date.UTC(2030, 0, 1, 12);
+const advance = (seconds: number) => (now += seconds * 1000);
 
 beforeAll(async () => {
   pg = new PGlite();
@@ -99,8 +105,8 @@ type RoundRow = { position: number; puzzle_id: string; outcome: string; points: 
 
 async function roundRows(id: string) {
   const { rows } = await pg.query<RoundRow>(
-    `SELECT position, puzzle_id, outcome, reveal_level_reached, wrong_guesses, points,
-            base_points, reveal_penalty, wrong_guess_penalty
+    `SELECT position, puzzle_id, outcome, seconds, wrong_guesses, points,
+            reveal_level_reached, base_points, reveal_penalty, wrong_guess_penalty
      FROM game_rounds WHERE game_id = $1 ORDER BY position`,
     [id],
   );
@@ -108,7 +114,7 @@ async function roundRows(id: string) {
 }
 
 function deps(store: PgGameStore): GameDeps {
-  return { games: store, puzzles: puzzleSourceFrom(CONTRACT_PUZZLES) };
+  return { games: store, puzzles: puzzleSourceFrom(CONTRACT_PUZZLES), now: () => now };
 }
 
 describe("PgGameStore columns", () => {
@@ -136,39 +142,47 @@ describe("PgGameStore columns", () => {
     const id = view.gameId;
     expect(await columns(id)).toMatchObject({ revision: 0, total: 0, finished_at: null });
 
-    view = await playNow(d, id, alice, { type: "reveal" });
+    view = await playNow(d, id, alice, { type: "start" });
+    advance(START_GRACE_SECONDS + 2);
     view = await playNow(d, id, alice, { type: "guess", guess: "zzz wrong" });
+    advance(4.25);
     view = await playNow(d, id, alice, { type: "guess", guess: CONTRACT_PUZZLES[0]!.answer });
-    expect(view.total).toBe(70);
-    expect(await columns(id)).toMatchObject({ revision: 3, total: 70, finished_at: null });
+    const points = scoreAt(6.25, CONFIG);
+    expect(view.total).toBe(points);
+    expect(await columns(id)).toMatchObject({ revision: 3, total: points, finished_at: null });
+    // A timed round: its time and points, and none of the old zoom-out values (#255).
     expect(await roundRows(id)).toEqual([
       {
         position: 1,
         puzzle_id: "p1",
         outcome: "correct",
-        reveal_level_reached: 1,
+        seconds: 6.25,
         wrong_guesses: 1,
-        points: 70,
-        base_points: 100,
-        reveal_penalty: 20,
-        wrong_guess_penalty: 10,
+        points,
+        reveal_level_reached: null,
+        base_points: null,
+        reveal_penalty: null,
+        wrong_guess_penalty: null,
       },
     ]);
 
+    // The other rounds time out; the next request ends each one.
     for (let i = 1; i < CONTRACT_PUZZLES.length; i++) {
       await playNow(d, id, alice, { type: "next" });
-      view = await playNow(d, id, alice, { type: "skip" });
+      await playNow(d, id, alice, { type: "start" });
+      advance(31);
+      view = await getGame(d, id, alice);
     }
-    expect(await columns(id)).toMatchObject({ total: 70, finished_at: null });
+    expect(await columns(id)).toMatchObject({ total: points, finished_at: null });
     view = await playNow(d, id, alice, { type: "next" });
     expect(view.finished).toBe(true);
 
     const finished = await columns(id);
     expect(finished.finished_at).toBeInstanceOf(Date);
-    expect((await roundRows(id)).map((r) => [r.position, r.puzzle_id, r.outcome, r.points])).toEqual([
-      [1, "p1", "correct", 70],
-      [2, "p2", "skipped", 0],
-      [3, "p3", "skipped", 0],
+    expect((await roundRows(id)).map((r) => [r.position, r.puzzle_id, r.outcome, r.seconds, r.points])).toEqual([
+      [1, "p1", "correct", 6.25, points],
+      [2, "p2", "timedOut", 30, 0],
+      [3, "p3", "timedOut", 30, 0],
     ]);
   });
 
@@ -176,16 +190,18 @@ describe("PgGameStore columns", () => {
     const store = new PgGameStore(db, vault, { recordRounds: false });
     const d = deps(store);
     const { gameId } = await startGame(d, PACK, bob, CONFIG);
-    const view = await playNow(d, gameId, bob, { type: "skip" });
+    await playNow(d, gameId, bob, { type: "start" });
+    const view = await playNow(d, gameId, bob, { type: "guess", guess: CONTRACT_PUZZLES[0]!.answer });
     expect(view.results).toHaveLength(1);
     expect(await roundRows(gameId)).toEqual([]);
-    expect(await columns(gameId)).toMatchObject({ revision: 1, total: 0 });
+    expect(await columns(gameId)).toMatchObject({ revision: 2, total: view.total });
   });
 
   it("stores no answers in the games table", async () => {
     const store = new PgGameStore(db, vault);
     const d = deps(store);
     const { gameId } = await startGame(d, PACK, alice, CONFIG);
+    await playNow(d, gameId, alice, { type: "start" });
     await playNow(d, gameId, alice, { type: "guess", guess: "zzz wrong" });
     const { rows } = await pg.query<{ row: string }>("SELECT row_to_json(g)::text AS row FROM games g WHERE id = $1", [gameId]);
     const json = rows[0]!.row.toLowerCase();
@@ -205,6 +221,7 @@ describe("PgGameStore encryption (#84)", () => {
     const d = deps(store);
     const { gameId } = await startGame(d, PACK, alice, CONFIG);
     expect(await stateColumns(gameId)).toMatchObject({ state: null, state_encrypted: expect.stringMatching(/^v1\./) });
+    await playNow(d, gameId, alice, { type: "start" });
     await playNow(d, gameId, alice, { type: "guess", guess: "zzz wrong" });
     const cols = await stateColumns(gameId);
     expect(cols.state).toBeNull();
@@ -235,7 +252,7 @@ describe("PgGameStore encryption (#84)", () => {
     const other = deps(new PgGameStore(db, new Vault(Buffer.alloc(32, 8))));
     await expect(getGame(other, gameId, bob)).rejects.toBeInstanceOf(GameUnreadableError);
     await expect(getGame(other, gameId, alice)).rejects.toBeInstanceOf(GameNotFoundError);
-    await expect(act(other, gameId, alice, { type: "skip" }, 0)).rejects.toBeInstanceOf(GameNotFoundError);
+    await expect(act(other, gameId, alice, { type: "start" }, 0)).rejects.toBeInstanceOf(GameNotFoundError);
   });
 
   it("can't be moved to another game", async () => {
@@ -300,7 +317,8 @@ describe("PgGameStore encryption (#84)", () => {
     await pg.query("UPDATE games SET state = $1::jsonb, state_encrypted = NULL WHERE id = $2", [JSON.stringify(plain), gameId]);
     expect((await store.get(gameId))!.state).toEqual(plain);
 
-    await playNow(d, gameId, alice, { type: "skip" });
+    await playNow(d, gameId, alice, { type: "start" });
+    await playNow(d, gameId, alice, { type: "guess", guess: "zzz wrong" });
     expect(await stateColumns(gameId)).toMatchObject({ state: null, state_encrypted: expect.stringMatching(/^v1\./) });
     expect((await store.get(gameId))!.state.events).toHaveLength(plain.events.length + 1);
   });
