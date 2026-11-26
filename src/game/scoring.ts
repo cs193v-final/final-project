@@ -1,18 +1,18 @@
-import { SCORING_CONFIG, TIMED_SCORING_CONFIG } from "./scoring-config.ts";
+import { TIMED_SCORING_CONFIG } from "./scoring-config.ts";
 import type { RoundResult, ScoringConfig, ScoringEvent, TimedScoringConfig } from "./types.ts";
 
 /**
- * Throws if a config can't produce sensible scores. Call it once when the
- * config changes; `scoreRound` and `scoreGame` also call it, so a bad
- * playtest tweak fails loudly in tests instead of showing odd scores.
- */
-/**
  * Largest value a scoring field may have. Points end up in Postgres `integer`
- * columns (`game_rounds.points`, the penalty columns, `games.total`), so every
- * value must be a whole number that fits one.
+ * columns (`game_rounds.points`, `games.total`), so every value must be a
+ * whole number that fits one.
  */
 export const MAX_SCORING_VALUE = 2_147_483_647;
 
+/**
+ * Throws if an old-style (zoom-out) config can't produce sensible scores.
+ * Games no longer use this shape (#255 scores by time); it's still the shape
+ * of per-pack overrides (#64) until they move to the timed fields (#256).
+ */
 export function validateScoringConfig(config: ScoringConfig): void {
   for (const [key, value] of Object.entries(config)) {
     if (!Number.isInteger(value) || value < 0 || value > MAX_SCORING_VALUE) {
@@ -31,97 +31,52 @@ export function validateScoringConfig(config: ScoringConfig): void {
 }
 
 /**
- * Points a correct answer would earn right now, at this reveal level and
- * wrong-guess count. Used for finished rounds, and by the live score (#16) to
- * show what the current image is still worth:
- * `pointsIfCorrect(game.round.revealLevel, game.round.wrongGuesses)`.
- */
-export function pointsIfCorrect(
-  revealLevel: number,
-  wrongGuesses: number,
-  config: ScoringConfig = SCORING_CONFIG,
-): number {
-  const raw =
-    config.basePoints - revealLevel * config.revealPenalty - wrongGuesses * config.wrongGuessPenalty;
-  return Math.max(config.minPoints, raw);
-}
-
-/**
- * Score one finished round from its ScoringEvents, in the order `step()`
- * emitted them.
+ * Score one finished timed round (#255) from its ScoringEvents, in the order
+ * `step()` emitted them.
  *
- * - Correct: basePoints minus the reveal and wrong-guess penalties, never
- *   below minPoints. If the floor applies, `points` is higher than
- *   `base - revealPenalty - wrongGuessPenalty`; the UI can show that as
- *   "minimum applied".
- * - Skipped: always skipPoints. Penalties don't apply, so the breakdown is
- *   `{ base: skipPoints, revealPenalty: 0, wrongGuessPenalty: 0 }`.
+ * - Correct: `scoreAt(seconds, config)`, where `seconds` is the server's own
+ *   elapsed time, carried by the `correct` event.
+ * - Timed out: 0 points, and `seconds` is `limitSeconds`.
+ * - Wrong guesses are counted (for stats) but cost nothing.
  *
- * Throws if the events mix puzzles, don't end in `correct` or `skip`, or
+ * Throws if the events mix puzzles, don't end in `correct` or `timeOut`, or
  * continue after the round ended.
  */
 export function scoreRound(
   events: readonly ScoringEvent[],
-  config: ScoringConfig = SCORING_CONFIG,
+  config: TimedScoringConfig = TIMED_SCORING_CONFIG,
 ): RoundResult {
-  validateScoringConfig(config);
+  validateTimedScoringConfig(config);
   const [first] = events;
   if (first === undefined) throw new Error("scoreRound: no events");
   const puzzleId = first.puzzleId;
 
-  let revealLevelReached = 0;
   let wrongGuesses = 0;
-  let outcome: RoundResult["outcome"] | undefined;
+  let end: { outcome: RoundResult["outcome"]; seconds: number } | undefined;
 
   for (const event of events) {
     if (event.puzzleId !== puzzleId) {
       throw new Error(`scoreRound: events mix puzzles "${puzzleId}" and "${event.puzzleId}"`);
     }
-    if (outcome !== undefined) {
+    if (end !== undefined) {
       throw new Error(`scoreRound: "${event.type}" event after the round ended`);
     }
     switch (event.type) {
-      case "reveal":
-        revealLevelReached = Math.max(revealLevelReached, event.revealLevel);
-        break;
       case "wrongGuess":
         wrongGuesses += 1;
         break;
       case "correct":
-        revealLevelReached = Math.max(revealLevelReached, event.revealLevel);
-        outcome = "correct";
+        end = { outcome: "correct", seconds: event.seconds };
         break;
-      case "skip":
-        outcome = "skipped";
+      case "timeOut":
+        end = { outcome: "timedOut", seconds: config.limitSeconds };
         break;
     }
   }
 
-  if (outcome === undefined) throw new Error(`scoreRound: round "${puzzleId}" hasn't ended`);
-
-  if (outcome === "skipped") {
-    return {
-      puzzleId,
-      outcome,
-      revealLevelReached,
-      wrongGuesses,
-      points: config.skipPoints,
-      breakdown: { base: config.skipPoints, revealPenalty: 0, wrongGuessPenalty: 0 },
-    };
-  }
-
-  return {
-    puzzleId,
-    outcome,
-    revealLevelReached,
-    wrongGuesses,
-    points: pointsIfCorrect(revealLevelReached, wrongGuesses, config),
-    breakdown: {
-      base: config.basePoints,
-      revealPenalty: revealLevelReached * config.revealPenalty,
-      wrongGuessPenalty: wrongGuesses * config.wrongGuessPenalty,
-    },
-  };
+  if (end === undefined) throw new Error(`scoreRound: round "${puzzleId}" hasn't ended`);
+  const points = end.outcome === "correct" ? scoreAt(end.seconds, config) : 0;
+  return { puzzleId, outcome: end.outcome, seconds: end.seconds, wrongGuesses, points };
 }
 
 export type GameScore = {
@@ -132,17 +87,16 @@ export type GameScore = {
 };
 
 /**
- * Score a whole game from every ScoringEvent so far, in order (what
- * `practiceReducer` collects in `state.events`). Safe to call after every
- * action: events from a round that hasn't ended yet are left out of the
- * total. For what the current image is still worth, use `pointsIfCorrect`
- * with the round state; events alone can't tell a new round has started.
+ * Score a whole game from every ScoringEvent so far, in order. Safe to call
+ * after every action: events from a round that hasn't ended yet are left out
+ * of the total. For what the current image is still worth, use `scoreAt`
+ * with the round's elapsed time.
  */
 export function scoreGame(
   events: readonly ScoringEvent[],
-  config: ScoringConfig = SCORING_CONFIG,
+  config: TimedScoringConfig = TIMED_SCORING_CONFIG,
 ): GameScore {
-  validateScoringConfig(config);
+  validateTimedScoringConfig(config);
   const rounds: RoundResult[] = [];
   let pending: ScoringEvent[] = [];
 
@@ -151,7 +105,7 @@ export function scoreGame(
       throw new Error(`scoreGame: round "${pending[0]!.puzzleId}" didn't end before "${event.puzzleId}"`);
     }
     pending.push(event);
-    if (event.type === "correct" || event.type === "skip") {
+    if (event.type === "correct" || event.type === "timeOut") {
       rounds.push(scoreRound(pending, config));
       pending = [];
     }

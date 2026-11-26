@@ -6,14 +6,19 @@
 // Actions that call these functions are separate, server-only modules. Never
 // import this file from a "use client" component: it handles full `Puzzle`s.
 //
-// Game rules are not reimplemented here: `step` (round.ts) runs the round,
-// `checkGuess` (guess.ts, via `step`) checks guesses, and `scoreGame` /
-// `pointsIfCorrect` (scoring.ts) turn the server's own scoring events into
-// points. There is no way for a client to submit a score.
+// Game rules are not reimplemented here: `step` and `timeOut` (round.ts) run
+// the round, `checkGuess` (guess.ts, via `step`) checks guesses, and
+// `scoreGame` / `scoreAt` (scoring.ts) turn the server's own scoring events
+// into points. There is no way for a client to submit a score or a time.
+//
+// Timed rounds (#255): `start` starts the round's clock, read from
+// `GameDeps.now` (the server's clock; a fake one in tests) and kept in the
+// encrypted state. A correct guess scores by the server's elapsed time. Once
+// the time limit passes the round is over with 0 points; with no timers on the
+// server, the next request for the game (an action or a load) ends it.
 
-import { beatAiSummary } from "./beat-ai.ts";
-import { createGame, step, type Game, type Round } from "./round.ts";
-import { pointsIfCorrect, scoreGame, validateScoringConfig } from "./scoring.ts";
+import { createGame, elapsedSeconds, step, timeOut, type Game, type Round, type RoundClock } from "./round.ts";
+import { scoreGame, validateTimedScoringConfig } from "./scoring.ts";
 import type {
   GameAction,
   GameView,
@@ -21,8 +26,8 @@ import type {
   Pack,
   PublicRound,
   Puzzle,
-  ScoringConfig,
   ScoringEvent,
+  TimedScoringConfig,
 } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -63,16 +68,20 @@ function checkOwner(owner: GameOwner): void {
  * recomputed from `events` with `scoring`.
  */
 export type GameState = {
-  /** Bump when this shape changes, so old rows can be migrated or rejected. */
-  schemaVersion: 1;
+  /**
+   * Bump when this shape changes, so old rows can be migrated or rejected.
+   * 2: timed rounds (#255). Version 1 games (zoom out and skip) can't be
+   * played or shown any more: loading one throws `GameFromOldRulesError`.
+   */
+  schemaVersion: 2;
   pack: GameView["pack"];
   /** Play order, copied from the pack when the game started. */
   puzzleIds: string[];
   /** Snapshot of the config at start, so tuning it (#64) doesn't rescore games in progress. */
-  scoring: ScoringConfig;
+  scoring: TimedScoringConfig;
   /** From round.ts `Game`: index of the current puzzle. */
   index: number;
-  /** From round.ts `Game`. */
+  /** From round.ts `Game`. Holds the round's `startedAt` (server time), which never leaves the server. */
   round: Round;
   /** From round.ts `Game`. */
   finished: boolean;
@@ -135,8 +144,9 @@ export interface PuzzleSource {
 
 /**
  * Where each puzzle's pre-cut level images are (#57): one `/img/<id>.webp`
- * URL per zoom level, tightest first. Server-only: the browser only ever gets
- * the URL of the level the player has reached.
+ * URL per zoom level, tightest first. Server-only. Timed rounds (#255) only
+ * use the last one, the full photo, and only once the round has started; the
+ * other levels are no longer sent.
  */
 export interface LevelImageSource {
   /**
@@ -149,13 +159,14 @@ export interface LevelImageSource {
 
 /**
  * What the game functions need. Without `levels` (tests of the game rules),
- * every puzzle is shown the old way: its one image, cropped in the browser.
+ * every puzzle's photo is its `imageUrl`. `now` is the server's clock in
+ * milliseconds since the epoch (default `Date.now`); tests pass a fake one.
  */
-export type GameDeps = { games: GameStore; puzzles: PuzzleSource; levels?: LevelImageSource };
+export type GameDeps = { games: GameStore; puzzles: PuzzleSource; levels?: LevelImageSource; now?: () => number };
 
 /**
  * Where the public practice images live (`public/puzzles/`, #52). Only these
- * may still be sent whole before they're cut (#57); anything else is private.
+ * may be sent by their `imageUrl` when they aren't cut (#57); anything else is private.
  */
 const PUBLIC_IMAGE_PREFIX = "/puzzles/";
 
@@ -208,6 +219,22 @@ export class GameUnreadableError extends Error {
   }
 }
 
+/**
+ * The game was stored under the old rules (zoom out and skip,
+ * `schemaVersion` 1, before #255), so it can't be played or shown with timed
+ * rounds. A `GameUnreadableError`, so callers treat it the same way: practice
+ * skips it and starts a new game, the daily says the game is lost. Its
+ * finished rounds and total stay in `game_rounds` and `games.total`, so
+ * leaderboards and daily stats still count them.
+ */
+export class GameFromOldRulesError extends GameUnreadableError {
+  constructor(gameId: string, owner: GameOwner, schemaVersion: unknown) {
+    super(gameId, owner);
+    this.message = `Game ${gameId} was stored under old rules (schemaVersion ${String(schemaVersion)}), before timed rounds (#255)`;
+    this.name = "GameFromOldRulesError";
+  }
+}
+
 /** A request body that isn't a valid `GameAction`. Respond 400. */
 export class InvalidGameActionError extends Error {
   constructor(problem: string) {
@@ -234,8 +261,7 @@ export function parseGameAction(value: unknown): GameAction {
   }
   const { type, guess } = value as Record<string, unknown>;
   switch (type) {
-    case "reveal":
-    case "skip":
+    case "start":
     case "next":
       return { type };
     case "guess":
@@ -254,53 +280,46 @@ export function parseGameAction(value: unknown): GameAction {
 // ---------------------------------------------------------------------------
 
 /**
- * The image fields of the current round (#57).
- * - **Cut** (the puzzle has one level image per zoom level): only the URL of
- *   the level reached, or the full image's level once the round is over. No
- *   `reveal`: each level is already its own picture.
- * - **Not cut yet:** a public practice image is still sent whole, with
- *   `reveal` for the browser to crop, as before #57. Any other puzzle throws,
- *   so a private daily or Stanford image is never sent whole.
+ * The URL of the current round's full photo (timed rounds, #255), or
+ * undefined while the round is `ready`: the photo is sent only once its clock
+ * has started, so the intro or a ready screen can't show it early.
+ * - **Cut** (#57): the last level image, which is the full photo.
+ * - **Not cut:** a public practice image is sent by its `imageUrl`. Any other
+ *   puzzle throws, so a private daily or Stanford original is never linked.
  * - **No level source** (`levelSrcs` undefined, e.g. tests of the game
- *   rules): the old way, for every puzzle.
+ *   rules): its `imageUrl`, for every puzzle.
  */
-function roundImage(
+function roundPhoto(
   puzzle: Puzzle,
   round: Round,
   levelSrcs: ReadonlyMap<string, readonly string[]> | undefined,
-): Pick<PublicRound, "imageSrc" | "reveal"> {
+): string | undefined {
   const srcs = levelSrcs?.get(puzzle.id);
   // `getLevelSrcs` only returns lists with no gaps, so the length says whether every level is cut.
-  if (srcs !== undefined && srcs.length === round.maxRevealLevel + 1) {
-    const level = round.state === "playing" ? round.revealLevel : round.maxRevealLevel;
-    return { imageSrc: srcs[level]! };
+  const full = srcs !== undefined && srcs.length === puzzle.reveal.zoomLevels.length ? srcs.at(-1) : undefined;
+  if (full === undefined && levelSrcs !== undefined && !puzzle.imageUrl.startsWith(PUBLIC_IMAGE_PREFIX)) {
+    throw new Error(`toGameView: puzzle ${puzzle.id} has no cut images (run npm run db:seed)`);
   }
-  if (levelSrcs !== undefined && !puzzle.imageUrl.startsWith(PUBLIC_IMAGE_PREFIX)) {
-    throw new Error(`toGameView: puzzle ${puzzle.id} has no cut level images (run npm run db:seed)`);
-  }
-  return {
-    imageSrc: puzzle.imageUrl,
-    // Copied field by field, like everything here.
-    reveal: {
-      focus: { x: puzzle.reveal.focus.x, y: puzzle.reveal.focus.y },
-      zoomLevels: [...puzzle.reveal.zoomLevels],
-    },
-  };
+  if (round.state === "ready") return undefined;
+  return full ?? puzzle.imageUrl;
 }
 
 /**
- * Build the browser's view of a game. Pure. `puzzles` are the game's puzzles
- * in play order (`game.state.puzzleIds`). `levelSrcs` has the cut level images
- * of (at least) the current puzzle, from a `LevelImageSource`.
+ * Build the browser's view of a game at server time `now` (ms). Pure.
+ * `puzzles` are the game's puzzles in play order (`game.state.puzzleIds`).
+ * `levelSrcs` has the cut images of (at least) the current puzzle, from a
+ * `LevelImageSource`.
  *
  * Fields are copied one by one onto a fresh object, never spread from a
- * `Puzzle`, so new puzzle fields can't leak by accident. `answer` and `credit`
- * are added only once the round is over; accepted answers are never sent.
+ * `Puzzle`, so new puzzle fields can't leak by accident. The photo is added
+ * only once the round has started; `answer` and `credit` only once it's
+ * over; accepted answers and `startedAt` are never sent.
  */
 export function toGameView(
   game: StoredGame,
   puzzles: readonly Puzzle[],
-  levelSrcs?: ReadonlyMap<string, readonly string[]>,
+  levelSrcs: ReadonlyMap<string, readonly string[]> | undefined,
+  now: number,
 ): GameView {
   const { state } = game;
   checkPuzzlesMatch(state, puzzles);
@@ -311,19 +330,29 @@ export function toGameView(
     const puzzle = puzzles[state.index];
     if (puzzle === undefined) throw new Error(`toGameView: game ${game.id} has no puzzle at ${state.index}`);
     const r = state.round;
+    const over = r.state === "correct" || r.state === "timedOut";
+    // A round that's over shows its scored time; one in play, the time so far (never past the limit).
+    const elapsed = over
+      ? (rounds[state.index]?.seconds ?? null)
+      : r.state === "playing"
+        ? Math.min(elapsedSeconds(r, now) ?? 0, state.scoring.limitSeconds)
+        : null;
+    const imageSrc = roundPhoto(puzzle, r, levelSrcs);
     round = {
       position: state.index + 1,
       puzzleCount: puzzles.length,
       state: r.state,
-      revealLevel: r.revealLevel,
-      levelCount: r.maxRevealLevel + 1,
-      ...roundImage(puzzle, r, levelSrcs),
+      elapsedSeconds: elapsed,
+      ...(imageSrc === undefined ? {} : { imageSrc }),
+      effect: puzzle.effect ?? null,
+      focus: { x: puzzle.reveal.focus.x, y: puzzle.reveal.focus.y },
+      scoring: { ...state.scoring },
       wrongGuesses: r.wrongGuesses,
-      pointsAvailable: pointsIfCorrect(r.revealLevel, r.wrongGuesses, state.scoring),
       // Beat the AI (#56): the level the AI needed, not the answer. null = never, or not run yet.
+      // TODO(#257): a solve time (`aiSolvedSeconds`) instead.
       aiSolvedLevel: puzzle.aiSolvedLevel,
     };
-    if (r.state !== "playing") {
+    if (over) {
       round.answer = puzzle.answer;
       round.credit = {
         source: puzzle.credit.source,
@@ -344,12 +373,8 @@ export function toGameView(
   };
   if (state.lastOutcome !== null) view.lastOutcome = publicOutcome(state.lastOutcome, puzzles[state.index]);
   // Only once every round is over, so no answer is ever in a view while a round is played.
-  if (state.finished) {
-    view.answers = puzzles.map((p) => p.answer);
-    // Beat the AI (#66), counted here so the browser never decides it.
-    const aiSolvedLevel = new Map(puzzles.map((p) => [p.id, p.aiSolvedLevel]));
-    view.beatAi = beatAiSummary(rounds, (id) => aiSolvedLevel.get(id) ?? null);
-  }
+  // `beatAi` is left out until Beat the AI compares solve times (#257): levels no longer exist.
+  if (state.finished) view.answers = puzzles.map((p) => p.answer);
   return view;
 }
 
@@ -382,26 +407,34 @@ function checkPuzzlesMatch(state: GameState, puzzles: readonly Puzzle[]): void {
 // Game functions
 // ---------------------------------------------------------------------------
 
+/** The server's time now, in ms. */
+function nowOf(deps: GameDeps): number {
+  const now = (deps.now ?? Date.now)();
+  if (!Number.isFinite(now)) throw new Error("server-game: the clock returned a non-finite time");
+  return now;
+}
+
 /**
- * Start a new game of `pack` for `owner`. `scoring` is the pack's config
- * (`getScoringConfig(pack.id)`, #64); it's stored with the game.
+ * Start a new game of `pack` for `owner`, scored with `scoring` (timed,
+ * #256), which is stored with the game. Every round starts `ready`: no clock
+ * and no photo until the player sends `start`.
  */
 export async function startGame(
   deps: GameDeps,
   pack: Pack,
   owner: GameOwner,
-  scoring: ScoringConfig,
+  scoring: TimedScoringConfig,
   options: { dailyDate?: string } = {},
 ): Promise<GameView> {
   checkOwner(owner);
-  validateScoringConfig(scoring);
+  validateTimedScoringConfig(scoring);
   if (options.dailyDate !== undefined && pack.kind !== "daily") {
     throw new Error(`startGame: only a daily pack can be a daily game (pack ${pack.id} is ${pack.kind})`);
   }
   const puzzles = await deps.puzzles.getPuzzles(pack.puzzleIds);
   const game = createGame(puzzles); // throws on unplayable data
   const state: GameState = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     pack: { id: pack.id, kind: pack.kind, title: pack.title, theme: pack.theme },
     puzzleIds: puzzles.map((p) => p.id),
     scoring: { ...scoring },
@@ -420,7 +453,7 @@ export async function startGame(
     state,
     ...(options.dailyDate === undefined ? {} : { dailyDate: options.dailyDate }),
   });
-  return toGameView(stored, puzzles, levelSrcs);
+  return toGameView(stored, puzzles, levelSrcs, nowOf(deps));
 }
 
 /**
@@ -434,7 +467,7 @@ export async function startOrResumeDaily(
   pack: Pack,
   dailyDate: string,
   owner: GameOwner,
-  scoring: ScoringConfig,
+  scoring: TimedScoringConfig,
 ): Promise<GameView> {
   checkOwner(owner);
   const resume = () => resumeDaily(deps, owner, dailyDate);
@@ -450,32 +483,50 @@ export async function startOrResumeDaily(
   }
 }
 
-/** The owner's game, as it is now. Use it to resume after a page refresh. */
 /**
  * This owner's daily game for `dailyDate` as it is now (in play or finished),
  * or `null` if they haven't started it. Reads it like `getGame` does (owner
- * and schema checks, the level images), so a daily resumes like any game.
+ * and schema checks, a round whose time is up is ended), so a daily resumes
+ * like any game.
  */
 export async function resumeDaily(deps: GameDeps, owner: GameOwner, dailyDate: string): Promise<GameView | null> {
   checkOwner(owner);
   const found = await deps.games.findDaily(owner, dailyDate);
   if (found === null) return null;
-  const { game, puzzles } = await load(deps, found.id, owner);
-  return viewOf(deps, game, puzzles);
+  return getGame(deps, found.id, owner);
 }
 
+/**
+ * The owner's game, as it is now. Use it to resume after a page refresh, and
+ * when the browser's clock says time is up. A round whose time limit has
+ * passed is ended here (0 points) and saved, so this can write: once per
+ * timed-out round. If another request saves first, its game is shown.
+ */
 export async function getGame(deps: GameDeps, gameId: string, owner: GameOwner): Promise<GameView> {
   const { game, puzzles } = await load(deps, gameId, owner);
-  return viewOf(deps, game, puzzles);
+  const now = nowOf(deps);
+  const expired = timeOut(gameOf(game, puzzles), clockOf(game, now));
+  if (expired === null) return viewOf(deps, game, puzzles, now);
+  try {
+    return await save(deps, game, puzzles, expired.game, expired.events, null, now);
+  } catch (error) {
+    if (!(error instanceof GameConflictError)) throw error;
+    // Another request (another tab, or an action) saved first: show the game as it is now.
+    const again = await load(deps, gameId, owner);
+    return viewOf(deps, again.game, again.puzzles, nowOf(deps));
+  }
 }
 
 /**
  * Apply one player action to the owner's game and return the new view.
  *
  * `action` may come straight from a client: it's checked with
- * `parseGameAction` first. An action the round rejects (guess after the round
- * ended, reveal at the full image, a blank guess, ...) changes nothing, just
- * like `step` in round.ts: nothing is saved and the current view is returned.
+ * `parseGameAction` first. If the round's time is up, it's ended first (0
+ * points, saved) and the action applies to the ended round: a guess is then
+ * refused, and the view shows the round timed out. An action the round
+ * rejects (a guess before `start` or after the round ended, a second `start`,
+ * a blank guess, ...) changes nothing else, just like `step` in round.ts:
+ * nothing is saved and the current view is returned.
  *
  * `expectedRevision` is the `GameView.revision` the player was looking at,
  * and it's required (#107). It's checked after the owner, so a stranger gets
@@ -494,47 +545,83 @@ export async function act(
   const parsed = parseGameAction(action);
   const { game, puzzles } = await load(deps, gameId, owner);
   // The client acted on the view it was shown. If the game has moved on since
-  // (another tab answered, skipped, ...), the action was meant for a round
-  // that's gone: reject it rather than apply it to one the player never saw (#107).
+  // (another tab answered, started the clock, ...), the action was meant for
+  // a round that's gone: reject it rather than apply it to one the player never saw (#107).
   // Untrusted like the action: it can come straight from a client.
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
     throw new InvalidGameActionError("revision must be a non-negative integer");
   }
   if (expectedRevision !== game.revision) throw new GameConflictError(game.id);
-  const { state } = game;
 
-  const current: Game = { puzzles, index: state.index, round: state.round, finished: state.finished };
-  const result = step(current, parsed);
-  if (!result.ok) return viewOf(deps, game, puzzles);
+  // One reading of the clock for the whole action, so the time-out and the guess agree.
+  const now = nowOf(deps);
+  const clock = clockOf(game, now);
+  const expired = timeOut(gameOf(game, puzzles), clock);
+  const current = expired?.game ?? gameOf(game, puzzles);
+  const events = expired?.events ?? [];
 
-  const next: StoredGame = {
-    ...game,
-    state: {
-      ...state,
-      index: result.game.index,
-      round: { ...result.game.round },
-      finished: result.game.finished,
-      events: [...state.events, ...result.events],
-      lastOutcome: result.outcome ?? null,
-    },
-  };
-  // Before saving, so the game never moves on to a puzzle it can't show.
-  const levelSrcs = await levelsFor(deps, next.state, puzzles);
-  const saved = await deps.games.save(next);
-  return toGameView(saved, puzzles, levelSrcs);
+  const result = step(current, parsed, clock);
+  if (result.ok) {
+    return save(deps, game, puzzles, result.game, [...events, ...result.events], result.outcome ?? null, now);
+  }
+  // Refused. If the time just ran out, that is still saved (the round is over); otherwise nothing changes.
+  if (expired !== null) return save(deps, game, puzzles, expired.game, expired.events, null, now);
+  return viewOf(deps, game, puzzles, now);
 }
 
-/** `toGameView`, with the current puzzle's level images from `deps.levels` (#57). */
-async function viewOf(deps: GameDeps, game: StoredGame, puzzles: readonly Puzzle[]): Promise<GameView> {
-  return toGameView(game, puzzles, await levelsFor(deps, game.state, puzzles));
+/** The round.ts `Game` for a stored game. */
+function gameOf(game: StoredGame, puzzles: readonly Puzzle[]): Game {
+  const { state } = game;
+  return { puzzles, index: state.index, round: state.round, finished: state.finished };
+}
+
+function clockOf(game: StoredGame, now: number): RoundClock {
+  return { now, scoring: game.state.scoring };
 }
 
 /**
- * The level images `toGameView` needs for `state` (#57): only the current
- * puzzle's URLs are looked up, and `toGameView` sends only the one for the
- * level reached. Throws if the current puzzle can't be shown (a private puzzle
- * that isn't cut), so call it **before** storing `state`: otherwise the game
- * would be saved at a puzzle that fails on every later load.
+ * Save `game` moved on to `next` with `events` added, and return the new
+ * view. Checks the new state can be shown first, so the game never moves on
+ * to a puzzle it can't show. Throws `GameConflictError` if another request
+ * saved first.
+ */
+async function save(
+  deps: GameDeps,
+  game: StoredGame,
+  puzzles: readonly Puzzle[],
+  next: Game,
+  events: readonly ScoringEvent[],
+  lastOutcome: GuessOutcome | null,
+  now: number,
+): Promise<GameView> {
+  const { state } = game;
+  const updated: StoredGame = {
+    ...game,
+    state: {
+      ...state,
+      index: next.index,
+      round: { ...next.round },
+      finished: next.finished,
+      events: [...state.events, ...events],
+      lastOutcome,
+    },
+  };
+  const levelSrcs = await levelsFor(deps, updated.state, puzzles);
+  const saved = await deps.games.save(updated);
+  return toGameView(saved, puzzles, levelSrcs, now);
+}
+
+/** `toGameView`, with the current puzzle's images from `deps.levels` (#57). */
+async function viewOf(deps: GameDeps, game: StoredGame, puzzles: readonly Puzzle[], now: number): Promise<GameView> {
+  return toGameView(game, puzzles, await levelsFor(deps, game.state, puzzles), now);
+}
+
+/**
+ * The cut images `toGameView` needs for `state` (#57): only the current
+ * puzzle's URLs are looked up, and `toGameView` sends only the full photo,
+ * once the round has started. Throws if the current puzzle can't be shown (a
+ * private puzzle that isn't cut), so call it **before** storing `state`:
+ * otherwise the game would be saved at a puzzle that fails on every later load.
  */
 async function levelsFor(
   deps: GameDeps,
@@ -545,7 +632,7 @@ async function levelsFor(
   const puzzle = state.finished ? undefined : puzzles[state.index];
   if (puzzle === undefined) return new Map();
   const levelSrcs = await deps.levels.getLevelSrcs([puzzle.id]);
-  roundImage(puzzle, state.round, levelSrcs); // throws if it can't be shown
+  roundPhoto(puzzle, state.round, levelSrcs); // throws if it can't be shown
   return levelSrcs;
 }
 
@@ -564,9 +651,9 @@ async function load(
     throw error;
   }
   if (game === null || !sameOwner(game.owner, owner)) throw new GameNotFoundError();
-  if (game.state.schemaVersion !== 1) {
-    throw new Error(`server-game: unsupported schemaVersion ${String(game.state.schemaVersion)}`);
-  }
+  const version: unknown = game.state.schemaVersion;
+  if (version === 1) throw new GameFromOldRulesError(game.id, game.owner, version);
+  if (version !== 2) throw new Error(`server-game: unsupported schemaVersion ${String(version)}`);
   const puzzles = await deps.puzzles.getPuzzles(game.state.puzzleIds);
   return { game, puzzles };
 }
