@@ -18,7 +18,10 @@
 //
 // Downloads are named with random `pz-` ids, never the photo's title or the
 // answer (titles often name the subject). One request at a time, a pause
-// between them, and a back-off on HTTP 429/503, with a generic User-Agent.
+// between them (longer before downloads), and on HTTP 429/503 a wait as long
+// as the server asks; still blocked after that, the run stops. Commons
+// originals wider than 3,840 px are downloaded as Wikimedia's 3,840 px copy.
+// A generic User-Agent.
 //
 // Runs directly in Node 24 (type stripping), so imports keep their `.ts`.
 
@@ -214,14 +217,50 @@ export const realSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(reso
  * Retry-After if it gives one, else 2, 4, 8… seconds) and tries again, up to
  * `retries` times. Other errors are returned as they are, for the caller.
  */
-export async function fetchWithBackoff(url: string, fetchFn: Fetch, sleep: Sleep, retries = 4): Promise<Response> {
+export async function fetchWithBackoff(
+  url: string,
+  fetchFn: Fetch,
+  sleep: Sleep,
+  retries = 4,
+  onWait: (seconds: number) => void = () => {},
+): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
     const response = await fetchFn(url, { headers: { "User-Agent": USER_AGENT } });
     if ((response.status !== 429 && response.status !== 503) || attempt >= retries) return response;
     const retryAfter = Number(response.headers.get("retry-after"));
-    const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 120) : 2 ** (attempt + 1);
+    // Wait as long as the server asks (Wikimedia asks for 600 s), up to MAX_WAIT_SECONDS:
+    // retrying sooner only keeps the block going.
+    const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, MAX_WAIT_SECONDS) : 2 ** (attempt + 1);
+    onWait(seconds);
     await sleep(seconds * 1000);
   }
+}
+
+/** The longest Retry-After we honour; a longer one is waited this long, then tried again. */
+export const MAX_WAIT_SECONDS = 15 * 60;
+
+/** Thrown when a server still says "too many requests" after waiting: stop the run rather than keep asking. */
+export class RateLimitedError extends Error {
+  constructor(host: string) {
+    super(`${host} still says "too many requests" after waiting. Stopped; run the same command again later (saved photos are kept).`);
+    this.name = "RateLimitedError";
+  }
+}
+
+/** Wikimedia serves resized copies of originals at fixed widths; this is the biggest common one. */
+export const COMMONS_DOWNLOAD_WIDTH = 3840;
+
+/**
+ * For a Wikimedia Commons original wider than `COMMONS_DOWNLOAD_WIDTH`, the URL
+ * of its resized copy at that width; otherwise the URL as it is. Originals are
+ * often 8,000+ px and 10-20 MB, and big downloads hit Wikimedia's rate limit
+ * fastest; 3,840 px is still sharp at the game's zoom.
+ */
+export function downloadUrl(url: string, width: unknown): string {
+  const match = /^https:\/\/upload\.wikimedia\.org\/wikipedia\/commons\/([0-9a-f])\/([0-9a-f]{2})\/([^/?#]+)$/u.exec(url);
+  if (match === null || typeof width !== "number" || width <= COMMONS_DOWNLOAD_WIDTH) return url;
+  const [, a, ab, name] = match;
+  return `https://upload.wikimedia.org/wikipedia/commons/thumb/${a}/${ab}/${name}/${COMMONS_DOWNLOAD_WIDTH}px-${name}`;
 }
 
 const EXTENSIONS: Record<string, string> = { jpeg: "jpg", png: "png", webp: "webp" };
@@ -234,7 +273,8 @@ export type FindOptions = {
   maxPages: number; // search result pages to look through per answer
   fetch: Fetch;
   sleep: Sleep;
-  pauseMs: number; // between requests, to stay well under Openverse's limits
+  pauseMs: number; // between searches, to stay well under Openverse's limits
+  downloadPauseMs?: number; // before each photo download (default 5,000): Wikimedia's limit is stricter
   log: (line: string) => void;
 };
 
@@ -275,10 +315,14 @@ export async function findCandidates(options: FindOptions): Promise<FindSummary>
   const saved: Candidate[] = [];
   let skipped = 0;
   let first = true;
-  const get = async (url: string) => {
-    if (!first) await sleep(pauseMs);
+  const get = async (url: string, kind: "search" | "download" = "search") => {
+    if (!first) await sleep(kind === "download" ? (options.downloadPauseMs ?? 5000) : pauseMs);
     first = false;
-    return fetchWithBackoff(url, options.fetch, sleep);
+    const response = await fetchWithBackoff(url, options.fetch, sleep, 6, (seconds) =>
+      log(`  ${new URL(url).host} asked us to wait ${seconds} s; waiting…`),
+    );
+    if (response.status === 429) throw new RateLimitedError(new URL(url).host);
+    return response;
   };
 
   for (const answer of options.answers) {
@@ -322,11 +366,11 @@ export async function findCandidates(options: FindOptions): Promise<FindSummary>
 async function download(
   image: OpenverseImage,
   answer: string,
-  get: (url: string) => Promise<Response>,
+  get: (url: string, kind?: "search" | "download") => Promise<Response>,
   { outDir, minWidth, log }: FindOptions,
   saved: readonly Candidate[],
 ): Promise<Candidate | null> {
-  const response = await get(image.url as string);
+  const response = await get(downloadUrl(image.url as string, image.width), "download");
   if (!response.ok) {
     log(`  skipped a photo: download failed (HTTP ${response.status})`);
     return null;

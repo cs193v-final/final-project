@@ -11,7 +11,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   creditFor,
   fetchWithBackoff,
+  downloadUrl,
   findCandidates,
+  MAX_WAIT_SECONDS,
+  RateLimitedError,
   fingerprintDistance,
   licenseLabel,
   newPuzzleId,
@@ -121,6 +124,24 @@ describe("credits", () => {
   });
 });
 
+describe("downloadUrl", () => {
+  const original = "https://upload.wikimedia.org/wikipedia/commons/1/19/Some_Photo_(1).jpg";
+
+  it("downloads Wikimedia's 3,840 px copy of a bigger Commons original", () => {
+    expect(downloadUrl(original, 8256)).toBe(
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/Some_Photo_(1).jpg/3840px-Some_Photo_(1).jpg",
+    );
+  });
+
+  it("keeps the original when it isn't bigger, or isn't a Commons original", () => {
+    expect(downloadUrl(original, 3840)).toBe(original);
+    expect(downloadUrl(original, undefined)).toBe(original);
+    expect(downloadUrl("https://images.example.com/a.jpg", 9000)).toBe("https://images.example.com/a.jpg");
+    const thumb = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/A.jpg/1024px-A.jpg";
+    expect(downloadUrl(thumb, 9000)).toBe(thumb);
+  });
+});
+
 describe("fingerprintDistance", () => {
   it("counts the bits that differ", () => {
     expect(fingerprintDistance("0000000000000000", "0000000000000000")).toBe(0);
@@ -163,6 +184,19 @@ describe("fetchWithBackoff", () => {
     const result = await fetchWithBackoff("https://x.example", fetchFn, sleep);
     expect(result.status).toBe(200);
     expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([7000, 4000, 8000]);
+  });
+
+  it("waits as long as the server asks, up to 15 minutes, and says so", async () => {
+    const fetchFn = vi
+      .fn<Fetch>()
+      .mockResolvedValueOnce(response(429, { "retry-after": "600" }))
+      .mockResolvedValueOnce(response(429, { "retry-after": "86400" }))
+      .mockResolvedValueOnce(response(200));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const waits: number[] = [];
+    await fetchWithBackoff("https://x.example", fetchFn, sleep, 4, (s) => waits.push(s));
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([600_000, MAX_WAIT_SECONDS * 1000]);
+    expect(waits).toEqual([600, 900]);
   });
 
   it("gives up after the retries and returns the last response", async () => {
@@ -336,6 +370,26 @@ describe("findCandidates", () => {
     const { saved } = await findCandidates({ ...opts, fetch: again.fetchFn });
     expect(saved).toEqual([]);
     expect(readCandidates(opts.outDir)[0]!.fingerprint).toMatch(/^[0-9a-f]{16}$/u);
+  });
+
+  it("stops the run, keeping what's saved, when a server is still blocking after waiting", async () => {
+    const big = await jpeg(3200, 2000);
+    const fetchFn: Fetch = async (url) => {
+      if (url.startsWith("https://api.openverse.org/")) {
+        return Response.json({ results: [photo({ id: "a", url: "https://img.example/a.jpg" }), photo({ id: "b", url: "https://img.example/b.jpg" })], page_count: 1 });
+      }
+      return url.endsWith("a.jpg") ? new Response(new Uint8Array(big)) : new Response("", { status: 429, headers: { "retry-after": "600" } });
+    };
+    const opts = options(fetchFn);
+    await expect(findCandidates(opts)).rejects.toBeInstanceOf(RateLimitedError);
+    expect(readCandidates(opts.outDir).map((c) => c.openverseId)).toEqual(["a"]);
+  });
+
+  it("pauses longer before photo downloads than before searches", async () => {
+    const { fetchFn } = fakeOpenverse({ "red thing": [[photo({ id: "a", url: "https://img.example/a.jpg" })]] }, { "https://img.example/a.jpg": await jpeg(3200, 2000) });
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    await findCandidates(options(fetchFn, { sleep, pauseMs: 1500, downloadPauseMs: 5000, perAnswer: 1 }));
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([5000]);
   });
 
   it("keeps the credits list valid JSON after every photo", async () => {

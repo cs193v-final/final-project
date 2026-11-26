@@ -17,8 +17,11 @@
 // wide (default 3000); JPEG files only; not marked mature or sensitive; BY and BY-SA need a
 // named creator. Credits of BY and BY-SA photos say "cropped".
 //
-// Rate limits: one request at a time, a pause between requests (--pause-ms,
-// default 1500), and a back-off on HTTP 429 or 503. Anonymous Openverse use
+// Rate limits: one request at a time, a pause between searches (--pause-ms,
+// default 1500) and 5 s before each download, and on HTTP 429 or 503 a wait as
+// long as the server asks (Wikimedia asks for 10 minutes). If it's still
+// blocked after that, the run stops; run the same command again later.
+// Photos wider than 3,840 px come as Wikimedia's 3,840 px copy. Anonymous Openverse use
 // allows about 100 requests a minute and 1,000 a day, which is plenty for a
 // few themes a day. No token is used. If we ever add one, it goes only in
 // .env.local, and a person records it in SECRETS.md and COST-CONTROLS.md.
