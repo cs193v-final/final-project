@@ -1,5 +1,5 @@
-import { SCORING_CONFIG } from "./scoring-config.ts";
-import type { RoundResult, ScoringConfig, ScoringEvent } from "./types.ts";
+import { SCORING_CONFIG, TIMED_SCORING_CONFIG } from "./scoring-config.ts";
+import type { RoundResult, ScoringConfig, ScoringEvent, TimedScoringConfig } from "./types.ts";
 
 /**
  * Largest value a scoring field may have (#174). Points end up in Postgres
@@ -162,4 +162,67 @@ export function scoreGame(
 
   const total = rounds.reduce((sum, round) => sum + round.points, 0);
   return { rounds, total };
+}
+
+// ---------------------------------------------------------------------------
+// Timed-reveal scoring (#254, #256). The server (#255) and the round screen
+// both call `scoreAt`, so the number a player sees is the number they get.
+// ---------------------------------------------------------------------------
+
+/** Longest round a config may set, in seconds. Keeps typos like 3000 out. */
+export const MAX_TIMED_LIMIT_SECONDS = 600;
+
+/** Largest `curve` a config may set. Past this the score is ~min after 1 s. */
+export const MAX_TIMED_CURVE = 10;
+
+/**
+ * Throws if a timed config can't produce sensible scores: points must be
+ * whole numbers that fit a Postgres `integer`, with `minPoints` ≤
+ * `maxPoints`; `revealSeconds` > 0; `limitSeconds` ≥ `revealSeconds` (and at
+ * most `MAX_TIMED_LIMIT_SECONDS`); `curve` > 0 (and at most `MAX_TIMED_CURVE`).
+ */
+export function validateTimedScoringConfig(config: TimedScoringConfig): void {
+  for (const key of ["maxPoints", "minPoints"] as const) {
+    const value = config[key];
+    if (!Number.isInteger(value) || value < 0 || value > MAX_SCORING_VALUE) {
+      throw new Error(
+        `TimedScoringConfig.${key} must be a whole number from 0 to ${MAX_SCORING_VALUE}, got ${value}`,
+      );
+    }
+  }
+  if (config.minPoints > config.maxPoints) {
+    throw new Error("TimedScoringConfig.minPoints can't be more than maxPoints");
+  }
+  if (!Number.isFinite(config.revealSeconds) || config.revealSeconds <= 0) {
+    throw new Error(`TimedScoringConfig.revealSeconds must be more than 0, got ${config.revealSeconds}`);
+  }
+  if (
+    !Number.isFinite(config.limitSeconds) ||
+    config.limitSeconds < config.revealSeconds ||
+    config.limitSeconds > MAX_TIMED_LIMIT_SECONDS
+  ) {
+    throw new Error(
+      `TimedScoringConfig.limitSeconds must be from revealSeconds (${config.revealSeconds}) to ${MAX_TIMED_LIMIT_SECONDS}, got ${config.limitSeconds}`,
+    );
+  }
+  if (!Number.isFinite(config.curve) || config.curve <= 0 || config.curve > MAX_TIMED_CURVE) {
+    throw new Error(`TimedScoringConfig.curve must be more than 0 and at most ${MAX_TIMED_CURVE}, got ${config.curve}`);
+  }
+}
+
+/**
+ * Points a correct guess earns `seconds` after the round started:
+ * `minPoints + (maxPoints − minPoints) × (1 − min(t / revealSeconds, 1))^curve`,
+ * rounded to a whole number, and 0 once `t ≥ limitSeconds` (time's up).
+ *
+ * A negative time counts as 0 (a clock a little behind shouldn't throw mid
+ * round). Throws on NaN or infinity, and on an invalid config.
+ */
+export function scoreAt(seconds: number, config: TimedScoringConfig = TIMED_SCORING_CONFIG): number {
+  validateTimedScoringConfig(config);
+  if (!Number.isFinite(seconds)) throw new Error(`scoreAt: seconds must be a number, got ${seconds}`);
+  const t = Math.max(0, seconds);
+  if (t >= config.limitSeconds) return 0;
+  const remaining = 1 - Math.min(t / config.revealSeconds, 1);
+  return Math.round(config.minPoints + (config.maxPoints - config.minPoints) * remaining ** config.curve);
 }

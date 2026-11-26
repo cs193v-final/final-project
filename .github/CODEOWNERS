@@ -1,0 +1,29 @@
+# Code owners (#184). With "Require review from Code Owners" on for `main`, a PR
+# that touches one of these paths needs an approval from one of its owners.
+# A PR author can't approve their own PR, so two owners per path lets each one
+# review the other's database changes (AGENTS.md: database oversight).
+#
+# GitHub uses the LAST matching line for each file, so keep broader rules first.
+# Paths without an owner here need the usual one approval from anyone.
+# src/test/codeowners.test.ts checks that every path below exists, and that every
+# script in scripts/ that talks to the database (and its test) is listed (#205).
+
+# Database: schema, queries, migrations, and the scripts that connect to it.
+/src/db/                         @Hombobow @Joseph-G-McD
+/drizzle/                        @Hombobow @Joseph-G-McD
+/drizzle.config.ts               @Hombobow @Joseph-G-McD
+/scripts/seed-db.ts              @Hombobow @Joseph-G-McD
+/scripts/seed.ts                 @Hombobow @Joseph-G-McD
+/scripts/seed.test.ts            @Hombobow @Joseph-G-McD
+/scripts/seed-images.ts          @Hombobow @Joseph-G-McD
+/scripts/seed-images.test.ts     @Hombobow @Joseph-G-McD
+/scripts/pack-scoring.ts         @Hombobow @Joseph-G-McD
+/scripts/pack-scoring.test.ts    @Hombobow @Joseph-G-McD
+/scripts/create-test-user.ts     @Hombobow @Joseph-G-McD
+/scripts/create-test-user.test.ts @Hombobow @Joseph-G-McD
+/scripts/encrypt-game-states.ts  @Hombobow @Joseph-G-McD
+/scripts/encrypt-game-states.test.ts @Hombobow @Joseph-G-McD
+
+# Accounts, sessions and encryption: the database owners plus Ethan.
+/src/auth/                       @Hombobow @Joseph-G-McD @ethanyng
+/src/crypto/                     @Hombobow @Joseph-G-McD @ethanyng
