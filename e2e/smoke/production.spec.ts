@@ -70,7 +70,11 @@ test.describe("read-only", () => {
     test.skip(!stanfordHref, "Stanford is still 'coming soon' in src/components/modes.ts (#65)");
     const response = await request.get(stanfordHref!);
     expect(response.status()).toBe(200);
-    expect(await response.text()).toContain("Stanford");
+    // The page says so when the pack isn't seeded or can't be read (src/app/stanford/page.tsx).
+    const html = await response.text();
+    expect(html).toContain("Stanford");
+    expect(html).not.toContain("Stanford mode is coming soon");
+    expect(html).not.toContain("load Stanford mode");
   });
 
   test("today's daily is scheduled", async ({ page }) => {
@@ -132,6 +136,8 @@ test.describe("read-only", () => {
 
 test.describe("writes (SMOKE_WRITE=1)", () => {
   test.skip(!WRITE, "set SMOKE_WRITE=1 to start games and create a throwaway account");
+  // No retry: a retried sign-up would make a second throwaway account on the real site.
+  test.describe.configure({ retries: 0 });
 
   test("practice starts and the first image can be guessed", async ({ page }) => {
     if (!firstPuzzle) throw new Error("The practice pack has no puzzles");

@@ -7,7 +7,11 @@ const baseURL = process.env.BASE_URL;
 if (!baseURL) throw new Error("Set BASE_URL to the site to smoke test, e.g. BASE_URL=https://example.vercel.app npm run test:smoke");
 
 // A preview behind Vercel Deployment Protection takes the project's automation
-// bypass secret. It comes from the shell only, never a file.
+// bypass secret. It comes from the shell only, never a file. Playwright prints
+// this header in the error of a request that fails on the network (and keeps it
+// in error-context.md and the trace under test-results/), so set it on the
+// command line for a preview run only, don't export it, and never paste the
+// output or traces of a run that used it (e.g. into #223).
 const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 
 export default defineConfig({
