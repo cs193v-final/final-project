@@ -23,10 +23,11 @@ export type SiteHeaderProps = {
  */
 export function SiteHeader({ account }: SiteHeaderProps) {
   // usePathname needs a Client Component (Next 16 docs, use-pathname.md).
-  const onHome = usePathname() === "/";
+  const pathname = usePathname();
+  const onHome = pathname === "/";
   return (
     <header className="w-full border-b border-zinc-200 dark:border-zinc-800">
-      <nav aria-label="Site" className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-2">
+      <nav aria-label="Site" className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-x-4 px-4 py-2">
         <Link
           href="/"
           // Screen readers hear "Zoom Out home". The visible name starts the
@@ -37,7 +38,18 @@ export function SiteHeader({ account }: SiteHeaderProps) {
         >
           {GAME_NAME}
         </Link>
-        {account !== undefined && <div className="text-sm">{account}</div>}
+        {/* Wraps on a phone, so a long username and Log out never overlap the link. */}
+        <div className="flex flex-wrap items-center justify-end gap-x-4 text-sm">
+          {/* The leaderboard isn't a mode, so it's here rather than a card (#62). */}
+          <Link
+            href="/leaderboard"
+            aria-current={pathname === "/leaderboard" ? "page" : undefined}
+            className={`-mx-2 inline-block rounded-md px-2 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
+          >
+            Leaderboard
+          </Link>
+          {account !== undefined && <div>{account}</div>}
+        </div>
       </nav>
     </header>
   );

@@ -11,6 +11,7 @@
 // `pointsIfCorrect` (scoring.ts) turn the server's own scoring events into
 // points. There is no way for a client to submit a score.
 
+import { beatAiSummary } from "./beat-ai.ts";
 import { createGame, step, type Game, type Round } from "./round.ts";
 import { pointsIfCorrect, scoreGame, validateScoringConfig } from "./scoring.ts";
 import type {
@@ -373,7 +374,12 @@ export function toGameView(
   };
   if (state.lastOutcome !== null) view.lastOutcome = publicOutcome(state.lastOutcome, puzzles[state.index]);
   // Only once every round is over, so no answer is ever in a view while a round is played.
-  if (state.finished) view.answers = puzzles.map((p) => p.answer);
+  if (state.finished) {
+    view.answers = puzzles.map((p) => p.answer);
+    // Beat the AI (#66), counted here so the browser never decides it.
+    const aiSolvedLevel = new Map(puzzles.map((p) => [p.id, p.aiSolvedLevel]));
+    view.beatAi = beatAiSummary(rounds, (id) => aiSolvedLevel.get(id) ?? null);
+  }
   return view;
 }
 
