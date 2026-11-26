@@ -1,7 +1,8 @@
-// Spec for Beat the AI's solver (#56): it plays the stored level images, and
-// writes aiSolvedLevel into the content files and the database so a re-seed
-// keeps it. Runs against PGlite with the real migrations; a fake classifier
-// stands in for CLIP and "sees" red as the answer.
+// Spec for Beat the AI's solver (#56, by solve time #257): it watches each
+// puzzle's effect clear up on its stored photo, and writes aiSolvedSeconds
+// into the content files and the database so a re-seed keeps it. Runs against
+// PGlite with the real migrations; a fake classifier stands in for CLIP and
+// "sees" red as the answer.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ import { seedContent } from "../src/db/content.ts";
 import { saveLevelImages, type LevelImageInput } from "../src/db/images.ts";
 import * as schema from "../src/db/schema.ts";
 import { parseContent, type Content } from "../src/game/packs.ts";
-import type { Pack, Puzzle } from "../src/game/types.ts";
+import type { Pack, Puzzle, PuzzleEffect } from "../src/game/types.ts";
 import type { Classifier } from "../src/images/clip/analyze.ts";
 import { rank } from "../src/images/clip/decide.ts";
 import type { ClipModel, RgbImage } from "../src/images/clip/model.ts";
@@ -27,24 +28,25 @@ import {
   answersByPuzzle,
   cachedTexts,
   formatJson,
-  saveAiSolvedLevels,
-  setAiSolvedLevels,
+  saveAiSolvedSeconds,
+  setAiSolvedSeconds,
   solvePuzzles,
-  storedLevels,
+  storedPhotos,
 } from "./ai-solver.ts";
 
 const migrationsFolder = fileURLToPath(new URL("../drizzle", import.meta.url));
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
-function puzzle(id: string, answer: string, zoomLevels = [8, 4, 2, 1]): Puzzle {
+function puzzle(id: string, answer: string, effect: PuzzleEffect = "tiles"): Puzzle {
   return {
     id,
     imageUrl: `images/${id}.jpg`,
     answer,
     acceptedAnswers: [],
-    reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels },
+    reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [8, 4, 2, 1] },
     credit: { source: "test", license: "CC0" },
     aiSolvedLevel: null,
+    effect,
   };
 }
 const pack = (id: string, puzzleIds: string[]): Pack => ({ id, kind: "daily", title: "Test", theme: "Test", puzzleIds });
@@ -58,13 +60,14 @@ const webp = async (colour: typeof RED): Promise<LevelImageInput> => ({
   contentType: "image/webp",
   bytes: new Uint8Array(await sharp({ create: { width: 40, height: 30, channels: 3, background: colour } }).webp().toBuffer()),
 });
-/** Stores one image per level: green until `solvedAt`, red from then on (null: never red). */
-async function storeLevels(db: PgliteDatabase<typeof schema>, p: Puzzle, solvedAt: number | null) {
-  const levels = await Promise.all(
-    p.reveal.zoomLevels.map(async (_, level) => ({ ...(await webp(solvedAt !== null && level >= solvedAt ? RED : GREEN)), level })),
-  );
+/** Stores one image per level: the whole photo (the last level) in `photo`, the closer levels green. */
+async function storeLevels(db: PgliteDatabase<typeof schema>, p: Puzzle, photo: typeof RED) {
+  const last = p.reveal.zoomLevels.length - 1;
+  const levels = await Promise.all(p.reveal.zoomLevels.map(async (_, level) => ({ ...(await webp(level === last ? photo : GREEN)), level })));
   await saveLevelImages(db, p.id, levels);
 }
+/** A short clock for the database tests: a frame each second for 4 s. */
+const FAST = { revealSeconds: 4, step: 1 };
 
 const red = ({ data }: RgbImage) => {
   let n = 0;
@@ -119,22 +122,25 @@ describe("formatJson", () => {
   });
 });
 
-describe("setAiSolvedLevels", () => {
-  it("sets the level on puzzles in a list of puzzles, like sample.json", () => {
-    const json = [{ id: "a" }, { id: "b", aiSolvedLevel: 1 }, { id: "c" }];
-    expect(setAiSolvedLevels(json, new Map([["a", 2], ["b", 1], ["x", 0]]))).toEqual(["a"]);
-    expect(json).toEqual([{ id: "a", aiSolvedLevel: 2 }, { id: "b", aiSolvedLevel: 1 }, { id: "c" }]);
+describe("setAiSolvedSeconds", () => {
+  it("sets the time on puzzles in a list of puzzles, like sample.json", () => {
+    const json = [{ id: "a" }, { id: "b", aiSolvedSeconds: 1.5 }, { id: "c" }];
+    expect(setAiSolvedSeconds(json, new Map([["a", 6.5], ["b", 1.5], ["x", 0]]))).toEqual(["a"]);
+    expect(json).toEqual([{ id: "a", aiSolvedSeconds: 6.5 }, { id: "b", aiSolvedSeconds: 1.5 }, { id: "c" }]);
   });
 
-  it("sets it on a content file's puzzles, null included, and leaves the rest alone", () => {
-    const json = { packs: [{ id: "p" }], puzzles: [{ id: "a", aiSolvedLevel: 3 }, { id: "b" }] };
-    expect(setAiSolvedLevels(json, new Map([["a", null], ["b", null]]))).toEqual(["a"]); // b: missing already means null
-    expect(json).toEqual({ packs: [{ id: "p" }], puzzles: [{ id: "a", aiSolvedLevel: null }, { id: "b" }] });
+  it("writes never as null, so the file shows the solver ran, and leaves other puzzles and fields alone", () => {
+    const json = { packs: [{ id: "p" }], puzzles: [{ id: "a", aiSolvedSeconds: 3, aiSolvedLevel: 1 }, { id: "b" }, { id: "c", aiSolvedSeconds: null }] };
+    expect(setAiSolvedSeconds(json, new Map([["a", null], ["b", null], ["c", null]]))).toEqual(["a", "b"]);
+    expect(json).toEqual({
+      packs: [{ id: "p" }],
+      puzzles: [{ id: "a", aiSolvedSeconds: null, aiSolvedLevel: 1 }, { id: "b", aiSolvedSeconds: null }, { id: "c", aiSolvedSeconds: null }],
+    });
   });
 
   it("changes nothing in a file with no puzzles", () => {
     const json = { packs: [] };
-    expect(setAiSolvedLevels(json, new Map([["a", 1]]))).toEqual([]);
+    expect(setAiSolvedSeconds(json, new Map([["a", 1]]))).toEqual([]);
     expect(json).toEqual({ packs: [] });
   });
 });
@@ -153,27 +159,25 @@ describe("with a database", { timeout: 30_000 }, () => {
     await pg.close();
   });
 
-  const storedLevel = async (id: string) =>
-    (await db.select({ level: schema.puzzles.aiSolvedLevel }).from(schema.puzzles).where(eq(schema.puzzles.id, id)))[0]!.level;
+  const storedSeconds = async (id: string) =>
+    (await db.select({ seconds: schema.puzzles.aiSolvedSeconds }).from(schema.puzzles).where(eq(schema.puzzles.id, id)))[0]!.seconds;
 
-  describe("storedLevels", () => {
-    it("reads each puzzle's stored level images, tightest first", async () => {
+  describe("storedPhotos", () => {
+    it("reads each puzzle's whole stored photo, its last level, which is what the game shows", async () => {
       const p = puzzle("pz-a", "Fig");
       await seedContent(db, { puzzles: [p], packs: [], schedule: [] });
-      await storeLevels(db, p, 2);
-      const levels = (await storedLevels(db, [p])).get("pz-a")!;
-      expect(levels).toHaveLength(4);
-      const colours = await Promise.all(levels.map(async (bytes) => (await sharp(bytes).raw().toBuffer())[0]));
-      expect(colours.map((r) => r! > 150)).toEqual([false, false, true, true]);
+      await storeLevels(db, p, RED);
+      const photo = (await storedPhotos(db, [p])).get("pz-a")!;
+      expect((await sharp(photo).raw().toBuffer())[0]).toBeGreaterThan(150);
     });
 
     it("names every puzzle that isn't seeded, isn't fully cut, or changed since it was cut", async () => {
       const [cut, uncut, moved, absent] = [puzzle("pz-cut", "Fig"), puzzle("pz-uncut", "Date"), puzzle("pz-moved", "Kiwi"), puzzle("pz-absent", "Lime")];
       await seedContent(db, { puzzles: [cut, uncut, moved], packs: [], schedule: [] });
-      await storeLevels(db, cut, 1);
-      await storeLevels(db, moved, 1);
+      await storeLevels(db, cut, RED);
+      await storeLevels(db, moved, RED);
       const movedNow = { ...moved, reveal: { ...moved.reveal, focus: { x: 0.2, y: 0.5 } } };
-      const error = await storedLevels(db, [cut, uncut, movedNow, absent]).catch((e: Error) => e);
+      const error = await storedPhotos(db, [cut, uncut, movedNow, absent]).catch((e: Error) => e);
       expect(error).toBeInstanceOf(Error);
       const message = (error as Error).message;
       expect(message).toMatch(/npm run db:seed/);
@@ -186,24 +190,30 @@ describe("with a database", { timeout: 30_000 }, () => {
   });
 
   describe("solvePuzzles", () => {
-    it("gives each puzzle the first stored level CLIP gets right, or null", async () => {
-      const puzzles = [puzzle("pz-a", "Fig"), puzzle("pz-b", "Date"), puzzle("pz-c", "Kiwi")];
+    it("gives each puzzle the first time CLIP gets it while its effect plays, or null", async () => {
+      // Pixelated red is still red (solved at once); tiles start shut; grass is never the answer.
+      const puzzles = [puzzle("pz-a", "Fig", "pixelate"), puzzle("pz-b", "Date", "tiles"), puzzle("pz-c", "Kiwi", "tiles")];
       await seedContent(db, { puzzles, packs: [pack("pk-1", ["pz-a", "pz-b", "pz-c"])], schedule: [] });
-      await storeLevels(db, puzzles[0]!, 1);
-      await storeLevels(db, puzzles[1]!, 3);
-      await storeLevels(db, puzzles[2]!, null);
+      await storeLevels(db, puzzles[0]!, RED);
+      await storeLevels(db, puzzles[1]!, RED);
+      await storeLevels(db, puzzles[2]!, GREEN);
       const content = { puzzles, packs: [pack("pk-1", ["pz-a", "pz-b", "pz-c"])] };
-      const solved = await solvePuzzles(db, content, fakeClassifier);
-      expect(Object.fromEntries([...solved].map(([id, s]) => [id, s.aiSolvedLevel]))).toEqual({ "pz-a": 1, "pz-b": 3, "pz-c": null });
-      expect(solved.get("pz-a")!.levels.map((l) => l.solved)).toEqual([false, true, true, true]);
+      const solved = await solvePuzzles(db, content, fakeClassifier, FAST);
+      expect(solved.get("pz-a")!.aiSolvedSeconds).toBe(0);
+      const tiles = solved.get("pz-b")!;
+      expect(tiles.aiSolvedSeconds).toBeGreaterThan(0);
+      expect(tiles.aiSolvedSeconds).toBeLessThanOrEqual(FAST.revealSeconds);
+      expect(tiles.steps.find((s) => s.solved)!.seconds).toBe(tiles.aiSolvedSeconds);
+      expect(solved.get("pz-c")!.aiSolvedSeconds).toBeNull();
+      expect(solved.get("pz-c")!.steps.map((s) => s.seconds)).toEqual([0, 1, 2, 3, 4]);
     });
 
     it("chooses between the pack's answers and the generic list, one classifier per set of labels", async () => {
       const puzzles = [puzzle("pz-a", "Fig"), puzzle("pz-b", "Date"), puzzle("pz-c", "Kiwi")];
       await seedContent(db, { puzzles, packs: [], schedule: [] });
-      for (const p of puzzles) await storeLevels(db, p, 0);
+      for (const p of puzzles) await storeLevels(db, p, RED);
       const classifierFor = vi.fn(fakeClassifier);
-      await solvePuzzles(db, { puzzles, packs: [pack("pk-1", ["pz-a", "pz-b"])] }, classifierFor);
+      await solvePuzzles(db, { puzzles, packs: [pack("pk-1", ["pz-a", "pz-b"])] }, classifierFor, FAST);
       const labelSets = classifierFor.mock.calls.map(([labels]) => labels);
       expect(labelSets).toHaveLength(3); // a and b each put their own answer first; c is in no pack
       expect(labelSets[0]!.slice(0, 2)).toEqual(["Fig", "Date"]);
@@ -214,24 +224,25 @@ describe("with a database", { timeout: 30_000 }, () => {
     });
   });
 
-  describe("saveAiSolvedLevels", () => {
-    it("writes only the levels that changed, and returns those ids", async () => {
+  describe("saveAiSolvedSeconds", () => {
+    it("writes only the times that changed, and returns those ids", async () => {
       const puzzles = [puzzle("pz-a", "Fig"), puzzle("pz-b", "Date")];
-      await seedContent(db, { puzzles: [puzzles[0]!, { ...puzzles[1]!, aiSolvedLevel: 2 }], packs: [], schedule: [] });
-      expect(await saveAiSolvedLevels(db, new Map([["pz-a", 1], ["pz-b", 2], ["pz-unknown", 0]]))).toEqual(["pz-a"]);
-      expect([await storedLevel("pz-a"), await storedLevel("pz-b")]).toEqual([1, 2]);
-      expect(await saveAiSolvedLevels(db, new Map([["pz-a", 1]]))).toEqual([]);
-      expect(await saveAiSolvedLevels(db, new Map([["pz-b", null]]))).toEqual(["pz-b"]);
-      expect(await storedLevel("pz-b")).toBeNull();
+      await seedContent(db, { puzzles: [puzzles[0]!, { ...puzzles[1]!, aiSolvedSeconds: 2.5 }], packs: [], schedule: [] });
+      expect(await saveAiSolvedSeconds(db, new Map([["pz-a", 6.5], ["pz-b", 2.5], ["pz-unknown", 0]]))).toEqual(["pz-a"]);
+      expect([await storedSeconds("pz-a"), await storedSeconds("pz-b")]).toEqual([6.5, 2.5]);
+      expect(await saveAiSolvedSeconds(db, new Map([["pz-a", 6.5]]))).toEqual([]);
+      expect(await saveAiSolvedSeconds(db, new Map([["pz-b", null]]))).toEqual(["pz-b"]);
+      expect(await storedSeconds("pz-b")).toBeNull();
+      expect(await saveAiSolvedSeconds(db, new Map([["pz-b", null]]))).toEqual([]);
     });
 
-    it("refuses a level the puzzle doesn't have (the database checks it)", async () => {
+    it("refuses a negative time (the database checks it)", async () => {
       await seedContent(db, { puzzles: [puzzle("pz-a", "Fig")], packs: [], schedule: [] });
-      await expect(saveAiSolvedLevels(db, new Map([["pz-a", 4]]))).rejects.toThrow();
+      await expect(saveAiSolvedSeconds(db, new Map([["pz-a", -1]]))).rejects.toThrow();
     });
   });
 
-  it("solved levels survive a re-seed, because the content file has them too", async () => {
+  it("solve times survive a re-seed, because the content file has them too", async () => {
     const dir = mkdtempSync(join(tmpdir(), "zoom-out-solver-"));
     try {
       const file = join(dir, "day.json");
@@ -239,19 +250,21 @@ describe("with a database", { timeout: 30_000 }, () => {
       const original: Content = { packs: [pack("pk-1", ["pz-a"])], puzzles: [p], schedule: [] };
       writeFileSync(file, formatJson(original));
       await seedContent(db, parseContent(JSON.parse(readFileSync(file, "utf8"))));
-      await storeLevels(db, p, 2);
+      await storeLevels(db, p, RED);
 
       // What the command does: solve, write the file, then the database.
-      const solved = await solvePuzzles(db, original, fakeClassifier);
-      const levels = new Map([...solved].map(([id, s]) => [id, s.aiSolvedLevel]));
+      const solved = await solvePuzzles(db, original, fakeClassifier, FAST);
+      const times = new Map([...solved].map(([id, s]) => [id, s.aiSolvedSeconds]));
+      const seconds = times.get("pz-a")!;
+      expect(seconds).toBeGreaterThan(0);
       const json = JSON.parse(readFileSync(file, "utf8"));
-      setAiSolvedLevels(json, levels);
+      setAiSolvedSeconds(json, times);
       writeFileSync(file, formatJson(json));
-      await saveAiSolvedLevels(db, levels);
-      expect(await storedLevel("pz-a")).toBe(2);
+      await saveAiSolvedSeconds(db, times);
+      expect(await storedSeconds("pz-a")).toBe(seconds);
 
       await seedContent(db, parseContent(JSON.parse(readFileSync(file, "utf8"))));
-      expect(await storedLevel("pz-a")).toBe(2);
+      expect(await storedSeconds("pz-a")).toBe(seconds);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

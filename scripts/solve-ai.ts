@@ -1,25 +1,28 @@
-// Beat the AI's solver (#56, #66): CLIP plays every puzzle on its stored level
-// images and writes the first view it gets right into `aiSolvedLevel`, in the
-// content files and the database. Run it after the final `npm run db:seed`,
-// before content is loaded into production:
+// Beat the AI's solver (#56, #66, by solve time #257): CLIP watches every
+// puzzle's effect clear up on its stored photo, a frame every half second of
+// the round's clock, and writes the first time it gets it right into
+// `aiSolvedSeconds`, in the content files and the database. Run it after the
+// final `npm run db:seed`, before content is loaded into production:
 //
 //   npm run clip:install                    once: CLIP's own install (about 735 MB)
 //   npm run db:solve-ai -- --dry-run        print what CLIP gets, write nothing
 //   npm run db:solve-ai                     practice pack + every file in content/
 //   npm run db:solve-ai -- path/to/a.json   practice pack + these files or folders
-//   npm run db:solve-ai -- --show-guesses   also print CLIP's guesses at each view
+//   npm run db:solve-ai -- --show-guesses   also print CLIP's guesses at each frame
 //
 // Takes the same content as `db:seed`, and the same database
 // (DATABASE_URL_UNPOOLED, else the dev database in .env.local). The practice
 // pack is always included; its answers are public, so src/puzzles/sample.json
-// gets its levels too and is committed. Every other content file must be
+// gets its times too and is committed. Every other content file must be
 // outside the repo or git-ignored, like content/.
 //
-// By default it prints only puzzle ids and views: with --show-guesses the
-// output names answers, so don't paste it into an issue or PR. Safe to run
-// again: it only writes what changed. About 35 s to load CLIP and read the
-// labels, then about a second per puzzle, so all the content takes a couple of
-// minutes. See src/images/clip/ for the model and the labels.
+// By default it prints only puzzle ids, effects and times: with
+// --show-guesses the output names answers, so don't paste it into an issue or
+// PR. Safe to run again: it only writes what changed. About 35 s to load CLIP
+// and read the labels, then about a quarter of a second per frame: it stops
+// once CLIP gets a puzzle, so up to about 13 s for one it never gets, and all
+// the content takes 10 to 15 minutes. See src/images/clip/ for the model and
+// the labels, and src/game/effects/ for the frames.
 //
 // Runs directly in Node 24 (type stripping), so imports keep their `.ts`.
 
@@ -32,7 +35,7 @@ import { combineContent, parseContent, type Content } from "../src/game/packs.ts
 import { parsePuzzles } from "../src/game/puzzles.ts";
 import { createClassifier } from "../src/images/clip/analyze.ts";
 import { isDownloaded, loadClip } from "../src/images/clip/model.ts";
-import { cachedTexts, formatJson, saveAiSolvedLevels, setAiSolvedLevels, solvePuzzles } from "./ai-solver.ts";
+import { cachedTexts, formatJson, saveAiSolvedSeconds, setAiSolvedSeconds, solvePuzzles } from "./ai-solver.ts";
 import { connect } from "./seed-db.ts";
 
 const root = resolve(import.meta.dirname, "..");
@@ -119,26 +122,23 @@ async function main() {
     if (!isDownloaded()) console.log("Downloading CLIP, about 610 MB (first run only)…");
     const model = cachedTexts(await loadClip());
     const solved = await solvePuzzles(db, content, (labels) => createClassifier(model, labels));
-    const levels = new Map([...solved].map(([id, s]) => [id, s.aiSolvedLevel]));
+    const times = new Map([...solved].map(([id, s]) => [id, s.aiSolvedSeconds]));
 
-    const view = (level: number | null, of: number) => (level === null ? "never" : `view ${level + 1} of ${of}`);
+    const time = (seconds: number | null) => (seconds === null ? "never" : `${seconds} s`);
     for (const puzzle of content.puzzles) {
-      const { aiSolvedLevel, levels: results } = solved.get(puzzle.id)!;
-      const before = puzzle.aiSolvedLevel === null ? "not set" : view(puzzle.aiSolvedLevel, results.length);
-      const was = puzzle.aiSolvedLevel === aiSolvedLevel ? "" : `  (was: ${before})`;
-      console.log(`${puzzle.id}: ${view(aiSolvedLevel, results.length)}${was}`);
+      const { aiSolvedSeconds, steps } = solved.get(puzzle.id)!;
+      const before = puzzle.aiSolvedSeconds ?? null;
+      const was = before === aiSolvedSeconds ? "" : `  (was: ${before === null ? "never, or not run" : time(before)})`;
+      console.log(`${puzzle.id}: ${time(aiSolvedSeconds)} (${puzzle.effect ?? "no effect chosen"})${was}`);
       if (values["show-guesses"]) {
-        for (const r of results) console.log(`    view ${r.level + 1}: ${r.top.slice(0, 3).map((g) => `${g.label} ${Math.round(g.probability * 100)}%`).join(", ")}`);
+        for (const s of steps) console.log(`    ${time(s.seconds)}: ${s.top.slice(0, 3).map((g) => `${g.label} ${Math.round(g.probability * 100)}%`).join(", ")}`);
       }
     }
-    // A day should mix difficulty (#180): a spread of views, not the same one five times.
+    // A day should mix difficulty (#182): a spread of solve times, not five that are the same.
     const dateOf = new Map(content.schedule.map((e) => [e.packId, e.date]));
     for (const pack of content.packs) {
-      const views = pack.puzzleIds.map((id) => {
-        const level = levels.get(id) ?? null;
-        return level === null ? "never" : String(level + 1);
-      });
-      console.log(`Pack ${pack.id}${dateOf.has(pack.id) ? ` (${dateOf.get(pack.id)})` : ""}: views ${views.join(", ")}`);
+      const packTimes = pack.puzzleIds.map((id) => time(times.get(id) ?? null));
+      console.log(`Pack ${pack.id}${dateOf.has(pack.id) ? ` (${dateOf.get(pack.id)})` : ""}: ${packTimes.join(", ")}`);
     }
 
     if (dryRun) {
@@ -148,13 +148,13 @@ async function main() {
     // Files first: they're what a later seed reads, so a run that stops after
     // this is still right after the next seed, and running again finishes it.
     for (const file of files) {
-      if (file.json === null || setAiSolvedLevels(file.json, levels).length === 0) continue;
+      if (file.json === null || setAiSolvedSeconds(file.json, times).length === 0) continue;
       writeFileSync(file.path, formatJson(file.json));
       const committed = relative(root, file.path).startsWith(`src${sep}puzzles${sep}`);
       console.log(`Wrote ${relative(cwd, file.path)}.${committed ? " It's the practice pack: commit it." : ""}`);
     }
-    const changed = await saveAiSolvedLevels(db, levels);
-    console.log(`Updated aiSolvedLevel of ${changed.length} puzzle(s) in the database (${levels.size - changed.length} unchanged).`);
+    const changed = await saveAiSolvedSeconds(db, times);
+    console.log(`Updated aiSolvedSeconds of ${changed.length} puzzle(s) in the database (${times.size - changed.length} unchanged).`);
   } finally {
     await close();
   }
@@ -164,7 +164,7 @@ try {
   await main();
 } catch (error) {
   // The database's own error (missing table, wrong password) is in `cause`.
-  // The solver's queries only carry puzzle ids, image ids and levels, never answers.
+  // The solver's queries only carry puzzle ids, image ids and solve times, never answers.
   let current: unknown = error;
   for (let depth = 0; current !== undefined && depth < 5; depth++) {
     console.error(depth === 0 ? String(current instanceof Error ? current.message : current) : `Caused by: ${current instanceof Error ? current.message : current}`);

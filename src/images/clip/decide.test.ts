@@ -12,6 +12,8 @@ import {
   rank,
   rejectProbability,
   rejectReasons,
+  SOLVE_STEP_SECONDS,
+  solveTimes,
   suggestStartingPoints,
   topGuess,
   type FocusResult,
@@ -131,6 +133,37 @@ describe("firstSolvedLevel (Beat the AI's aiSolvedLevel)", () => {
 
   it("counts a plural on top: 'peanuts' for a Peanut is", () => {
     expect(firstSolvedLevel({ answer: "Peanut", acceptedAnswers: [] }, [top("almonds"), top("peanuts")])).toBe(1);
+  });
+});
+
+describe("solveTimes (when Beat the AI's solver looks, #257)", () => {
+  it("is every half second from the start until the photo is clear", () => {
+    const times = solveTimes(25);
+    expect(times).toHaveLength(51);
+    expect(times.slice(0, 4)).toEqual([0, 0.5, 1, 1.5]);
+    expect(times.at(-1)).toBe(25);
+    expect(SOLVE_STEP_SECONDS).toBe(0.5);
+  });
+
+  it("always ends on the clear photo, even when the step doesn't divide the reveal time", () => {
+    expect(solveTimes(2, 0.75)).toEqual([0, 0.75, 1.5, 2]);
+    expect(solveTimes(0.3)).toEqual([0, 0.3]);
+  });
+
+  it("gives round numbers for a step that isn't exact in binary", () => {
+    expect(solveTimes(0.5, 0.1)).toEqual([0, 0.1, 0.2, 0.3, 0.4, 0.5]);
+  });
+
+  it.each([
+    [0, 0.5],
+    [-1, 0.5],
+    [Number.NaN, 0.5],
+    [Number.POSITIVE_INFINITY, 0.5],
+    [25, 0],
+    [25, -0.5],
+    [25, Number.NaN],
+  ])("refuses revealSeconds %s with step %s", (revealSeconds, step) => {
+    expect(() => solveTimes(revealSeconds, step)).toThrow(RangeError);
   });
 });
 

@@ -31,6 +31,14 @@ export type Puzzle = {
    * and swirl centre on `reveal.focus`. Missing = not chosen yet.
    */
   effect?: PuzzleEffect;
+  /**
+   * Beat the AI by solve time (#257, PROPOSAL, added by Darian): seconds after
+   * the round's clock starts when the AI solver's top guess was first the
+   * answer, watching this puzzle's effect (`npm run db:solve-ai`). Missing =
+   * it never got it, or the solver hasn't run yet. Replaces `aiSolvedLevel`
+   * once rounds no longer have levels.
+   */
+  aiSolvedSeconds?: number;
 };
 
 /**

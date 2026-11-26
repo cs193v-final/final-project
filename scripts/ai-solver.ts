@@ -1,11 +1,12 @@
-// Beat the AI's solver (#56): CLIP plays every puzzle on its stored level
-// images, what players see, and the first view its top guess is the answer
-// becomes the puzzle's `aiSolvedLevel` (`null` = never). The command is
-// scripts/solve-ai.ts; this is the part the tests use.
+// Beat the AI's solver (#56, by solve time #257): CLIP watches every puzzle's
+// effect clear up on its stored photo, what players see, and the first time
+// its top guess is the answer becomes the puzzle's `aiSolvedSeconds` (`null`
+// = never, even once the photo is clear). The command is scripts/solve-ai.ts;
+// this is the part the tests use.
 //
-// `db:seed` writes `ai_solved_level` from the content file, so the solver writes
-// the value into the content files as well as the database. Then the production
-// seed carries it, and a later re-seed keeps it.
+// `db:seed` writes `ai_solved_seconds` from the content file, so the solver
+// writes the value into the content files as well as the database. Then the
+// production seed carries it, and a later re-seed keeps it.
 //
 // Runs directly in Node 24 (type stripping), so imports keep their `.ts`.
 
@@ -16,7 +17,7 @@ import { getImageFile, getLevelSrcs, IMAGE_ID } from "../src/db/images.ts";
 import { puzzles as puzzlesTable } from "../src/db/schema.ts";
 import type { Content } from "../src/game/packs.ts";
 import type { Puzzle } from "../src/game/types.ts";
-import { solveLevels, type Classifier, type LevelResult } from "../src/images/clip/analyze.ts";
+import { solveTimed, type Classifier, type SolveOptions, type StepResult } from "../src/images/clip/analyze.ts";
 import { buildLabels } from "../src/images/clip/labels.ts";
 import type { ClipModel } from "../src/images/clip/model.ts";
 import { sameSettings, settingsOf, storedImageSettings } from "./seed-images.ts";
@@ -61,11 +62,13 @@ function imageId(src: string): string | null {
 }
 
 /**
- * Each puzzle's stored level images, tightest first. Throws, naming every
- * puzzle that isn't seeded yet, isn't fully cut, or was cut from other image
- * settings than the content has now: run `npm run db:seed` first.
+ * Each puzzle's stored photo: its last level image, the whole photo, which is
+ * what the game sends players once the round starts. Throws, naming every
+ * puzzle that isn't seeded yet, isn't fully cut (the game won't show it), or
+ * was cut from other image settings than the content has now: run
+ * `npm run db:seed` first.
  */
-export async function storedLevels(db: AnyDb, puzzles: readonly Puzzle[]): Promise<Map<string, Uint8Array[]>> {
+export async function storedPhotos(db: AnyDb, puzzles: readonly Puzzle[]): Promise<Map<string, Uint8Array>> {
   const ids = puzzles.map((p) => p.id);
   const [settings, srcs] = await Promise.all([storedImageSettings(db, ids), getLevelSrcs(db, ids)]);
   const problems = puzzles.flatMap((puzzle) => {
@@ -79,33 +82,33 @@ export async function storedLevels(db: AnyDb, puzzles: readonly Puzzle[]): Promi
     throw new Error(`Run \`npm run db:seed\` first, so the solver plays what players see:\n- ${problems.join("\n- ")}`);
   }
 
-  const levels = new Map<string, Uint8Array[]>();
+  const photos = new Map<string, Uint8Array>();
   for (const puzzle of puzzles) {
-    const files = await Promise.all(
-      srcs.get(puzzle.id)!.map(async (src, level) => {
-        const id = imageId(src);
-        const file = id === null ? null : await getImageFile(db, id);
-        if (file === null) throw new Error(`${puzzle.id}: level ${level}'s image (${src}) is missing; run \`npm run db:seed -- --recut\``);
-        return file.bytes;
-      }),
-    );
-    levels.set(puzzle.id, files);
+    const src = srcs.get(puzzle.id)!.at(-1)!;
+    const id = imageId(src);
+    const file = id === null ? null : await getImageFile(db, id);
+    if (file === null) throw new Error(`${puzzle.id}: its full image (${src}) is missing; run \`npm run db:seed -- --recut\``);
+    photos.set(puzzle.id, file.bytes);
   }
-  return levels;
+  return photos;
 }
 
-export type Solved = { aiSolvedLevel: Puzzle["aiSolvedLevel"]; levels: LevelResult[] };
+/** A puzzle's solve time (`null` = never), and what CLIP made of each frame it looked at. */
+export type Solved = { aiSolvedSeconds: number | null; steps: StepResult[] };
 
 /**
- * Plays every puzzle in `content` on its stored levels. `classifierFor` makes
- * a classifier for a set of labels; puzzles with the same labels share one.
+ * Plays every puzzle in `content` on its stored photo with its effect.
+ * `classifierFor` makes a classifier for a set of labels; puzzles with the
+ * same labels share one. `options` are for tests (the default is the game's
+ * clock, a frame every half second).
  */
 export async function solvePuzzles(
   db: AnyDb,
   content: Pick<Content, "packs" | "puzzles">,
   classifierFor: (labels: string[]) => Promise<Classifier>,
+  options: SolveOptions = {},
 ): Promise<Map<string, Solved>> {
-  const levels = await storedLevels(db, content.puzzles);
+  const photos = await storedPhotos(db, content.puzzles);
   const answers = answersByPuzzle(content);
   const classifiers = new Map<string, Promise<Classifier>>();
   const solved = new Map<string, Solved>();
@@ -113,30 +116,33 @@ export async function solvePuzzles(
     const labels = buildLabels(answers.get(puzzle.id)!);
     const key = JSON.stringify(labels);
     if (!classifiers.has(key)) classifiers.set(key, classifierFor(labels));
-    solved.set(puzzle.id, await solveLevels(await classifiers.get(key)!, levels.get(puzzle.id)!, puzzle));
+    solved.set(puzzle.id, await solveTimed(await classifiers.get(key)!, photos.get(puzzle.id)!, puzzle, options));
   }
   return solved;
 }
 
+/** Solve times by puzzle id: seconds, or `null` for never. */
+export type SolveTimes = ReadonlyMap<string, number | null>;
+
 /**
- * Writes each puzzle's `aiSolvedLevel` to the database, only where it changed.
- * One update per puzzle, so a run that stops partway is fixed by running it
- * again. Returns the ids it changed.
+ * Writes each puzzle's `aiSolvedSeconds` to the database, only where it
+ * changed. One update per puzzle, so a run that stops partway is fixed by
+ * running it again. Returns the ids it changed.
  */
-export async function saveAiSolvedLevels(db: AnyDb, levels: ReadonlyMap<string, Puzzle["aiSolvedLevel"]>): Promise<string[]> {
-  const ids = [...levels.keys()];
+export async function saveAiSolvedSeconds(db: AnyDb, times: SolveTimes): Promise<string[]> {
+  const ids = [...times.keys()];
   if (ids.length === 0) return [];
   const current = new Map(
     (
       await db
-        .select({ id: puzzlesTable.id, aiSolvedLevel: puzzlesTable.aiSolvedLevel })
+        .select({ id: puzzlesTable.id, aiSolvedSeconds: puzzlesTable.aiSolvedSeconds })
         .from(puzzlesTable)
         .where(inArray(puzzlesTable.id, ids))
-    ).map((r) => [r.id, r.aiSolvedLevel]),
+    ).map((r) => [r.id, r.aiSolvedSeconds]),
   );
-  const changed = ids.filter((id) => current.has(id) && current.get(id) !== levels.get(id));
+  const changed = ids.filter((id) => current.has(id) && current.get(id) !== (times.get(id) ?? null));
   for (const id of changed) {
-    await db.update(puzzlesTable).set({ aiSolvedLevel: levels.get(id) ?? null }).where(eq(puzzlesTable.id, id));
+    await db.update(puzzlesTable).set({ aiSolvedSeconds: times.get(id) ?? null }).where(eq(puzzlesTable.id, id));
   }
   return changed;
 }
@@ -144,18 +150,19 @@ export async function saveAiSolvedLevels(db: AnyDb, levels: ReadonlyMap<string, 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
- * A content file's JSON with each listed puzzle's `aiSolvedLevel` set: a file
- * that's a list of puzzles (src/puzzles/sample.json) or one with `puzzles`.
+ * A content file's JSON with each listed puzzle's `aiSolvedSeconds` set: a
+ * file that's a list of puzzles (src/puzzles/sample.json) or one with
+ * `puzzles`. "Never" is written as `null`, so the file shows the solver ran.
  * Puzzles not listed are left alone. Returns the ids it changed.
  */
-export function setAiSolvedLevels(json: unknown, levels: ReadonlyMap<string, Puzzle["aiSolvedLevel"]>): string[] {
+export function setAiSolvedSeconds(json: unknown, times: SolveTimes): string[] {
   const puzzles = Array.isArray(json) ? json : isObject(json) && Array.isArray(json.puzzles) ? json.puzzles : [];
   const changed: string[] = [];
   for (const puzzle of puzzles) {
-    if (!isObject(puzzle) || typeof puzzle.id !== "string" || !levels.has(puzzle.id)) continue;
-    const level = levels.get(puzzle.id) ?? null;
-    if ((puzzle.aiSolvedLevel ?? null) === level) continue;
-    puzzle.aiSolvedLevel = level;
+    if (!isObject(puzzle) || typeof puzzle.id !== "string" || !times.has(puzzle.id)) continue;
+    const seconds = times.get(puzzle.id) ?? null;
+    if (puzzle.aiSolvedSeconds === seconds) continue;
+    puzzle.aiSolvedSeconds = seconds;
     changed.push(puzzle.id);
   }
   return changed;

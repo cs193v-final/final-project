@@ -104,6 +104,19 @@ function effect(value: unknown, path: string): PuzzleEffect | undefined {
   return value as PuzzleEffect;
 }
 
+/**
+ * Optional in the data; missing or null means the AI solver (#257) never got
+ * it, or hasn't run yet. The solver writes null for "never", so a content file
+ * shows it ran.
+ */
+function aiSolvedSeconds(value: unknown, path: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new PuzzleDataError(path, "must be null or a number of seconds, 0 or more");
+  }
+  return value;
+}
+
 /** Checks one puzzle and returns it typed. Unknown extra fields are dropped. */
 export function parsePuzzle(value: unknown, path = "puzzle"): Puzzle {
   const data = object(value, path);
@@ -120,6 +133,7 @@ export function parsePuzzle(value: unknown, path = "puzzle"): Puzzle {
   const credit = object(data.credit, `${path}.credit`);
   const zoomLevels = parseZoomLevels(reveal.zoomLevels, `${path}.reveal.zoomLevels`);
   const chosenEffect = effect(data.effect, `${path}.effect`);
+  const solvedSeconds = aiSolvedSeconds(data.aiSolvedSeconds, `${path}.aiSolvedSeconds`);
 
   return {
     id: id(data.id, `${path}.id`),
@@ -140,6 +154,7 @@ export function parsePuzzle(value: unknown, path = "puzzle"): Puzzle {
     },
     aiSolvedLevel: aiSolvedLevel(data.aiSolvedLevel, zoomLevels.length, `${path}.aiSolvedLevel`),
     ...(chosenEffect === undefined ? {} : { effect: chosenEffect }),
+    ...(solvedSeconds === undefined ? {} : { aiSolvedSeconds: solvedSeconds }),
   };
 }
 
