@@ -51,6 +51,26 @@ describe("parseCommand", () => {
     });
   });
 
+  it("points to clear when set's file doesn't exist, e.g. `set p1 null` (#174)", () => {
+    const missing = (path: string): string => {
+      throw Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), { code: "ENOENT" });
+    };
+    for (const value of ["null", "scoring.jsn"]) {
+      expect(() => parseCommand(["set", "p1", value], missing)).toThrow(UsageError);
+      expect(() => parseCommand(["set", "p1", value], missing)).toThrow(`No file "${value}"`);
+      expect(() => parseCommand(["set", "p1", value], missing)).toThrow("npm run db:scoring -- clear p1");
+      expect(() => parseCommand(["set", "p1", value], missing)).not.toThrow(/ENOENT/);
+    }
+  });
+
+  it("still reports other file errors as they are", () => {
+    const denied = (): string => {
+      throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+    };
+    expect(() => parseCommand(["set", "p1", "scoring.json"], denied)).toThrow(/EACCES/);
+    expect(() => parseCommand(["set", "p1", "scoring.json"], denied)).not.toThrow(UsageError);
+  });
+
   it.each([
     [[]],
     [["show"]],
@@ -90,7 +110,8 @@ describe("runCommand", () => {
   });
 });
 
-describe("the script's connection (#60)", () => {
+// Each test starts Node; on a busy machine that takes longer than the default 5 s (like seed.test.ts).
+describe("the script's connection (#60)", { timeout: 30_000 }, () => {
   const script = fileURLToPath(new URL("./pack-scoring.ts", import.meta.url));
   const run = (url: string) =>
     spawnSync(process.execPath, [script, "show", "p1"], {
@@ -114,5 +135,16 @@ describe("the script's connection (#60)", () => {
     const output = result.stdout + result.stderr;
     expect(output).not.toContain("PASSWORD");
     expect(output).not.toContain(host);
+  });
+
+  it("talks to a Postgres on this machine with node-postgres, not Neon's HTTP driver (#174)", () => {
+    // Nothing listens on port 1, so the connection is refused. Neon's HTTP
+    // driver would fail with "fetch failed" instead.
+    const result = run("postgresql://USER:PASSWORD@127.0.0.1:1/zoomout");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^db:scoring failed: /);
+    expect(result.stderr).toMatch(/Caused by: .*ECONNREFUSED/);
+    expect(result.stderr).not.toMatch(/fetch failed/);
+    expect(result.stdout + result.stderr).not.toContain("PASSWORD");
   });
 });

@@ -410,7 +410,14 @@ export function toGameView(
     results: rounds,
     total,
     finished: state.finished,
-    scoring: { ...state.scoring },
+    // Copied field by field, like the pack, so nothing else in the stored config can leak (#174).
+    scoring: {
+      maxPoints: state.scoring.maxPoints,
+      minPoints: state.scoring.minPoints,
+      revealSeconds: state.scoring.revealSeconds,
+      limitSeconds: state.scoring.limitSeconds,
+      curve: state.scoring.curve,
+    },
   };
   if (state.lastOutcome !== null) view.lastOutcome = publicOutcome(state.lastOutcome, puzzles[state.index]);
   // Only once every round is over, so no answer is ever in a view while a round is played.

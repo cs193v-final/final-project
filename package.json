@@ -23,6 +23,7 @@
     "db:test-user": "node scripts/create-test-user.ts",
     "db:encrypt-games": "node scripts/encrypt-game-states.ts",
     "clip:install": "npm ci --prefix tools/clip --no-audit --no-fund",
+    "images:find": "node scripts/find-images.ts",
     "images:preview": "node scripts/preview-levels.ts",
     "images:clip": "node scripts/clip-photo.ts"
   },

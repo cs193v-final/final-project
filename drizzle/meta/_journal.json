@@ -61,8 +61,15 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1795682404797,
-      "tag": "0008_timed_rounds",
+      "when": 1795683436776,
+      "tag": "0008_leaderboard_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795685385649,
+      "tag": "0009_timed_rounds",
       "breakpoints": true
     }
   ]

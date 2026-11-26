@@ -210,6 +210,33 @@ describe("the daily on the server", () => {
     expect(await loadDailyStats(NOV1)).toBeNull(); // a new player
   });
 
+  it("never shows, resumes or plays another player's daily, or gives their stats (#60)", async () => {
+    await cutPuzzleImages(db, PUZZLES, (p) => join(root, "public", "puzzles", p.imageUrl.replace("images/", "")));
+    let alice = ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
+    for (const puzzle of PUZZLES) {
+      alice = ok(await actOnGame(alice.gameId, { type: "start" }, alice.revision));
+      alice = ok(await actOnGame(alice.gameId, { type: "guess", guess: puzzle.answer }, alice.revision));
+      alice = ok(await actOnGame(alice.gameId, { type: "next" }, alice.revision));
+    }
+    expect(alice.finished).toBe(true);
+    expect(await loadDailyStats(NOV1)).not.toBeNull();
+
+    state.jar = new Map(); // Bob, in another browser
+    expect(await loadTodaysDailyGame(BEFORE_MIDNIGHT)).toBeNull();
+    expect(await loadDailyStats(NOV1)).toBeNull();
+
+    // Bob's own cookie: starting gives him his own game, not Alice's.
+    const bob = ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
+    expect(bob.gameId).not.toBe(alice.gameId);
+    expect(bob.finished).toBe(false);
+    expect(ok(await loadTodaysDailyGame(BEFORE_MIDNIGHT)).gameId).toBe(bob.gameId);
+    expect(await loadDailyStats(NOV1)).toBeNull(); // his game isn't finished; Alice's isn't his
+
+    // Alice's game id doesn't help: "not found", like a game that doesn't exist.
+    // (Loading a game by id is checked the same way in games.test.ts.)
+    expect(await actOnGame(alice.gameId, { type: "start" }, alice.revision)).toEqual({ ok: false, error: "not-found" });
+  }, 60_000);
+
   it("gives no stats, without a database error, for a date that matches YYYY-MM-DD but doesn't exist", async () => {
     // A player with a cookie, so the date reaches the query. Postgres can't
     // cast these to a date and throws; the action would log it as a failure.

@@ -198,7 +198,12 @@ export type GameView = {
   results: RoundResult[]; // finished rounds so far, scored on the server
   total: number;
   finished: boolean;
-  /** The timed config this game is scored with (#255, #256), so the live score and the final screen use the server's numbers. */
+  /**
+   * The scoring config this game plays with (#174; timed since #255): the
+   * pack's, as it was when the game started (#64). The live score and the
+   * final screen use these values, not the default `TIMED_SCORING_CONFIG`.
+   * Not a secret: it holds no answers.
+   */
   scoring: TimedScoringConfig;
   /**
    * Once the whole game is finished (never while a round is played, #54): each

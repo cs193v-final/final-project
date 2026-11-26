@@ -11,19 +11,18 @@
 // it's unset does it fall back to the dev database in .env.local. Preview and
 // production URLs are typed at a hidden prompt, never stored in a file. Like
 // the app and drizzle.config.ts, it refuses a URL that doesn't require TLS
-// (only localhost is exempt; see src/db/tls.ts).
+// (only localhost is exempt; see src/db/tls.ts). The connection is the seed
+// script's (`connect` in ./seed-db.ts, #174): Neon's HTTP driver for Neon,
+// node-postgres for a Postgres on this machine.
 //
 // Runs with plain Node (type stripping), so everything it imports uses
 // relative paths with `.ts`, not the "@/" alias.
 import { existsSync, readFileSync } from "node:fs";
 
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
-
 import { PackNotFoundError, readStoredScoring, setPackScoring, type PgDb } from "../src/db/pack-scoring.ts";
-import * as schema from "../src/db/schema.ts";
-import { assertDatabaseUrlRequiresTls, InsecureDatabaseUrlError } from "../src/db/tls.ts";
+import { InsecureDatabaseUrlError } from "../src/db/tls.ts";
 import { parseScoringOverride, resolveScoringConfig, ScoringConfigError } from "../src/game/scoring-override.ts";
+import { connect } from "./seed-db.ts";
 
 export const USAGE = `Usage:
   npm run db:scoring -- show  <pack-id>
@@ -44,8 +43,10 @@ export class UsageError extends Error {
 
 /**
  * Parses the command line. For `set`, the value is inline JSON if it starts
- * with `{`, otherwise a path to a JSON file. Doesn't validate the scoring
- * values; `setPackScoring` does that before writing.
+ * with `{`, otherwise a path to a JSON file. A file that doesn't exist is a
+ * `UsageError` pointing to `clear` (#174), since `set <pack> null` ends up
+ * there too. Doesn't validate the scoring values; `setPackScoring` does that
+ * before writing.
  */
 export function parseCommand(
   args: readonly string[],
@@ -59,11 +60,23 @@ export function parseCommand(
   }
   if (kind !== "set") throw new UsageError(`Unknown command "${kind ?? ""}".`);
   if (value === undefined || extra.length > 0) throw new UsageError('"set" takes a pack id and one JSON value.');
-  const json = value.trimStart().startsWith("{") ? value : readFile(value);
+  const json = value.trimStart().startsWith("{") ? value : readJsonFile(value, packId, readFile);
   try {
     return { kind, packId, override: JSON.parse(json) as unknown };
   } catch (error) {
     throw new UsageError(`Not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function readJsonFile(path: string, packId: string, readFile: (path: string) => string): string {
+  try {
+    return readFile(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | null)?.code !== "ENOENT") throw error;
+    throw new UsageError(
+      `No file "${path}". "set" takes inline JSON starting with "{", or a path to a JSON file.\n` +
+        `To remove the pack's override, use: npm run db:scoring -- clear ${packId}`,
+    );
   }
 }
 
@@ -93,7 +106,7 @@ export async function runCommand(db: PgDb, command: Command): Promise<string> {
 
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 
-function connect(): { db: PgDb; host: string } {
+function databaseUrl(): string {
   if (process.env.DATABASE_URL_UNPOOLED === undefined && existsSync(".env.local")) {
     process.loadEnvFile(".env.local");
   }
@@ -103,9 +116,7 @@ function connect(): { db: PgDb; host: string } {
       "DATABASE_URL_UNPOOLED is not set. For dev it comes from .env.local; for preview or production, see TECHNICAL.md → Database.",
     );
   }
-  assertDatabaseUrlRequiresTls(url, "DATABASE_URL_UNPOOLED");
-  // Only the host is printed, never the credentials.
-  return { db: drizzle({ client: neon(url), schema }), host: new URL(url).host };
+  return url;
 }
 
 async function main(): Promise<void> {
@@ -113,9 +124,16 @@ async function main(): Promise<void> {
     const command = parseCommand(process.argv.slice(2));
     // Fail on a bad value before connecting; setPackScoring checks again before writing.
     if (command.kind === "set") parseScoringOverride(command.override);
-    const { db, host } = connect();
-    console.log(`Database host: ${host}`);
-    console.log(await runCommand(db, command));
+    const url = databaseUrl();
+    // Checks TLS (#60) before loading a driver, then picks the driver by host.
+    const { db, close } = await connect(url, "DATABASE_URL_UNPOOLED");
+    try {
+      // Only the host is printed, never the credentials.
+      console.log(`Database host: ${new URL(url).host}`);
+      console.log(await runCommand(db, command));
+    } finally {
+      await close();
+    }
   } catch (error) {
     if (
       error instanceof UsageError ||
@@ -126,9 +144,16 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    // Anything else (network, database): one line instead of a stack trace.
-    // Driver errors don't include the connection string.
-    console.error(`db:scoring failed: ${error instanceof Error ? error.message : String(error)}`);
+    // Anything else (network, database): the message instead of a stack trace.
+    // Driver errors don't include the connection string. For a failed query,
+    // drizzle's message is only the SQL; the driver's own error (connection
+    // refused, wrong password) is in `cause`, as in scripts/seed.ts.
+    let current: unknown = error;
+    for (let depth = 0; current !== undefined && depth < 5; depth++) {
+      const message = current instanceof Error ? current.message : String(current);
+      console.error(depth === 0 ? `db:scoring failed: ${message}` : `Caused by: ${message}`);
+      current = current instanceof Error ? current.cause : undefined;
+    }
     process.exitCode = 1;
   }
 }

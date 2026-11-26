@@ -1,5 +1,5 @@
 {
-  "id": "ff5db3b8-2205-4a0c-acb6-c0ccf6d0aa65",
+  "id": "8bb01062-dae7-4d9a-bfba-aa7831265a77",
   "prevId": "8f0a66e6-14a1-4cd3-a881-94b9cd0bc3d7",
   "version": "7",
   "dialect": "postgresql",
@@ -95,11 +95,11 @@
           "primaryKey": false,
           "notNull": true
         },
-        "seconds": {
-          "name": "seconds",
-          "type": "double precision",
+        "reveal_level_reached": {
+          "name": "reveal_level_reached",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "wrong_guesses": {
           "name": "wrong_guesses",
@@ -113,29 +113,23 @@
           "primaryKey": false,
           "notNull": true
         },
-        "reveal_level_reached": {
-          "name": "reveal_level_reached",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "base_points": {
           "name": "base_points",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "reveal_penalty": {
           "name": "reveal_penalty",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "wrong_guess_penalty": {
           "name": "wrong_guess_penalty",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "finished_at": {
           "name": "finished_at",
@@ -213,14 +207,6 @@
         "game_rounds_wrong_guesses_min": {
           "name": "game_rounds_wrong_guesses_min",
           "value": "\"game_rounds\".\"wrong_guesses\" >= 0"
-        },
-        "game_rounds_seconds_min": {
-          "name": "game_rounds_seconds_min",
-          "value": "\"game_rounds\".\"seconds\" >= 0"
-        },
-        "game_rounds_timed_or_old": {
-          "name": "game_rounds_timed_or_old",
-          "value": "(\"game_rounds\".\"seconds\" IS NOT NULL AND \"game_rounds\".\"reveal_level_reached\" IS NULL AND \"game_rounds\".\"base_points\" IS NULL AND \"game_rounds\".\"reveal_penalty\" IS NULL AND \"game_rounds\".\"wrong_guess_penalty\" IS NULL) OR (\"game_rounds\".\"seconds\" IS NULL AND \"game_rounds\".\"reveal_level_reached\" IS NOT NULL AND \"game_rounds\".\"base_points\" IS NOT NULL AND \"game_rounds\".\"reveal_penalty\" IS NOT NULL AND \"game_rounds\".\"wrong_guess_penalty\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
@@ -406,6 +392,28 @@
           ],
           "isUnique": false,
           "where": "\"games\".\"finished_at\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "games_daily_date_total_idx": {
+          "name": "games_daily_date_total_idx",
+          "columns": [
+            {
+              "expression": "daily_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "total",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "first"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"games\".\"finished_at\" IS NOT NULL AND \"games\".\"user_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1104,8 +1112,7 @@
       "schema": "public",
       "values": [
         "correct",
-        "skipped",
-        "timedOut"
+        "skipped"
       ]
     }
   },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createGame, START_GRACE_SECONDS, step, timeOut, type Game, type GameAction, type RoundClock } from "./round.ts";
-import { MAX_SCORING_VALUE, scoreAt, scoreGame, scoreRound, validateScoringConfig } from "./scoring.ts";
+import { MAX_SCORING_VALUE, scoreAt, scoreGame, scoreRound, validateScoringConfig, validateTimedScoringConfig } from "./scoring.ts";
 import { SCORING_CONFIG } from "./scoring-config.ts";
 import type { Puzzle, ScoringConfig, ScoringEvent, TimedScoringConfig } from "./types.ts";
 
@@ -109,6 +109,21 @@ describe("validateScoringConfig (per-pack overrides, old shape)", () => {
     expect(() => validateScoringConfig({ ...OLD, basePoints: 1e300 })).toThrow(/basePoints/);
     expect(() => validateScoringConfig({ ...OLD, basePoints: MAX_SCORING_VALUE + 1 })).toThrow(/basePoints/);
     expect(() => validateScoringConfig({ ...OLD, basePoints: MAX_SCORING_VALUE })).not.toThrow();
+  });
+  it("caps each field so a game's total can't overflow games.total (#174)", () => {
+    const INTEGER_MAX = 2_147_483_647; // Postgres `integer`
+    // Fit in one column, but two correct rounds overflowed the sum before #174.
+    expect(() => validateTimedScoringConfig({ ...TIMED, maxPoints: 2_000_000_000 })).toThrow(
+      /maxPoints must be a whole number from 0 to 1000000/,
+    );
+    expect(MAX_SCORING_VALUE).toBe(1_000_000);
+    // At the cap, a 2,147-round game still fits (as the doc comment says).
+    expect(MAX_SCORING_VALUE * 2_147).toBeLessThan(INTEGER_MAX);
+    for (const key of ["maxPoints", "minPoints"] as const) {
+      expect(() => validateTimedScoringConfig({ ...TIMED, [key]: MAX_SCORING_VALUE + 1 }), key).toThrow(
+        new RegExp(key),
+      );
+    }
   });
   it("rejects a floor above the base", () => {
     expect(() => validateScoringConfig({ ...OLD, minPoints: 200 })).toThrow(/minPoints/);

@@ -1,6 +1,6 @@
-// Migration 0008 (timed rounds, #255) on a database that already has rows:
-// it applies the migrations up to 0007, writes games and rounds the way the
-// old code did, then applies 0008 and checks the old values are kept, new
+// Migration 0009 (timed rounds, #255) on a database that already has rows:
+// it applies the migrations up to 0008, writes games and rounds the way the
+// old code did, then applies 0009 and checks the old values are kept, new
 // timed rounds fit, and old unfinished non-daily games are ended. PGlite, no
 // network.
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -20,15 +20,15 @@ const migrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url)
 type Journal = { entries: { idx: number; tag: string }[] };
 
 let pg: PGlite;
-let before: string; // a copy of drizzle/ that stops at 0007
+let before: string; // a copy of drizzle/ that stops at 0008
 let ids: { practiceUnfinished: string; practiceFinished: string; dailyUnfinished: string; finishedAt: Date };
 
 beforeAll(async () => {
-  before = mkdtempSync(join(tmpdir(), "migrations-0007-"));
+  before = mkdtempSync(join(tmpdir(), "migrations-0008-"));
   cpSync(migrationsFolder, before, { recursive: true });
   const journal = JSON.parse(readFileSync(join(before, "meta/_journal.json"), "utf8")) as Journal;
-  expect(journal.entries.find((e) => e.idx === 8)?.tag).toBe("0008_timed_rounds");
-  journal.entries = journal.entries.filter((e) => e.idx < 8);
+  expect(journal.entries.find((e) => e.idx === 9)?.tag).toBe("0009_timed_rounds");
+  journal.entries = journal.entries.filter((e) => e.idx < 9);
   writeFileSync(join(before, "meta/_journal.json"), JSON.stringify(journal));
 
   pg = new PGlite();
@@ -62,7 +62,7 @@ beforeAll(async () => {
     finishedAt: practiceFinished.finished_at,
   };
 
-  // Now the rest, 0008 included.
+  // Now the rest, 0009 included.
   await migrate(db, { migrationsFolder });
 }, 60_000);
 
@@ -73,7 +73,7 @@ afterAll(async () => {
 
 const rows = async <T>(sql: string, params: unknown[] = []) => (await pg.query<T>(sql, params)).rows;
 
-describe("migration 0008 on tables that already have rows (#255)", () => {
+describe("migration 0009 on tables that already have rows (#255)", () => {
   it("keeps old finished rounds as they were, with no time", async () => {
     expect(
       await rows(
