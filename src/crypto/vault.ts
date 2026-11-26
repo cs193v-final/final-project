@@ -25,6 +25,8 @@ const KEY_BYTES = 32;
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 const VERSION = "v1";
+/** First byte of an `encryptBytes` value: format version 1. */
+const BYTES_VERSION = Buffer.from([1]);
 // Fixed HKDF salt: domain separation for this app and format version.
 const HKDF_SALT = Buffer.from("zoom-out/user-data/v1", "utf8");
 
@@ -134,6 +136,42 @@ export class Vault {
       decipher.setAAD(this.#aad(userId, field));
       decipher.setAuthTag(body.subarray(body.length - TAG_BYTES));
       return Buffer.concat([decipher.update(body.subarray(0, body.length - TAG_BYTES)), decipher.final()]).toString("utf8");
+    } catch {
+      throw new DecryptionError();
+    }
+  }
+
+  /**
+   * `encrypt` for binary data, e.g. an uploaded photo (#67), without the
+   * base64 text overhead. Same key, nonce and associated data rules as
+   * `encrypt`; stored as one version byte (1), the 12-byte nonce, then the
+   * ciphertext and its 16-byte tag.
+   */
+  encryptBytes(userId: string, field: string, plaintext: Uint8Array): Uint8Array {
+    checkName("field", field);
+    if (userId === "") throw new Error("Vault: userId is required");
+    const nonce = randomBytes(NONCE_BYTES);
+    const cipher = createCipheriv("aes-256-gcm", this.#encKey(userId, field), nonce, { authTagLength: TAG_BYTES });
+    cipher.setAAD(this.#aad(userId, field));
+    const out = Buffer.concat([BYTES_VERSION, nonce, cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]);
+    return new Uint8Array(out.buffer, out.byteOffset, out.byteLength);
+  }
+
+  /** Decrypts a value from `encryptBytes` with the same user and field. Throws `DecryptionError` otherwise. */
+  decryptBytes(userId: string, field: string, stored: Uint8Array): Uint8Array {
+    checkName("field", field);
+    const buf = Buffer.from(stored.buffer, stored.byteOffset, stored.byteLength);
+    if (buf.length < 1 + NONCE_BYTES + TAG_BYTES || buf[0] !== BYTES_VERSION[0]) throw new DecryptionError();
+    const nonce = buf.subarray(1, 1 + NONCE_BYTES);
+    const body = buf.subarray(1 + NONCE_BYTES);
+    try {
+      const decipher = createDecipheriv("aes-256-gcm", this.#encKey(userId, field), nonce, {
+        authTagLength: TAG_BYTES,
+      });
+      decipher.setAAD(this.#aad(userId, field));
+      decipher.setAuthTag(body.subarray(body.length - TAG_BYTES));
+      const out = Buffer.concat([decipher.update(body.subarray(0, body.length - TAG_BYTES)), decipher.final()]);
+      return new Uint8Array(out.buffer, out.byteOffset, out.byteLength);
     } catch {
       throw new DecryptionError();
     }
