@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { SCORING_CONFIG } from "@/game/scoring-config";
-import type { ScoringConfig } from "@/game/types";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
+import type { TimedScoringConfig } from "@/game/types";
 import { HOW_TO_PLAY, howToPlay, StartScreen } from "./StartScreen.tsx";
 
 const html = renderToStaticMarkup(<StartScreen />);
@@ -27,31 +27,38 @@ describe("StartScreen", () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 
-  it("explains what costs points and that you can skip", () => {
+  it("explains timed rounds: Start round, the draining score, the limit, and that wrong guesses are free (#255)", () => {
     const rules = HOW_TO_PLAY.join(" ");
-    expect(rules).toMatch(/zoom costs/u);
-    expect(rules).toMatch(/Wrong guesses cost/u);
-    expect(rules).toMatch(/skip/u);
+    expect(rules).toMatch(/Start round/u);
+    expect(rules).toMatch(/drops the longer you take/u);
+    expect(rules).toMatch(/Wrong guesses cost nothing/u);
+    expect(rules).not.toMatch(/zoom|skip/iu);
   });
 
   it("explains the point values once, from the scoring config (#146, from user test #90)", () => {
     const rules = HOW_TO_PLAY.join(" ");
-    const { basePoints, revealPenalty, wrongGuessPenalty, minPoints, skipPoints } = SCORING_CONFIG;
-    expect(rules).toContain(`scores up to ${basePoints} points`);
-    expect(rules).toContain(`every zoom costs ${revealPenalty} points`);
-    expect(rules).toContain(`Wrong guesses cost ${wrongGuessPenalty} points each`);
-    expect(rules).toContain(`at least ${minPoints} points`);
-    expect(rules).toContain(`for ${skipPoints} points`);
+    const { maxPoints, minPoints, revealSeconds, limitSeconds } = TIMED_SCORING_CONFIG;
+    expect(rules).toContain(`scores ${maxPoints.toLocaleString("en-US")} points`);
+    expect(rules).toContain(`clear (${revealSeconds} seconds), a correct guess still scores ${minPoints} points`);
+    expect(rules).toContain(`After ${limitSeconds} seconds the round ends with 0`);
   });
 
   it("follows the config when the values change, so numbers live in one place (#64)", () => {
-    const config: ScoringConfig = { basePoints: 50, revealPenalty: 5, wrongGuessPenalty: 1, minPoints: 2, skipPoints: 1 };
+    const config: TimedScoringConfig = { maxPoints: 500, minPoints: 1, revealSeconds: 10, limitSeconds: 12, curve: 1 };
     const rules = howToPlay(config).join(" ");
-    expect(rules).toContain("scores up to 50 points");
-    expect(rules).toContain("every zoom costs 5 points");
-    expect(rules).toContain("Wrong guesses cost 1 point each");
-    expect(rules).toContain("at least 2 points");
-    expect(rules).toContain("for 1 point.");
+    expect(rules).toContain("scores 500 points");
+    expect(rules).toContain("clear (10 seconds), a correct guess still scores 1 point.");
+    expect(rules).toContain("After 12 seconds");
+  });
+
+  it("shows the scoring it's given, e.g. the practice pack's override, not the default (#204)", () => {
+    const override: TimedScoringConfig = { maxPoints: 3_000, minPoints: 40, revealSeconds: 20, limitSeconds: 24, curve: 2 };
+    const page = renderToStaticMarkup(<StartScreen scoring={override} />);
+    expect(page).toContain("scores 3,000 points");
+    expect(page).toContain("still scores 40 points");
+    expect(page).toContain("After 24 seconds");
+    // None of the default values are left over.
+    expect(page).not.toContain(`scores ${TIMED_SCORING_CONFIG.maxPoints.toLocaleString("en-US")} points`);
   });
 
   it("offers the mode picker before the how-to-play steps (#50)", () => {
