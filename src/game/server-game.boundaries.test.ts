@@ -122,14 +122,7 @@ describe("many wrong guesses", () => {
     ]);
     expect(view.total).toBe(CONFIG.minPoints);
   });
-
-  // #85: "anything that grows per user is capped". Every wrong guess appends a
-  // scoring event to the game's state, and nothing limits how many a round may
-  // have. The per-owner action limit (120 a minute) slows it down but doesn't
-  // bound it: one game's encrypted state (rewritten whole on every save) can
-  // grow by ~170k events a day. Needs a decision on the cap (and what happens at
-  // it) before this can be a real test.
-  it.todo("caps how many wrong guesses one round (or game) stores, so a game's state can't grow without bound");
+  // The per-round cap on wrong guesses (#209) is tested in server-game.guess-cap.test.ts.
 });
 
 describe("lastOutcome is the outcome of the last accepted action only", () => {

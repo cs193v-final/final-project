@@ -328,6 +328,8 @@ describe("findUnfinishedGames (#85)", () => {
   const OTHER_PACK: Pack = { ...PACK, id: "pk_unfinished_other" };
   const carol = anon("carol's cookie token");
   const dave = anon("dave's cookie token");
+  /** More than any owner here has, so `recentIds` lists all of them unless a test passes less. */
+  const LIMIT = 10;
 
   /** Pins a game's timestamps, so the "newest" and "most recently played" picks don't depend on clock resolution. */
   async function setTimes(id: string, createdAt: string, updatedAt: string) {
@@ -339,7 +341,7 @@ describe("findUnfinishedGames (#85)", () => {
     await ensurePackRow(db, OTHER_PACK);
     const d = deps(new PgGameStore(db, vault));
 
-    expect(await findUnfinishedGames(db, carol, OWN_PACK.id)).toEqual({ count: 0, untouchedId: null, latestId: null });
+    expect(await findUnfinishedGames(db, carol, OWN_PACK.id, LIMIT)).toEqual({ count: 0, untouchedId: null, recentIds: [] });
 
     // Carol: an old played game, a newer played one, an untouched one, and a finished one.
     const older = await startGame(d, OWN_PACK, carol, CONFIG);
@@ -364,17 +366,20 @@ describe("findUnfinishedGames (#85)", () => {
       await setTimes(id, "2030-01-02T00:00:00Z", "2030-01-02T00:00:00Z");
     }
 
-    expect(await findUnfinishedGames(db, carol, OWN_PACK.id)).toEqual({
+    expect(await findUnfinishedGames(db, carol, OWN_PACK.id, LIMIT)).toEqual({
       count: 3,
       untouchedId: untouched.gameId,
-      latestId: older.gameId, // played most recently, though created first
+      // Most recently played first: `older` was created first but played last.
+      recentIds: [older.gameId, untouched.gameId, newer.gameId],
     });
-    expect(await findUnfinishedGames(db, dave, OWN_PACK.id)).toEqual({ count: 1, untouchedId: daves.gameId, latestId: daves.gameId });
-    expect(await findUnfinishedGames(db, alice, OWN_PACK.id)).toEqual({ count: 1, untouchedId: alices.gameId, latestId: alices.gameId });
-    expect(await findUnfinishedGames(db, carol, OTHER_PACK.id)).toEqual({
+    // `limit` caps the list, not the count.
+    expect(await findUnfinishedGames(db, carol, OWN_PACK.id, 1)).toEqual({ count: 3, untouchedId: untouched.gameId, recentIds: [older.gameId] });
+    expect(await findUnfinishedGames(db, dave, OWN_PACK.id, LIMIT)).toEqual({ count: 1, untouchedId: daves.gameId, recentIds: [daves.gameId] });
+    expect(await findUnfinishedGames(db, alice, OWN_PACK.id, LIMIT)).toEqual({ count: 1, untouchedId: alices.gameId, recentIds: [alices.gameId] });
+    expect(await findUnfinishedGames(db, carol, OTHER_PACK.id, LIMIT)).toEqual({
       count: 1,
       untouchedId: elsewhere.gameId,
-      latestId: elsewhere.gameId,
+      recentIds: [elsewhere.gameId],
     });
   });
 
@@ -385,11 +390,11 @@ describe("findUnfinishedGames (#85)", () => {
     const frank = anon("frank's cookie token");
     const game = await startGame(d, pack, frank, CONFIG);
     await act(d, game.gameId, frank, { type: "skip" }, game.revision);
-    expect(await findUnfinishedGames(db, frank, pack.id)).toEqual({ count: 1, untouchedId: null, latestId: game.gameId });
+    expect(await findUnfinishedGames(db, frank, pack.id, LIMIT)).toEqual({ count: 1, untouchedId: null, recentIds: [game.gameId] });
   });
 
   it("refuses an owner id that isn't a users.id or a hashed cookie, instead of querying with it", async () => {
-    await expect(findUnfinishedGames(db, { userId: "not-a-uuid" }, OWN_PACK.id)).rejects.toThrow(/userId must be a users.id/);
-    await expect(findUnfinishedGames(db, { anonId: "raw-cookie-token" }, OWN_PACK.id)).rejects.toThrow(/never the raw token/);
+    await expect(findUnfinishedGames(db, { userId: "not-a-uuid" }, OWN_PACK.id, LIMIT)).rejects.toThrow(/userId must be a users.id/);
+    await expect(findUnfinishedGames(db, { anonId: "raw-cookie-token" }, OWN_PACK.id, LIMIT)).rejects.toThrow(/never the raw token/);
   });
 });
