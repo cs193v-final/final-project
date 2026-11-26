@@ -26,9 +26,8 @@
 //
 // Runs directly in Node 24 (type stripping), so imports keep their `.ts`.
 
-import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
 import { combineContent, parseContent, type Content } from "../src/game/packs.ts";
@@ -36,6 +35,7 @@ import { parsePuzzles } from "../src/game/puzzles.ts";
 import { createClassifier } from "../src/images/clip/analyze.ts";
 import { isDownloaded, loadClip } from "../src/images/clip/model.ts";
 import { cachedTexts, formatJson, saveAiSolvedSeconds, setAiSolvedSeconds, solvePuzzles } from "./ai-solver.ts";
+import { assertNotCommittable } from "./not-committable.ts";
 import { connect } from "./seed-db.ts";
 
 const root = resolve(import.meta.dirname, "..");
@@ -65,24 +65,6 @@ function contentFiles(paths: string[]): string[] {
   });
 }
 
-/**
- * Private content must not be committable: outside the repo, or git-ignored,
- * after following symlinks. The same rule as scripts/seed.ts (security audit
- * L8, #95); the solver writes into these files, so it checks them too.
- */
-function assertNotCommittable(file: string) {
-  const rel = relative(realpathSync(root), realpathSync(file));
-  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return;
-  try {
-    execFileSync("git", ["check-ignore", "-q", rel], { cwd: root, stdio: "pipe" });
-  } catch (error) {
-    if ((error as { status?: number }).status === 1) {
-      throw new Error(`${rel}: private content can't live in the repo unless it's git-ignored. Move it to content/ or outside the repo.`);
-    }
-    throw new Error(`${rel}: couldn't ask git whether it's ignored: ${String((error as { stderr?: unknown }).stderr ?? error).trim()}`);
-  }
-}
-
 function load(paths: string[]): File[] {
   const practice = join(root, "src/puzzles");
   const samplePath = join(practice, "sample.json");
@@ -93,7 +75,8 @@ function load(paths: string[]): File[] {
     { path: packPath, json: null, content: parseContent(readJson(packPath), "practice-pack.json") },
   ];
   for (const path of contentFiles(paths)) {
-    assertNotCommittable(path);
+    // Private content must not be committable (#52); the solver writes into these files.
+    assertNotCommittable(path, root);
     const json = readJson(path);
     files.push({ path, json, content: parseContent(json, relative(cwd, path)) });
   }

@@ -294,7 +294,7 @@ describe("npm run db:solve-ai", { timeout: 30_000 }, () => {
       writeFileSync(file, formatJson({ puzzles: [puzzle("pz-a", "Fig")] }));
       const result = run(file);
       expect(result.status).toBe(1);
-      expect(result.stderr).toMatch(/can't live in the repo unless it's git-ignored/);
+      expect(result.stderr).toMatch(/inside the repo and not git-ignored, so git could commit it/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
