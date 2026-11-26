@@ -142,8 +142,10 @@ async function loadTheme(slug) {
 }
 async function save(c) {
   try {
-    const { review } = await api(`/api/${theme}/${c.id}`, { method: "PUT", body: JSON.stringify(c.review) });
-    c.review = review;
+    // Keep c.review the same object: each card's handlers edit it as `r`, so
+    // replacing it with the server's copy would make every later save send
+    // the state from before that edit.
+    await api(`/api/${theme}/${c.id}`, { method: "PUT", body: JSON.stringify(c.review) });
     return true;
   } catch (error) {
     $("hint").textContent = `Couldn't save ${c.id}: ${error.message}`; $("hint").className = "msg bad";
