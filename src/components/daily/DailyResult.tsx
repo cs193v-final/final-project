@@ -110,9 +110,10 @@ export function DailyResult({ intro, view, loadStats, now = systemNow, share = d
     date: intro.date,
     theme: intro.pack?.theme ?? "",
     rounds: view.results,
+    revealSeconds: view.scoring.revealSeconds,
     total: view.total,
-    // The game's own scoring (#64): each round's base is what it was worth at most.
-    maxTotal: view.results.reduce((sum, r) => sum + r.breakdown.base, 0),
+    // The game's own scoring (#64): each round was worth maxPoints at most.
+    maxTotal: view.scoring.maxPoints * view.results.length,
     ...(typeof window === "undefined" ? {} : { url: `${window.location.origin}/daily` }),
   });
 

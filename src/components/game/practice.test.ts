@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import type { GameView, PublicRound } from "@/game/types";
 import { feedbackFor, finalScoreLabels, learnAnswer, NO_FEEDBACK, type Feedback } from "./practice";
 
@@ -7,11 +8,12 @@ function round(overrides: Partial<PublicRound> = {}): PublicRound {
     position: 1,
     puzzleCount: 2,
     state: "playing",
-    revealLevel: 0,
-    levelCount: 3,
+    elapsedSeconds: 1,
     imageSrc: "/img/1.jpg",
+    effect: "pixelate",
+    seed: "p1",
+    focus: { x: 0.5, y: 0.5 },
     wrongGuesses: 0,
-    pointsAvailable: 100,
     aiSolvedLevel: null,
     ...overrides,
   };
@@ -26,6 +28,7 @@ function view(r: PublicRound | null, extra: Partial<GameView> = {}): GameView {
     results: [],
     total: 0,
     finished: r === null,
+    scoring: TIMED_SCORING_CONFIG,
     ...extra,
   };
 }
@@ -52,18 +55,17 @@ describe("feedbackFor", () => {
     });
   });
 
-  it("skipping shows the answer the server revealed", () => {
-    const v = view(round({ state: "skipped", ...ENDED }));
-    expect(feedbackFor({ type: "skip" }, v, WRONG)).toEqual({ kind: "skipped", answer: "Eiffel Tower" });
+  it("a time-out shows the answer the server revealed (#255)", () => {
+    const v = view(round({ state: "timedOut", ...ENDED }));
+    expect(feedbackFor({ type: "guess", guess: "too late" }, v, WRONG)).toEqual({ kind: "timedOut", answer: "Eiffel Tower" });
   });
 
   it("next clears the feedback", () => {
-    expect(feedbackFor({ type: "next" }, view(round({ position: 2 })), { kind: "skipped", answer: "x" })).toEqual(NO_FEEDBACK);
+    expect(feedbackFor({ type: "next" }, view(round({ position: 2 })), { kind: "timedOut", answer: "x" })).toEqual(NO_FEEDBACK);
   });
 
-  it("reveal keeps the current feedback", () => {
-    const v = view(round({ revealLevel: 1, wrongGuesses: 1 }));
-    expect(feedbackFor({ type: "reveal" }, v, WRONG)).toBe(WRONG);
+  it("start clears the feedback", () => {
+    expect(feedbackFor({ type: "start" }, view(round()), WRONG)).toEqual(NO_FEEDBACK);
   });
 
   it("rebuilds the feedback from the view alone after a refresh", () => {
@@ -71,8 +73,8 @@ describe("feedbackFor", () => {
     expect(
       feedbackFor(null, view(round({ wrongGuesses: 2 }), { lastOutcome: { kind: "incorrect", normalizedGuess: "x" } }), NO_FEEDBACK),
     ).toEqual({ kind: "incorrect", guess: "x", wrongGuesses: 2 });
-    expect(feedbackFor(null, view(round({ state: "skipped", ...ENDED })), NO_FEEDBACK)).toEqual({
-      kind: "skipped",
+    expect(feedbackFor(null, view(round({ state: "timedOut", ...ENDED })), NO_FEEDBACK)).toEqual({
+      kind: "timedOut",
       answer: "Eiffel Tower",
     });
     expect(feedbackFor(null, view(null), WRONG)).toEqual(NO_FEEDBACK);
@@ -82,20 +84,19 @@ describe("feedbackFor", () => {
 describe("learnAnswer and finalScoreLabels", () => {
   const result = (puzzleId: string) => ({
     puzzleId,
-    outcome: "skipped" as const,
-    revealLevelReached: 0,
+    outcome: "timedOut" as const,
+    seconds: 30,
     wrongGuesses: 0,
     points: 0,
-    breakdown: { base: 0, revealPenalty: 0, wrongGuessPenalty: 0 },
   });
 
   it("remembers each answer once the server reveals it, and nothing while playing", () => {
     let known = learnAnswer({}, view(round()));
     expect(known).toEqual({});
-    known = learnAnswer(known, view(round({ state: "skipped", ...ENDED })));
+    known = learnAnswer(known, view(round({ state: "timedOut", ...ENDED })));
     known = learnAnswer(known, view(round({ position: 2, state: "correct", answer: "Big Ben" })));
     expect(known).toEqual({ 1: "Eiffel Tower", 2: "Big Ben" });
-    expect(learnAnswer(known, view(round({ state: "skipped", ...ENDED })))).toBe(known);
+    expect(learnAnswer(known, view(round({ state: "timedOut", ...ENDED })))).toBe(known);
   });
 
   it("labels each finished round with its answer, or its number if this tab never saw it", () => {

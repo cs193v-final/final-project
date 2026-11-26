@@ -1,9 +1,7 @@
-import type { Round } from "@/game/round";
-import { SCORING_CONFIG } from "@/game/scoring-config";
-import { pointsIfCorrect } from "@/game/scoring";
-import type { RoundResult, ScoringConfig } from "@/game/types";
+import { scoreAt } from "@/game/scoring";
+import type { RoundResult, RoundState, TimedScoringConfig } from "@/game/types";
 
-const pts = (n: number) => `${n} ${n === 1 ? "point" : "points"}`;
+const pts = (n: number) => `${n.toLocaleString("en-US")} ${n === 1 ? "point" : "points"}`;
 
 /** Top row while playing: which image this is and the running total (#16). */
 export function ScoreHeader({ index, count, total }: { index: number; count: number; total: number }) {
@@ -20,26 +18,33 @@ export function ScoreHeader({ index, count, total }: { index: number; count: num
 }
 
 /**
- * What the current image is worth (#16). While playing: points for a correct
- * answer right now. How zooming and wrong guesses change that is explained
- * once in How to play, not on every round (#146, from user test #90). After
- * the round: what it earned.
+ * What the current image is worth (timed rounds, #255). Before the start:
+ * what it starts at. While playing: `scoreAt` of the time so far, the same
+ * function the server scores with, and the seconds left. After the round:
+ * what it earned. A plain stand-in until the round screen (#256) replaces it.
  */
 export function RoundValue({
-  round,
+  state,
+  seconds,
+  scoring,
   result,
-  pointsNow,
-  config = SCORING_CONFIG,
 }: {
-  round: Pick<Round, "state" | "revealLevel" | "wrongGuesses">;
+  state: RoundState;
+  /** The round's time now: the server's elapsed time, counted on in the browser. */
+  seconds: number;
+  scoring: TimedScoringConfig;
   /** This round's result, once it has ended. */
   result?: RoundResult | undefined;
-  /** What a correct answer is worth now, as the server worked it out (`PublicRound.pointsAvailable`). */
-  pointsNow?: number | undefined;
-  /** Only used when `pointsNow` isn't given. TODO(#64): the game's own config. */
-  config?: ScoringConfig;
 }) {
-  if (round.state !== "playing") {
+  if (state === "ready") {
+    return (
+      <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
+        Starts at <strong className="font-semibold text-zinc-900 dark:text-zinc-100">{pts(scoring.maxPoints)}</strong> and drops
+        until you get it. {scoring.limitSeconds} seconds per image.
+      </p>
+    );
+  }
+  if (state !== "playing") {
     const points = result?.points ?? 0;
     return (
       <p className="text-center text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -47,11 +52,11 @@ export function RoundValue({
       </p>
     );
   }
-
-  const now = pointsNow ?? pointsIfCorrect(round.revealLevel, round.wrongGuesses, config);
+  const left = Math.max(0, Math.ceil(scoring.limitSeconds - seconds));
   return (
     <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
-      Worth <strong className="font-semibold text-zinc-900 dark:text-zinc-100">{pts(now)}</strong> now
+      Worth <strong className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{pts(scoreAt(seconds, scoring))}</strong> now ·{" "}
+      <span className="tabular-nums">{left} s left</span>
     </p>
   );
 }
