@@ -175,7 +175,6 @@ export type PublicRound = {
   imageSrc?: string;
   effect: PuzzleEffect | null; // null = not chosen yet (#258); the screen picks one
   focus: { x: number; y: number }; // `Puzzle.reveal.focus`: where zoom, spotlight and swirl centre
-  scoring: TimedScoringConfig; // what this game is scored with, so the live score is the server's
   wrongGuesses: number; // counted, but they cost nothing
   aiSolvedLevel: RevealLevel | null; // Darian (Beat the AI, #56); becomes a solve time in #257
   answer?: string; // only once the round is over (correct or timedOut)
@@ -193,13 +192,19 @@ export type GameView = {
   results: RoundResult[]; // finished rounds so far, scored on the server
   total: number;
   finished: boolean;
+  /** The timed config this game is scored with (#255, #256), so the live score and the final screen use the server's numbers. */
+  scoring: TimedScoringConfig;
   /**
    * Once the whole game is finished (never while a round is played, #54): each
    * image's answer, index = position - 1, so a result loaded later (a reload,
    * the daily the next visit) can name the images (#58).
    */
   answers?: string[];
-  /** Darian (Beat the AI, #66): once the whole game is finished, how many images the player beat the AI on. */
+  /**
+   * Darian (Beat the AI, #66): once the whole game is finished, how many
+   * images the player beat the AI on. Not sent with timed rounds (#255) until
+   * it compares solve times (#257).
+   */
   beatAi?: BeatAiSummary;
 };
 

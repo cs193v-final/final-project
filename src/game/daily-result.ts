@@ -41,32 +41,38 @@ export function formatCountdown(ms: number): string {
 }
 
 /**
- * One square per image, by how much of it the player needed. No answers, no
- * theme beyond what the intro already showed everyone, so it's safe to post.
- * Solved at the tightest crop: green; one zoom-out: yellow; two: orange;
- * more: red; skipped: black.
+ * One square per image, by how much of the photo had cleared when the player
+ * got it (timed rounds, #255): the time as a share of `revealSeconds`. No
+ * answers, no theme beyond what the intro already showed everyone, so it's
+ * safe to post. Under a fifth of the clear time: green; under two fifths:
+ * yellow; before the photo is clear: orange; after: red; timed out: black.
  */
-export function roundSquare(round: Pick<RoundResult, "outcome" | "revealLevelReached">): string {
-  if (round.outcome === "skipped") return "⬛";
-  return ["🟩", "🟨", "🟧"][round.revealLevelReached] ?? "🟥";
+export function roundSquare(round: Pick<RoundResult, "outcome" | "seconds">, revealSeconds: number): string {
+  if (round.outcome !== "correct") return "⬛";
+  const cleared = round.seconds / revealSeconds;
+  if (cleared < 0.2) return "🟩";
+  if (cleared < 0.4) return "🟨";
+  return cleared < 1 ? "🟧" : "🟥";
 }
 
 export type ShareInput = {
   gameName: string;
   date: string; // "YYYY-MM-DD"
   theme: string;
-  rounds: readonly Pick<RoundResult, "outcome" | "revealLevelReached">[];
+  rounds: readonly Pick<RoundResult, "outcome" | "seconds">[];
+  revealSeconds: number; // the game's `scoring.revealSeconds`
   total: number;
   maxTotal: number;
   url?: string;
 };
 
-/** The text the Share button copies, e.g. "Zoom Out daily · Nov 17 · Fruit\n🟩🟨⬛🟥🟩 340/500\n<url>". */
-export function shareText({ gameName, date, theme, rounds, total, maxTotal, url }: ShareInput): string {
+/** The text the Share button copies, e.g. "Zoom Out daily · Nov 17 · Fruit\n🟩🟨⬛🟥🟩 34000/50000\n<url>". */
+export function shareText({ gameName, date, theme, rounds, revealSeconds, total, maxTotal, url }: ShareInput): string {
   const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(
     new Date(`${date}T00:00:00Z`),
   );
-  const lines = [`${gameName} daily · ${day} · ${theme}`, `${rounds.map(roundSquare).join("")} ${total}/${maxTotal}`];
+  const squares = rounds.map((r) => roundSquare(r, revealSeconds)).join("");
+  const lines = [`${gameName} daily · ${day} · ${theme}`, `${squares} ${total}/${maxTotal}`];
   if (url) lines.push(url);
   return lines.join("\n");
 }

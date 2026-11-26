@@ -346,7 +346,6 @@ export function toGameView(
       ...(imageSrc === undefined ? {} : { imageSrc }),
       effect: puzzle.effect ?? null,
       focus: { x: puzzle.reveal.focus.x, y: puzzle.reveal.focus.y },
-      scoring: { ...state.scoring },
       wrongGuesses: r.wrongGuesses,
       // Beat the AI (#56): the level the AI needed, not the answer. null = never, or not run yet.
       // TODO(#257): a solve time (`aiSolvedSeconds`) instead.
@@ -370,6 +369,7 @@ export function toGameView(
     results: rounds,
     total,
     finished: state.finished,
+    scoring: { ...state.scoring },
   };
   if (state.lastOutcome !== null) view.lastOutcome = publicOutcome(state.lastOutcome, puzzles[state.index]);
   // Only once every round is over, so no answer is ever in a view while a round is played.

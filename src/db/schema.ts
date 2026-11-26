@@ -351,10 +351,21 @@ export const games = pgTable(
   ],
 );
 
-/** Matches `RoundResult["outcome"]`. */
-export const roundOutcome = pgEnum("round_outcome", ["correct", "skipped"]);
+/**
+ * Matches `RoundResult["outcome"]` ("correct" | "timedOut", #255), plus
+ * "skipped", which only rounds played before timed rounds have.
+ */
+export const roundOutcome = pgEnum("round_outcome", ["correct", "skipped", "timedOut"]);
 
-/** One finished round. Columns match `RoundResult` (breakdown flattened). */
+/**
+ * One finished round. Columns match `RoundResult`: `seconds` and `points`
+ * (timed rounds, #255). Rounds played before timed rounds (migration 0008)
+ * keep their old values instead: `seconds` is NULL and the zoom-out columns
+ * (`reveal_level_reached`, `base_points`, `reveal_penalty`,
+ * `wrong_guess_penalty`) are set. A timed round leaves those NULL. Either way
+ * `points` is the round's score, which is all the leaderboard and the daily
+ * stats read.
+ */
 export const gameRounds = pgTable(
   "game_rounds",
   {
@@ -366,12 +377,15 @@ export const gameRounds = pgTable(
       .notNull()
       .references(() => puzzles.id, { onDelete: "restrict" }),
     outcome: roundOutcome("outcome").notNull(),
-    revealLevelReached: integer("reveal_level_reached").notNull(),
+    /** Server time from the start to the correct guess, or the limit for a time-out (#255). NULL on old rounds. */
+    seconds: doublePrecision("seconds"),
     wrongGuesses: integer("wrong_guesses").notNull(),
     points: integer("points").notNull(),
-    basePoints: integer("base_points").notNull(),
-    revealPenalty: integer("reveal_penalty").notNull(),
-    wrongGuessPenalty: integer("wrong_guess_penalty").notNull(),
+    // Old rounds only (zoom out and skip, before #255); NULL on timed rounds.
+    revealLevelReached: integer("reveal_level_reached"),
+    basePoints: integer("base_points"),
+    revealPenalty: integer("reveal_penalty"),
+    wrongGuessPenalty: integer("wrong_guess_penalty"),
     finishedAt: timestamp("finished_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -380,5 +394,11 @@ export const gameRounds = pgTable(
     check("game_rounds_position_min", sql`${t.position} >= 1`),
     check("game_rounds_reveal_level_min", sql`${t.revealLevelReached} >= 0`),
     check("game_rounds_wrong_guesses_min", sql`${t.wrongGuesses} >= 0`),
+    check("game_rounds_seconds_min", sql`${t.seconds} >= 0`),
+    // A round is either timed (seconds, no zoom-out values) or old (all zoom-out values, no seconds).
+    check(
+      "game_rounds_timed_or_old",
+      sql`(${t.seconds} IS NOT NULL AND ${t.revealLevelReached} IS NULL AND ${t.basePoints} IS NULL AND ${t.revealPenalty} IS NULL AND ${t.wrongGuessPenalty} IS NULL) OR (${t.seconds} IS NULL AND ${t.revealLevelReached} IS NOT NULL AND ${t.basePoints} IS NOT NULL AND ${t.revealPenalty} IS NOT NULL AND ${t.wrongGuessPenalty} IS NOT NULL)`,
+    ),
   ],
 );
