@@ -16,6 +16,7 @@ import { getDb, type Db } from "@/db";
 import { getPuzzles } from "@/db/content";
 import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
+import { getLobbyAnswers, LobbyGoneError } from "@/db/lobbies";
 import { getScoringConfig } from "@/db/scoring";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { errorForLog } from "@/game/log-safe";
@@ -27,8 +28,9 @@ import {
   puzzleSourceFrom,
   startGame,
   type GameDeps,
+  type GameOwner,
 } from "@/game/server-game";
-import type { GameAction } from "@/game/types";
+import type { GameAction, GameView, Pack, ScoringConfig } from "@/game/types";
 import { PRACTICE_PACK, SAMPLE_PUZZLES } from "@/puzzles";
 
 import { hashIp, ipHmacKey } from "./ip-key";
@@ -54,15 +56,41 @@ export function deps(db: Db): GameDeps {
     // result's per-image stats, #58, and leaderboards, #62, read them).
     games: new PgGameStore(db, getVault(), { recordRounds: (state) => state.pack.kind !== "practice" }),
     // Practice puzzles from the repo copy (so /play works on an unseeded
-    // database); everything else, e.g. the daily (#58), from the database.
+    // database); everything else, e.g. the daily (#58), from the database,
+    // with a lobby puzzle's answers (#67) decrypted from `lobby_puzzles`.
     puzzles: {
-      getPuzzles: (ids) => (ids.every((id) => practiceIds.has(id)) ? practice.getPuzzles(ids) : getPuzzles(db, ids)),
+      getPuzzles: (ids) =>
+        ids.every((id) => practiceIds.has(id)) ? practice.getPuzzles(ids) : getPuzzlesWithLobbyAnswers(db, ids, new Date()),
     },
     // Per-level images (#57), cut by `npm run db:seed`. A practice puzzle that
     // isn't cut yet is still shown whole and cropped in the browser; any other
     // puzzle without levels can't be shown (server-game.ts refuses it).
     levels: { getLevelSrcs: (puzzleIds) => getLevelSrcs(db, puzzleIds) },
   };
+}
+
+/**
+ * Puzzles from the database, with each lobby puzzle's answers (#67) filled in
+ * from `lobby_puzzles` (its `puzzles` row has an empty answer). A puzzle of a
+ * lobby that can't be played any more (deleted, expired, hidden by reports)
+ * ends the game as `not-found`; so does any puzzle still without an answer,
+ * so an empty answer is never played.
+ */
+async function getPuzzlesWithLobbyAnswers(db: Db, ids: readonly string[], now: Date) {
+  const found = await getPuzzles(db, ids);
+  let answers;
+  try {
+    answers = await getLobbyAnswers(db, getVault(), ids, now);
+  } catch (error) {
+    if (error instanceof LobbyGoneError) throw new GameNotFoundError();
+    throw error;
+  }
+  return found.map((puzzle) => {
+    const lobby = answers.get(puzzle.id);
+    const filled = lobby === undefined ? puzzle : { ...puzzle, answer: lobby.answer, acceptedAnswers: [...lobby.acceptedAnswers] };
+    if (filled.answer === "") throw new GameNotFoundError();
+    return filled;
+  });
 }
 
 let practicePackRow: Promise<void> | undefined;
@@ -106,31 +134,47 @@ export async function startPracticeGame(): Promise<GameResult> {
     const db = getDb();
     await checkStartLimits(db, owner, await requestIpHash(), new Date());
     await ensurePracticePack(db);
-    const unfinished = await findUnfinishedGames(db, owner, PRACTICE_PACK.id, MAX_UNFINISHED_GAMES_PER_PACK);
-    const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;
-    // The untouched game first; at the cap, then the others, latest first.
-    const reuse = [unfinished.untouchedId, ...(atCap ? unfinished.recentIds : [])].filter(
-      (id, i, ids): id is string => id !== null && ids.indexOf(id) === i,
-    );
-    let unreadable: GameUnreadableError | null = null;
-    for (const id of reuse) {
-      try {
-        return await getGame(deps(db), id, owner);
-      } catch (error) {
-        // A game that can't be decrypted (#164) is skipped and logged, so
-        // "Start a new game" doesn't land on it again. Below the cap a new game
-        // is started; at the cap the next one is tried.
-        if (!(error instanceof GameUnreadableError)) throw error;
-        console.error("skipped an unreadable game:", JSON.stringify(errorForLog(error)));
-        unreadable = error;
-      }
-    }
-    // At the cap with none that loads (most likely a wrong key): report it.
-    if (atCap && unreadable !== null) throw unreadable;
-    // The pack's stored scoring (#64), read once here and kept in the game's
-    // state, so changing it only affects games started afterwards.
-    return startGame(deps(db), PRACTICE_PACK, owner, await getScoringConfig(PRACTICE_PACK.id));
+    // The pack's stored scoring (#64), read only if a new game is started and
+    // kept in the game's state, so changing it only affects games started afterwards.
+    return startOrResumePack(db, owner, PRACTICE_PACK, () => getScoringConfig(PRACTICE_PACK.id));
   });
+}
+
+/**
+ * Start a game of `pack` for `owner`, or reuse one (#85): the owner's
+ * untouched game of this pack if there is one, or at
+ * `MAX_UNFINISHED_GAMES_PER_PACK` their most recently played one that can be
+ * read. Practice and lobbies (#67) both start this way. Rate limits are the
+ * caller's job.
+ */
+export async function startOrResumePack(
+  db: Db,
+  owner: GameOwner,
+  pack: Pack,
+  scoring: () => Promise<ScoringConfig>,
+): Promise<GameView> {
+  const unfinished = await findUnfinishedGames(db, owner, pack.id, MAX_UNFINISHED_GAMES_PER_PACK);
+  const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;
+  // The untouched game first; at the cap, then the others, latest first.
+  const reuse = [unfinished.untouchedId, ...(atCap ? unfinished.recentIds : [])].filter(
+    (id, i, ids): id is string => id !== null && ids.indexOf(id) === i,
+  );
+  let unreadable: GameUnreadableError | null = null;
+  for (const id of reuse) {
+    try {
+      return await getGame(deps(db), id, owner);
+    } catch (error) {
+      // A game that can't be decrypted (#164) is skipped and logged, so
+      // "Start a new game" doesn't land on it again. Below the cap a new game
+      // is started; at the cap the next one is tried.
+      if (!(error instanceof GameUnreadableError)) throw error;
+      console.error("skipped an unreadable game:", JSON.stringify(errorForLog(error)));
+      unreadable = error;
+    }
+  }
+  // At the cap with none that loads (most likely a wrong key): report it.
+  if (atCap && unreadable !== null) throw unreadable;
+  return startGame(deps(db), pack, owner, await scoring());
 }
 
 /**

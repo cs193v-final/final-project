@@ -100,3 +100,69 @@ export function checkStartLimits(db: PgDb, owner: GameOwner, ipHash: string | nu
 export function checkActionLimits(db: PgDb, owner: GameOwner, ipHash: string | null, now: Date): Promise<void> {
   return hitBoth(db, "action", owner, ipHash, now);
 }
+
+// ---------------------------------------------------------------------------
+// Custom lobbies (#67). Same counters and the same IP-first order as the
+// games. Keys: lobby:<kind>:ip:<HMAC of the IP> and lobby:<kind>:owner:<ownerKey>.
+// ---------------------------------------------------------------------------
+
+const DAY = 24 * HOUR;
+
+/** Rate limits on the lobby endpoints. Open for the team: picked so a class demo behind one network never meets them. */
+export const LOBBY_LIMITS = {
+  /** Photo uploads (`POST /api/lobby-uploads`): each runs sharp, so they're the most expensive call. */
+  uploadsPerOwner: { max: 30, windowMs: HOUR },
+  uploadsPerIp: { max: 60, windowMs: HOUR },
+  /** New lobbies (each cuts 3-5 photos into levels). */
+  createsPerOwner: { max: 5, windowMs: DAY },
+  createsPerIp: { max: 20, windowMs: DAY },
+  /** Anything that looks a code up (join, start, leaderboard, report): also stops guessing codes. */
+  lookupsPerOwner: { max: 60, windowMs: HOUR },
+  lookupsPerIp: { max: 300, windowMs: HOUR },
+  /** Reports. */
+  reportsPerOwner: { max: 10, windowMs: DAY },
+  reportsPerIp: { max: 30, windowMs: DAY },
+  /** Owner actions: list and delete your own lobbies. */
+  managePerOwner: { max: 60, windowMs: HOUR },
+  managePerIp: { max: 300, windowMs: HOUR },
+} as const satisfies Record<string, Limit>;
+
+/** Caps on what lobbies store (#85: anything that grows per user is capped). */
+export const LOBBY_CAPS = {
+  /** Lobbies one player may have at once (not deleted or expired; hidden ones count). */
+  lobbiesPerUser: 3,
+  /** Such lobbies across everyone. */
+  lobbiesTotal: 200,
+  /** All lobby level images together (about 0.5-1 MB a lobby), well inside Neon's free 0.5 GB. */
+  lobbyImageBytes: 150 * 1024 * 1024,
+  /** Uploads one player may have waiting (not made into a lobby yet). */
+  uploadsPerUser: 8,
+  /** All waiting uploads together. Each is deleted after `UPLOAD_MAX_AGE_MS`. */
+  uploadBytesTotal: 100 * 1024 * 1024,
+} as const;
+
+/** How long an upload waits to be made into a lobby before the sweep deletes it. */
+export const UPLOAD_MAX_AGE_MS = DAY;
+
+export type LobbyLimitKind = "uploads" | "creates" | "lookups" | "reports" | "manage";
+
+/**
+ * Count one hit on a lobby endpoint: the IP limit first, then the owner's.
+ * `owner` is `null` for a visitor with no owner cookie yet (only lookups
+ * allow that); `ipHash` is `null` where per-IP limits don't apply
+ * (`limitsAddress`). Throws `RateLimitedError` over a limit.
+ */
+export async function checkLobbyLimits(
+  db: PgDb,
+  kind: LobbyLimitKind,
+  owner: GameOwner | null,
+  ipHash: string | null,
+  now: Date,
+): Promise<void> {
+  const check = async (name: keyof typeof LOBBY_LIMITS, key: string) => {
+    const { max, windowMs } = LOBBY_LIMITS[name];
+    if ((await hitRateLimit(db, key, windowMs, now)) > max) throw new RateLimitedError(name);
+  };
+  if (ipHash !== null) await check(`${kind}PerIp`, `lobby:${kind}:ip:${ipHash}`);
+  if (owner !== null) await check(`${kind}PerOwner`, `lobby:${kind}:owner:${ownerKey(owner)}`);
+}

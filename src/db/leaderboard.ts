@@ -41,7 +41,7 @@ const onBoard = (date: string) => sql`
  * src/game/beat-ai.ts (the round screen and the final screen); change both
  * together.
  */
-const beatAiCount = sql`(
+export const beatAiCount = sql`(
   SELECT count(*)::int FROM game_rounds r JOIN puzzles pz ON pz.id = r.puzzle_id
   WHERE r.game_id = g.id
     AND r.outcome = 'correct'
@@ -51,7 +51,8 @@ const beatAiCount = sql`(
 
 type Row = Record<string, unknown>;
 
-function toEntries(vault: Vault, rows: Row[]): LeaderboardEntry[] {
+/** Rows with `rank`, `score`, `user_id`, `username_encrypted` and `beat_ai` as entries. Also used by the lobby board (#67). */
+export function toEntries(vault: Vault, rows: Row[]): LeaderboardEntry[] {
   let failed = false;
   const entries = rows.map((r) => {
     let username = UNKNOWN_PLAYER;

@@ -5,14 +5,25 @@
 // so knowing one URL never gives you another. Because an id always means the
 // same bytes (re-cutting makes new ids), responses are cached for a year by
 // browsers and the CDN, so most loads never reach this code.
+//
+// Custom lobby images (#67) are the exception: they're served only while
+// their lobby can be played (not deleted, expired or hidden by reports), are
+// decrypted here, and are never cached by the CDN, so deleting a lobby takes
+// its photos down at once (a browser that loaded one keeps it for at most
+// `LOBBY_IMAGE_MAX_AGE_SECONDS`).
 import "server-only";
 
-import { getImageFile, type AnyDb } from "@/db/images";
+import { getVault, resolveVault, type VaultSource } from "@/crypto/vault";
+import type { Db } from "@/db";
+import { findServableImage } from "@/db/lobbies";
 
 const FILE_NAME = /^([0-9a-f]{32})\.webp$/;
 
 /** A year, the longest cache lifetime browsers honour. */
 const ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
+
+/** How long one browser may keep a lobby image: about one game. */
+export const LOBBY_IMAGE_MAX_AGE_SECONDS = 60 * 60;
 
 function notFound(): Response {
   // Not cached: an image that's missing now may be cut later under the same name.
@@ -31,21 +42,34 @@ function notFound(): Response {
  * skip the cache and read the image from the database (security audit M5,
  * #95). Any query string is a 404 without a database read.
  */
-export async function imageResponse(connect: () => AnyDb, file: string, search = ""): Promise<Response> {
+export async function imageResponse(
+  connect: () => Db,
+  file: string,
+  search = "",
+  vault: VaultSource = getVault,
+  now = new Date(),
+): Promise<Response> {
   if (search !== "") return notFound();
   const id = FILE_NAME.exec(file)?.[1];
   if (id === undefined) return notFound();
-  const image = await getImageFile(connect(), id);
-  if (image === null) return notFound();
+  // The vault is only resolved for a lobby image that will be served.
+  const image = await findServableImage(connect(), { decryptBytes: (...args) => resolveVault(vault).decryptBytes(...args) }, id, now);
+  if (image === null || !image.playable) return notFound();
+  const caching: Record<string, string> = image.lobby
+    ? // Private: only this browser, briefly, and never the CDN.
+      { "Cache-Control": `private, max-age=${LOBBY_IMAGE_MAX_AGE_SECONDS}` }
+    : {
+        "Cache-Control": `public, max-age=${ONE_YEAR_SECONDS}, immutable`,
+        // For Vercel's CDN, which caches on this header (or s-maxage), not on
+        // max-age alone (security audit M6, #95).
+        "CDN-Cache-Control": `max-age=${ONE_YEAR_SECONDS}`,
+      };
   return new Response(new Uint8Array(image.bytes), {
     status: 200,
     headers: {
       "Content-Type": image.contentType,
       "Content-Length": String(image.bytes.byteLength),
-      "Cache-Control": `public, max-age=${ONE_YEAR_SECONDS}, immutable`,
-      // For Vercel's CDN, which caches on this header (or s-maxage), not on
-      // max-age alone (security audit M6, #95).
-      "CDN-Cache-Control": `max-age=${ONE_YEAR_SECONDS}`,
+      ...caching,
       // Only ever an image: browsers mustn't guess another type, and other
       // sites can't embed it. next.config.ts also sends nosniff on every
       // response (#105); this one keeps the route safe on its own.

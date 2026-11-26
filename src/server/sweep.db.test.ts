@@ -48,11 +48,11 @@ it("deletes only expired sessions and rate-limit rows past the longest window", 
     { key: "fresh", windowStart: NOW, count: 1 },
   ]);
 
-  expect(await sweepExpired(db, NOW)).toEqual({ sessions: 1, rateLimits: 1 });
+  expect(await sweepExpired(db, NOW)).toEqual({ sessions: 1, rateLimits: 1, lobbies: 0, lobbyUploads: 0 });
 
   const sessions = await db.select({ t: schema.sessions.tokenHash }).from(schema.sessions);
   expect(sessions.map((s) => s.t)).toEqual(["live"]);
   const limits = await db.select({ k: schema.rateLimits.key }).from(schema.rateLimits);
   expect(limits.map((r) => r.k).sort()).toEqual(["fresh", "just-in-window"]);
-  expect(await sweepExpired(db, NOW)).toEqual({ sessions: 0, rateLimits: 0 });
+  expect(await sweepExpired(db, NOW)).toEqual({ sessions: 0, rateLimits: 0, lobbies: 0, lobbyUploads: 0 });
 });
