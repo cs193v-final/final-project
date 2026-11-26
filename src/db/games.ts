@@ -396,8 +396,12 @@ export type UnfinishedGames = {
   count: number;
   /** The owner's newest unfinished game of this pack that hasn't been played yet (revision 0), if any. */
   untouchedId: string | null;
-  /** The owner's most recently played unfinished game of this pack, if any. */
-  latestId: string | null;
+  /**
+   * The owner's unfinished games of this pack, most recently played first, so
+   * at the cap the next one can be resumed when the latest can't be read
+   * (#164). At most `limit`.
+   */
+  recentIds: string[];
 };
 
 /**
@@ -407,7 +411,12 @@ export type UnfinishedGames = {
  * `PgGameStore.create` (`maxUnfinishedPerPack`, #225), which throws
  * `UnfinishedGamesCapError` at the cap.
  */
-export async function findUnfinishedGames(db: Db, owner: GameOwner, packId: string): Promise<UnfinishedGames> {
+export async function findUnfinishedGames(
+  db: Db,
+  owner: GameOwner,
+  packId: string,
+  limit: number,
+): Promise<UnfinishedGames> {
   const { userId, anonOwnerHash } = ownerColumns(owner);
   const mine = userId !== null ? sql`user_id = ${userId}::uuid` : sql`anon_owner_hash = ${anonOwnerHash}`;
   const result = await db.execute(sql`
@@ -415,13 +424,13 @@ export async function findUnfinishedGames(db: Db, owner: GameOwner, packId: stri
       (SELECT count(*) FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL) AS "count",
       (SELECT id FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL AND revision = 0
         ORDER BY created_at DESC LIMIT 1) AS "untouchedId",
-      (SELECT id FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL
-        ORDER BY updated_at DESC LIMIT 1) AS "latestId"
+      ARRAY(SELECT id::text FROM games WHERE ${mine} AND pack_id = ${packId} AND finished_at IS NULL
+        ORDER BY updated_at DESC LIMIT ${limit}) AS "recentIds"
   `);
   const [row] = rowsOf(result);
   return {
     count: Number(row?.count ?? 0),
     untouchedId: (row?.untouchedId as string | null | undefined) ?? null,
-    latestId: (row?.latestId as string | null | undefined) ?? null,
+    recentIds: (row?.recentIds as string[] | null | undefined) ?? [],
   };
 }

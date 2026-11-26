@@ -18,13 +18,16 @@ import { ensurePackRow, findUnfinishedGames, PgGameStore, UnfinishedGamesCapErro
 import { getLevelSrcs } from "@/db/images";
 import { getScoringConfig } from "@/db/scoring";
 import { runGameCall, type GameResult } from "@/game/game-result";
+import { errorForLog } from "@/game/log-safe";
 import {
   act,
   GameNotFoundError,
+  GameUnreadableError,
   getGame,
   puzzleSourceFrom,
   startGame,
   type GameDeps,
+  type GameOwner,
 } from "@/game/server-game";
 import type { GameAction } from "@/game/types";
 import { PRACTICE_PACK, SAMPLE_PUZZLES } from "@/puzzles";
@@ -98,7 +101,7 @@ async function requestIpHash(): Promise<string | null> {
  * creating a row when the owner has one nobody has played yet (a refresh of
  * /play, a second "Start practice"), or already has
  * `MAX_UNFINISHED_GAMES_PER_PACK` unfinished practice games (then the latest
- * one is resumed). The cap is per pack, so other packs' games never block
+ * one that can be read is resumed). The cap is per pack, so other packs' games never block
  * practice, and at the cap there is always a game of this pack to resume.
  */
 export async function startPracticeGame(): Promise<GameResult> {
@@ -108,10 +111,16 @@ export async function startPracticeGame(): Promise<GameResult> {
     const db = getDb();
     await checkStartLimits(db, owner, await requestIpHash(), new Date());
     await ensurePracticePack(db);
-    const unfinished = await findUnfinishedGames(db, owner, PRACTICE_PACK.id);
+    const unfinished = await findUnfinishedGames(db, owner, PRACTICE_PACK.id, MAX_UNFINISHED_GAMES_PER_PACK);
     const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;
-    const reuse = unfinished.untouchedId ?? (atCap ? unfinished.latestId : null);
-    if (reuse !== null) return getGame(deps(db), reuse, owner);
+    // The untouched game first; at the cap, then the others, latest first.
+    const reuse = [unfinished.untouchedId, ...(atCap ? unfinished.recentIds : [])].filter(
+      (id, i, ids): id is string => id !== null && ids.indexOf(id) === i,
+    );
+    const resumed = await resumeFirstReadable(db, owner, reuse);
+    if (resumed.view !== undefined) return resumed.view;
+    // At the cap with none that loads (most likely a wrong key): report it.
+    if (atCap && resumed.unreadable !== null) throw resumed.unreadable;
     // The pack's stored scoring (#64), read once here and kept in the game's
     // state, so changing it only affects games started afterwards.
     try {
@@ -119,11 +128,35 @@ export async function startPracticeGame(): Promise<GameResult> {
     } catch (error) {
       // Another start for this owner took the last slot first (#225): resume, as at the cap.
       if (!(error instanceof UnfinishedGamesCapError)) throw error;
-      const { latestId } = await findUnfinishedGames(db, owner, PRACTICE_PACK.id);
-      if (latestId === null) throw error;
-      return getGame(deps(db), latestId, owner);
+      const { recentIds } = await findUnfinishedGames(db, owner, PRACTICE_PACK.id, MAX_UNFINISHED_GAMES_PER_PACK);
+      const resumedAfterRace = await resumeFirstReadable(db, owner, recentIds);
+      if (resumedAfterRace.view !== undefined) return resumedAfterRace.view;
+      throw resumedAfterRace.unreadable ?? error;
     }
   });
+}
+
+/**
+ * Resume the first of `ids` that loads. A game that can't be decrypted (#164)
+ * is skipped and logged, so "Start a new game" doesn't land on it again; the
+ * last such error is returned when none loads.
+ */
+async function resumeFirstReadable(
+  db: Db,
+  owner: GameOwner,
+  ids: readonly string[],
+): Promise<{ view?: Awaited<ReturnType<typeof getGame>>; unreadable: GameUnreadableError | null }> {
+  let unreadable: GameUnreadableError | null = null;
+  for (const id of ids) {
+    try {
+      return { view: await getGame(deps(db), id, owner), unreadable };
+    } catch (error) {
+      if (!(error instanceof GameUnreadableError)) throw error;
+      console.error("skipped an unreadable game:", JSON.stringify(errorForLog(error)));
+      unreadable = error;
+    }
+  }
+  return { unreadable };
 }
 
 /**
