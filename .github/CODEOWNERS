@@ -23,6 +23,9 @@
 /scripts/create-test-user.test.ts @Hombobow @Joseph-G-McD
 /scripts/encrypt-game-states.ts  @Hombobow @Joseph-G-McD
 /scripts/encrypt-game-states.test.ts @Hombobow @Joseph-G-McD
+/scripts/ai-solver.ts            @Hombobow @Joseph-G-McD
+/scripts/ai-solver.test.ts       @Hombobow @Joseph-G-McD
+/scripts/solve-ai.ts             @Hombobow @Joseph-G-McD
 
 # Accounts, sessions and encryption: the database owners plus Ethan.
 /src/auth/                       @Hombobow @Joseph-G-McD @ethanyng
