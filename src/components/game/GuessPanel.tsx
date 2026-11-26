@@ -109,8 +109,8 @@ export function GuessPanel({ round, feedback, isLastRound, pending = false, onSt
   return (
     <section aria-label="Your guess" className="flex w-full max-w-md flex-col gap-3">
       {ready ? (
-        // The screen's main action before the clock starts.
-        <Button disabled={pending} onClick={onStart} className="self-start">
+        // The screen's main action before the clock starts, so it has focus (keyboard: Enter starts).
+        <Button disabled={pending} onClick={onStart} className="self-start" autoFocus>
           Start round
         </Button>
       ) : playing ? (

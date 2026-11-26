@@ -38,10 +38,10 @@ test("the policy blocks nothing while playing a practice game", async ({ page })
 
   await page.getByRole("link", { name: "Start practice" }).click();
   await expect(page.getByText(/^Image 1 of \d+$/)).toBeVisible({ timeout: 10_000 });
-  // A Server Action (a move) and the level images it loads.
-  await page.getByRole("button", { name: "Skip this image" }).click();
-  await expect(page.getByRole("button", { name: /^(Next image|See results)$/ })).toBeVisible();
-  // Wait for the level image to actually load: a blocked image only shows up
+  // A Server Action (Start round, #255) and the photo it loads.
+  await page.getByRole("button", { name: "Start round" }).click();
+  await expect(page.getByRole("textbox", { name: "What is it?" })).toBeVisible();
+  // Wait for the image to actually load: a blocked image only shows up
   // as a violation after the <img> is already in the page.
   const image = page.getByRole("img", { name: /^Mystery image/ });
   await expect(image).toBeVisible();

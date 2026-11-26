@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { checkVisibleText, finishPractice } from "./helpers";
+import { checkVisibleText, finishPractice, startRound } from "./helpers";
 
 // Text contrast, WCAG 2.2 AA (1.4.3), on every screen of the practice flow, in
 // light and dark mode (#89). Checks the colors Chromium actually renders: each
@@ -83,7 +83,7 @@ async function contrastFailures(page: Page): Promise<string[]> {
 /**
  * Every visible control whose look depends on a border or a background, but
  * that doesn't stand out 3:1 from what's behind it (WCAG 1.4.11 Non-text
- * Contrast): `"Zoom out" border 1.53:1`. Text-only controls (links, quiet
+ * Contrast): `"Guess" border 1.53:1`. Text-only controls (links, quiet
  * buttons) are named by their text, which the check above covers.
  */
 async function boundaryFailures(page: Page): Promise<string[]> {
@@ -118,12 +118,15 @@ for (const colorScheme of ["light", "dark"] as const) {
     expect(await boundaryFailures(page), "home controls").toEqual([]);
 
     await page.getByRole("link", { name: "Start practice" }).click();
-    await expect(page.getByRole("button", { name: "Zoom out" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Start round" })).toBeVisible();
+    expect(await contrastFailures(page), "ready").toEqual([]);
+    expect(await boundaryFailures(page), "ready controls").toEqual([]);
+    await startRound(page);
     expect(await contrastFailures(page), "play").toEqual([]);
-    // The guess box, Guess and Zoom out are outlined or filled: 3:1 against the page (1.4.11).
+    // The guess box and Guess are outlined or filled: 3:1 against the page (1.4.11).
     expect(await boundaryFailures(page), "play controls").toEqual([]);
 
-    // Skip every image to reach the final score, with "skipped" on every row.
+    // Answer every image to reach the final score.
     await finishPractice(page);
     expect(await contrastFailures(page), "final score").toEqual([]);
     expect(await boundaryFailures(page), "final score controls").toEqual([]);

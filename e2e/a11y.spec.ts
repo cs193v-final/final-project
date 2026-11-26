@@ -12,6 +12,8 @@ import {
   finishPractice,
   guess,
   guessBox,
+  startRound,
+  startRoundButton,
   siteNav,
   tabToStartPractice,
   waitForAccountLinks,
@@ -99,10 +101,12 @@ for (const colorScheme of ["light", "dark"] as const) {
       await checkScreen(page, "not found");
     });
 
-    test("every game screen meets WCAG 2.2 AA: playing, wrong, zoomed out, right, final score", async ({ page }) => {
+    test("every game screen meets WCAG 2.2 AA: ready, playing, wrong, right, final score", async ({ page }) => {
       await page.goto("/play");
-      await expect(guessBox(page)).toBeVisible();
+      await expect(startRoundButton(page)).toBeVisible();
       await waitForAccountLinks(page); // so the header is audited too
+      await checkScreen(page, "game, ready");
+      await startRound(page);
       await checkScreen(page, "game, first image");
       // The image has a text alternative, and it never gives the answer away.
       const alt = (await page.getByRole("img", { name: /mystery image/i }).getAttribute("alt")) ?? "";
@@ -114,16 +118,11 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(page.getByRole("main").getByRole("status")).not.toBeEmpty();
       await checkScreen(page, "game, after a wrong guess");
 
-      await page.getByRole("button", { name: "Zoom out" }).click();
-      // Audit the new level, not the in-between state while the server answers.
-      await expect(page.getByText("Zoom level 2 of")).toBeVisible();
-      await checkScreen(page, "game, zoomed out");
-
       await guess(page, first.answer);
       await expect(page.getByRole("button", { name: /Next image|See results/ })).toBeVisible();
       await checkScreen(page, "game, after a right guess");
 
-      // Skip the rest to reach the final score.
+      // Answer the rest to reach the final score.
       await page.getByRole("button", { name: "Next image" }).click();
       await finishPractice(page);
       await checkScreen(page, "final score");
@@ -194,24 +193,11 @@ test("a whole game can be played from the keyboard alone", async ({ page }) => {
   await tabToStartPractice(page);
   await page.keyboard.press("Enter");
 
-  const zoomOut = page.getByRole("button", { name: "Zoom out" });
   for (const [i, puzzle] of puzzles.entries()) {
-    // The guess box has focus at the start of every round.
+    // Start round has focus before every round (#255), then the guess box.
+    await expect(startRoundButton(page)).toBeFocused();
+    await page.keyboard.press("Enter");
     await expect(guessBox(page)).toBeFocused();
-    if (i === 0) {
-      // Reach Zoom out with Shift+Tab and use it, then come back to the guess box.
-      for (let n = 0; n < 6 && !(await zoomOut.evaluate((el) => el === document.activeElement)); n++) {
-        await page.keyboard.press("Shift+Tab");
-      }
-      await expect(zoomOut).toBeFocused();
-      await page.keyboard.press("Enter");
-      // Wait for the server to answer: while a move is pending, a guess is dropped.
-      await expect(page.getByText("Zoom level 2 of")).toBeVisible();
-      for (let n = 0; n < 6 && !(await guessBox(page).evaluate((el) => el === document.activeElement)); n++) {
-        await page.keyboard.press("Tab");
-      }
-      await expect(guessBox(page)).toBeFocused();
-    }
     await page.keyboard.type(puzzle.answer);
     await page.keyboard.press("Enter");
     // The next step gets focus, so Enter moves on.

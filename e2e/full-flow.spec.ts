@@ -1,19 +1,19 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { parsePuzzles } from "@/game/puzzles";
-import { SCORING_CONFIG } from "@/game/scoring-config";
-import { pointsIfCorrect } from "@/game/scoring";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import type { Puzzle } from "@/game/types";
 // The same data as SAMPLE_PUZZLES (`@/puzzles`); see practice.spec.ts for the import attribute.
 import sample from "@/puzzles/sample.json" with { type: "json" };
 
 // The full flow (#61), backend included: sign up a fresh test user, play the
-// whole practice game on the server while logged in (wrong guess, zoom out,
-// correct guess, skip → final score → Play again), check the game belongs to
-// the account, then log out and back in.
+// whole practice game on the server while logged in (timed rounds, #255:
+// start, wrong guess, correct guess, a time-out → final score → Play again),
+// check the game belongs to the account, then log out and back in.
 //
 // Needs DATABASE_URL pointing at a migrated database with the practice pack
 // seeded (README → Testing). CI runs a Postgres service container for this.
-// Answers and points come from the puzzle data and SCORING_CONFIG.
+// Answers come from the puzzle data. Points depend on real time, so they're
+// read from the screen ("+N points for this image") and added up.
 //
 // The daily challenge isn't playable on main yet (#58 part 2); add it here
 // once /daily exists.
@@ -32,6 +32,13 @@ const guessBox = (page: Page) => page.getByRole("textbox", { name: "What is it?"
 // The game's status, not the header's login confirmation (#134).
 const status = (page: Page) => page.getByRole("main").getByRole("status");
 const score = (page: Page) => page.getByText(/^Score \d+$/);
+const startRound = (page: Page) => page.getByRole("button", { name: "Start round" }).click();
+
+/** The points the round just over earned, from "+6,212 points for this image". */
+async function roundPoints(page: Page): Promise<number> {
+  const text = (await page.getByText(/points? for this image$/).textContent()) ?? "";
+  return Number(/\+([\d,]+)/.exec(text)![1]!.replaceAll(",", ""));
+}
 
 async function guess(page: Page, text: string) {
   await guessBox(page).fill(text);
@@ -139,28 +146,30 @@ test("a test user signs up, plays the server game to the end and again, and logs
   await expect(page.getByText(`Image 1 of ${count}`)).toBeVisible();
   await expect(score(page)).toHaveText("Score 0");
 
-  // Image 1: a wrong guess, one zoom-out, then the right answer.
+  // Image 1: no photo before Start round; then a wrong guess, then the right answer.
   const first = puzzleAt(0);
+  await expect(page.getByRole("img")).toHaveCount(0);
+  await startRound(page);
   await guess(page, "definitely not the answer");
   await expect(status(page)).toContainText("isn't it (1 wrong guess)");
-  await page.getByRole("button", { name: "Zoom out" }).click();
-  // Wait for the new level before the next move: input during a pending move is dropped.
-  await expect(page.getByText("Zoom level 2 of")).toBeVisible();
-  const firstPoints = pointsIfCorrect(1, 1);
-  await expect(page.getByText(`Worth ${firstPoints} points now`)).toBeVisible();
-  await actions.expectNoAnswer(first); // start, wrong guess, zoom out
+  await actions.expectNoAnswer(first); // start, Start round, wrong guess
   await guess(page, first.answer);
   await expect(status(page)).toContainText(`Correct! It's ${first.answer}.`);
+  const firstPoints = await roundPoints(page);
+  expect(firstPoints).toBeGreaterThanOrEqual(TIMED_SCORING_CONFIG.minPoints);
+  expect(firstPoints).toBeLessThanOrEqual(TIMED_SCORING_CONFIG.maxPoints);
   await expect(score(page)).toHaveText(`Score ${firstPoints}`);
   actions.skip(); // the correct guess's response shows the answer, as it should
   await page.getByRole("button", { name: "Next image" }).click();
 
-  // Image 2: skip it.
+  // Image 2: let the time run out. The page asks the server at the limit, which ends the round with 0.
   const second = puzzleAt(1);
   await expect(page.getByText(`Image 2 of ${count}`)).toBeVisible();
+  await startRound(page);
   await actions.expectNoAnswer(second);
-  await page.getByRole("button", { name: "Skip this image" }).click();
-  await expect(status(page)).toHaveText(`Skipped. It was ${second.answer}.`);
+  await expect(status(page)).toHaveText(`Time's up. It was ${second.answer}.`, {
+    timeout: (TIMED_SCORING_CONFIG.limitSeconds + 10) * 1000,
+  });
   await expect(score(page)).toHaveText(`Score ${firstPoints}`);
   actions.skip();
   await page.getByRole("button", { name: count === 2 ? "See results" : "Next image" }).click();
@@ -170,10 +179,11 @@ test("a test user signs up, plays the server game to the end and again, and logs
   for (let i = 2; i < count; i++) {
     const p = puzzleAt(i);
     await expect(page.getByText(`Image ${i + 1} of ${count}`)).toBeVisible();
+    await startRound(page);
     await actions.expectNoAnswer(p);
     await guess(page, p.answer);
     await expect(status(page)).toContainText(`Correct! It's ${p.answer}.`);
-    total += pointsIfCorrect(0, 0);
+    total += await roundPoints(page);
     await expect(score(page)).toHaveText(`Score ${total}`);
     actions.skip();
     await page.getByRole("button", { name: i === count - 1 ? "See results" : "Next image" }).click();
@@ -182,12 +192,12 @@ test("a test user signs up, plays the server game to the end and again, and logs
   // Final score.
   await expect(page.getByRole("heading", { name: "Practice complete" })).toBeVisible();
   await expect(page.getByText(/^You scored/)).toHaveText(
-    `You scored ${total} out of ${SCORING_CONFIG.basePoints * count}`,
+    `You scored ${total} out of ${TIMED_SCORING_CONFIG.maxPoints * count}`,
   );
   const rows = page.getByRole("listitem");
   await expect(rows).toHaveCount(count);
   await expect(rows.nth(0)).toContainText(`1. ${first.answer} ✓ correct`);
-  await expect(rows.nth(1)).toContainText(`2. ${second.answer} skipped`);
+  await expect(rows.nth(1)).toContainText(`2. ${second.answer} time's up`);
 
   // Play again: a new server game from image 1.
   const finishedUrl = page.url();
@@ -200,10 +210,9 @@ test("a test user signs up, plays the server game to the end and again, and logs
   await actions.expectNoAnswer(first);
 
   // Make some progress in the new game, then refresh: it resumes, still logged in.
+  await startRound(page);
   await guess(page, "still not the answer");
   await expect(status(page)).toContainText("isn't it (1 wrong guess)");
-  await page.getByRole("button", { name: "Zoom out" }).click();
-  await expect(page.getByText("Zoom level 2 of")).toBeVisible();
   await actions.expectNoAnswer(first);
   await actions.stop();
   const gameUrl = page.url();
@@ -211,7 +220,7 @@ test("a test user signs up, plays the server game to the end and again, and logs
   expect(findAnswer((await response?.text()) ?? "", first), "the page HTML contained an answer").toBeUndefined();
   await expectLoggedInAs(page, username);
   await expect(page.getByText(`Image 1 of ${count}`)).toBeVisible();
-  await expect(page.getByText("Zoom level 2 of")).toBeVisible();
+  await expect(guessBox(page)).toBeVisible(); // the round's clock is still running
   await expect(page.getByText("1 wrong guess", { exact: true })).toBeVisible();
 
   // Log out from the header: it shows Log in, and the game is no longer this browser's.
@@ -236,7 +245,6 @@ test("a test user signs up, plays the server game to the end and again, and logs
   await page.goto(gameUrl);
   await expectLoggedInAs(page, username);
   await expect(page.getByText(`Image 1 of ${count}`)).toBeVisible();
-  await expect(page.getByText("Zoom level 2 of")).toBeVisible();
   await expect(page.getByText("1 wrong guess", { exact: true })).toBeVisible();
   await guess(page, first.answer);
   await expect(status(page)).toContainText(`Correct! It's ${first.answer}.`);
