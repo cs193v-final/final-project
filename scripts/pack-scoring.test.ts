@@ -10,7 +10,7 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import * as schema from "@/db/schema";
-import { SCORING_CONFIG } from "@/game/scoring-config";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import { ScoringConfigError } from "@/game/scoring-override";
 
 import { parseCommand, runCommand, UsageError } from "./pack-scoring";
@@ -35,19 +35,19 @@ describe("parseCommand", () => {
   it("parses show, clear, and set with inline JSON", () => {
     expect(parseCommand(["show", "p1"])).toEqual({ kind: "show", packId: "p1" });
     expect(parseCommand(["clear", "p1"])).toEqual({ kind: "clear", packId: "p1" });
-    expect(parseCommand(["set", "p1", '{"basePoints": 150}'])).toEqual({
+    expect(parseCommand(["set", "p1", '{"maxPoints": 150}'])).toEqual({
       kind: "set",
       packId: "p1",
-      override: { basePoints: 150 },
+      override: { maxPoints: 150 },
     });
   });
 
   it("reads set's value from a file when it isn't inline JSON", () => {
-    const files: Record<string, string> = { "scoring.json": '{"skipPoints": 5}' };
+    const files: Record<string, string> = { "scoring.json": '{"curve": 3}' };
     expect(parseCommand(["set", "p1", "scoring.json"], (path) => files[path]!)).toEqual({
       kind: "set",
       packId: "p1",
-      override: { skipPoints: 5 },
+      override: { curve: 3 },
     });
   });
 
@@ -86,25 +86,25 @@ describe("parseCommand", () => {
 
 describe("runCommand", () => {
   it("sets, shows and clears an override", async () => {
-    await expect(runCommand(db, { kind: "set", packId: "p1", override: { basePoints: 150 } })).resolves.toMatch(
-      /"basePoints": 150/,
+    await expect(runCommand(db, { kind: "set", packId: "p1", override: { maxPoints: 150 } })).resolves.toMatch(
+      /"maxPoints": 150/,
     );
     await expect(runCommand(db, { kind: "show", packId: "p1" })).resolves.toMatch(/stored override/);
     await expect(runCommand(db, { kind: "clear", packId: "p1" })).resolves.toMatch(/uses the default/);
     const shown = await runCommand(db, { kind: "show", packId: "p1" });
     expect(shown).toContain("has no override");
-    expect(shown).toContain(JSON.stringify(SCORING_CONFIG, null, 2));
+    expect(shown).toContain(JSON.stringify(TIMED_SCORING_CONFIG, null, 2));
   });
 
   it("refuses an invalid override before writing", async () => {
-    await expect(runCommand(db, { kind: "set", packId: "p1", override: { minPoints: 500 } })).rejects.toThrow(
+    await expect(runCommand(db, { kind: "set", packId: "p1", override: { minPoints: 50_000 } })).rejects.toThrow(
       ScoringConfigError,
     );
     await expect(runCommand(db, { kind: "show", packId: "p1" })).resolves.toContain("has no override");
   });
 
   it("shows a bad override written by hand as invalid", async () => {
-    await pg.query(`UPDATE packs SET scoring = '{"basePoints": -1}' WHERE id = 'p1'`);
+    await pg.query(`UPDATE packs SET scoring = '{"maxPoints": -1}' WHERE id = 'p1'`);
     await expect(runCommand(db, { kind: "show", packId: "p1" })).resolves.toMatch(/INVALID, so games use the default/);
     await runCommand(db, { kind: "clear", packId: "p1" });
   });

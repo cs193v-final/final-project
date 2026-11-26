@@ -57,16 +57,20 @@ describe("formatCountdown", () => {
 });
 
 describe("share text", () => {
-  it("gives one square per image by how far the player zoomed out, black for a skip", () => {
+  it("gives one square per image by how much of the photo had cleared (#255), black for a time-out", () => {
     expect(
-      [
-        { outcome: "correct", revealLevelReached: 0 },
-        { outcome: "correct", revealLevelReached: 1 },
-        { outcome: "correct", revealLevelReached: 2 },
-        { outcome: "correct", revealLevelReached: 3 },
-        { outcome: "skipped", revealLevelReached: 3 },
-      ].map((r) => roundSquare(r as never)),
-    ).toEqual(["🟩", "🟨", "🟧", "🟥", "⬛"]);
+      (
+        [
+          { outcome: "correct", seconds: 0 },
+          { outcome: "correct", seconds: 4.9 }, // under a fifth of 25 s
+          { outcome: "correct", seconds: 5 },
+          { outcome: "correct", seconds: 12 },
+          { outcome: "correct", seconds: 24.9 },
+          { outcome: "correct", seconds: 27 }, // after the photo is clear
+          { outcome: "timedOut", seconds: 30 },
+        ] as const
+      ).map((r) => roundSquare(r, 25)),
+    ).toEqual(["🟩", "🟩", "🟨", "🟧", "🟧", "🟥", "⬛"]);
   });
 
   it("names the game, day and theme, and the score, with no answers", () => {
@@ -75,18 +79,19 @@ describe("share text", () => {
       date: "2026-11-17",
       theme: "Fruit",
       rounds: [
-        { outcome: "correct", revealLevelReached: 0 },
-        { outcome: "skipped", revealLevelReached: 3 },
+        { outcome: "correct", seconds: 2 },
+        { outcome: "timedOut", seconds: 30 },
       ],
-      total: 100,
-      maxTotal: 200,
+      revealSeconds: 25,
+      total: 8479,
+      maxTotal: 20000,
       url: "https://example.com/daily",
     });
-    expect(text).toBe("Zoom Out daily · Nov 17 · Fruit\n🟩⬛ 100/200\nhttps://example.com/daily");
+    expect(text).toBe("Zoom Out daily · Nov 17 · Fruit\n🟩⬛ 8479/20000\nhttps://example.com/daily");
   });
 
   it("leaves the link out when there isn't one", () => {
-    expect(shareText({ gameName: "Zoom Out", date: "2026-11-17", theme: "Fruit", rounds: [], total: 0, maxTotal: 0 })).toBe(
+    expect(shareText({ gameName: "Zoom Out", date: "2026-11-17", theme: "Fruit", rounds: [], revealSeconds: 25, total: 0, maxTotal: 0 })).toBe(
       "Zoom Out daily · Nov 17 · Fruit\n 0/0",
     );
   });

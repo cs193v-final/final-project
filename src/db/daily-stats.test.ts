@@ -12,8 +12,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { Vault } from "@/crypto/vault";
 import { combineContent } from "@/game/packs";
-import { act, puzzleSourceFrom, startGame, startOrResumeDaily, type GameDeps, type GameOwner } from "@/game/server-game";
-import type { GameAction, Pack, Puzzle, ScoringConfig } from "@/game/types";
+import { START_GRACE_SECONDS } from "@/game/round";
+import { scoreAt } from "@/game/scoring";
+import { act, getGame, puzzleSourceFrom, startGame, startOrResumeDaily, type GameDeps, type GameOwner } from "@/game/server-game";
+import type { Pack, Puzzle, TimedScoringConfig } from "@/game/types";
 
 import { seedContent } from "./content";
 import { betterThanPercent, getDailyStats } from "./daily-stats";
@@ -27,7 +29,14 @@ let pg: PGlite;
 let db: Db;
 let deps: GameDeps;
 
-const CONFIG: ScoringConfig = { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 };
+const CONFIG: TimedScoringConfig = { maxPoints: 10_000, minPoints: 100, revealSeconds: 25, limitSeconds: 30, curve: 2 };
+/** Points for a correct guess at 0 s, 2 s and 5 s, and for a time-out. */
+const AT_0 = 10_000;
+const AT_2 = 8_479; // 100 + 9,900 × (1 − 2/25)²
+const AT_5 = 6_436; // 100 + 9,900 × (1 − 5/25)²
+
+/** The server's clock, moved by hand (ms). */
+let now = Date.UTC(2026, 10, 17, 12);
 const puzzle = (id: string, answer: string): Puzzle => ({
   id,
   imageUrl: `https://images.example.com/${id}.jpg`,
@@ -42,14 +51,19 @@ const TODAY: Pack = { id: "pk-today", kind: "daily", title: "Fruit", theme: "Fru
 const OTHER: Pack = { id: "pk-other", kind: "daily", title: "Fruit", theme: "Fruit", puzzleIds: ["pz-s1", "pz-s2"] };
 const owner = (name: string): GameOwner => ({ anonId: createHash("sha256").update(name).digest("hex") });
 
-/** Play a whole daily: per image, the moves before it's over ("correct" = guess the answer). */
-async function play(pack: Pack, date: string, who: string, perImage: GameAction["type"][][], finish = true) {
+/** Play a whole daily: per image, the seconds to the right answer, or "out" for a time-out. */
+async function play(pack: Pack, date: string, who: string, perImage: (number | "out")[], finish = true) {
   const me = owner(who);
   let view = await startOrResumeDaily(deps, pack, date, me, CONFIG);
-  for (const [i, moves] of perImage.entries()) {
-    for (const move of moves) {
+  for (const [i, move] of perImage.entries()) {
+    view = await act(deps, view.gameId, me, { type: "start" }, view.revision);
+    if (move === "out") {
+      now += (CONFIG.limitSeconds + 1) * 1000;
+      view = await getGame(deps, view.gameId, me);
+    } else {
+      now += (move + START_GRACE_SECONDS) * 1000;
       const answer = PUZZLES.find((p) => p.id === pack.puzzleIds[i])!.answer;
-      view = await act(deps, view.gameId, me, move === "guess" ? { type: "guess", guess: answer } : ({ type: move } as GameAction), view.revision);
+      view = await act(deps, view.gameId, me, { type: "guess", guess: answer }, view.revision);
     }
     if (i < perImage.length - 1 || finish) view = await act(deps, view.gameId, me, { type: "next" }, view.revision);
   }
@@ -68,22 +82,22 @@ beforeAll(async () => {
     combineContent([{ source: "test", content: { puzzles: PUZZLES, packs: [TODAY, OTHER, { ...OTHER, id: "pk-p", kind: "practice", puzzleIds: ["pz-o1"] }], schedule: [] } }]),
   );
   // The app's settings: rounds are recorded for every pack but practice.
-  deps = { games: new PgGameStore(db, new Vault(Buffer.alloc(32, 6)), { recordRounds: (s) => s.pack.kind !== "practice" }), puzzles: puzzleSourceFrom(PUZZLES) };
+  deps = { games: new PgGameStore(db, new Vault(Buffer.alloc(32, 6)), { recordRounds: (s) => s.pack.kind !== "practice" }), puzzles: puzzleSourceFrom(PUZZLES), now: () => now };
 
-  // Alice: image 1 at the tightest crop (100), skips image 2 (0). Total 100.
-  alice = (await play(TODAY, "2026-11-17", "alice", [["guess"], ["skip"]])).gameId;
-  // Bob: one zoom-out then right (80), right at once (100). Total 180.
-  await play(TODAY, "2026-11-17", "bob", [["reveal", "guess"], ["guess"]]);
-  // Cara: skips image 1 (0), two zoom-outs then right (60). Total 60.
-  await play(TODAY, "2026-11-17", "cara", [["skip"], ["reveal", "reveal", "guess"]]);
+  // Alice: image 1 right at once (AT_0), image 2 timed out (0). Total AT_0.
+  alice = (await play(TODAY, "2026-11-17", "alice", [0, "out"])).gameId;
+  // Bob: right at 2 s (AT_2), right at once (AT_0). Total AT_2 + AT_0.
+  await play(TODAY, "2026-11-17", "bob", [2, 0]);
+  // Cara: image 1 timed out (0), right at 5 s (AT_5). Total AT_5.
+  await play(TODAY, "2026-11-17", "cara", ["out", 5]);
   // Dan is still playing (image 1 right, not finished): doesn't count.
-  await play(TODAY, "2026-11-17", "dan", [["guess"]], false);
+  await play(TODAY, "2026-11-17", "dan", [0], false);
   // Someone played a different daily and a practice pack: don't count either.
-  await play(OTHER, "2026-11-18", "erin", [["skip"], ["skip"]]);
+  await play(OTHER, "2026-11-18", "erin", ["out", "out"]);
   // Gus played the SAME pack on another day (a reused pack). He knew nothing
   // Alice didn't, but he isn't one of "the players who finished today", so he
   // must not count (review of #121): he'd add one to every count below.
-  await play(TODAY, "2026-11-18", "gus", [["skip"], ["skip"]]);
+  await play(TODAY, "2026-11-18", "gus", ["out", "out"]);
   await startGame(deps, { ...OTHER, id: "pk-p", kind: "practice", puzzleIds: ["pz-o1"] }, owner("erin"), CONFIG);
 }, 60_000);
 
@@ -92,27 +106,33 @@ afterAll(async () => {
 });
 
 describe("getDailyStats", () => {
+  it("compares the points of timed rounds (#255): these games' points are scoreAt of their times", async () => {
+    expect([scoreAt(0, CONFIG), scoreAt(2, CONFIG), scoreAt(5, CONFIG)]).toEqual([AT_0, AT_2, AT_5]);
+    const { rows } = await pg.query<{ points: number }>("SELECT points FROM game_rounds WHERE game_id = $1 ORDER BY position", [alice]);
+    expect(rows.map((r) => r.points)).toEqual([AT_0, 0]);
+  });
+
   it("compares each image with the other players who finished the same daily", async () => {
     expect(await getDailyStats(db, alice)).toEqual({
       rounds: [
-        { position: 1, others: 2, beaten: 2 }, // 100 beats Bob's 80 and Cara's 0
+        { position: 1, others: 2, beaten: 2 }, // AT_0 beats Bob's AT_2 and Cara's 0
         { position: 2, others: 2, beaten: 0 }, // 0 beats nobody
       ],
       others: 2,
-      beatenTotal: 1, // 100 beats Cara's 60, not Bob's 180
+      beatenTotal: 1, // AT_0 beats Cara's AT_5, not Bob's AT_2 + AT_0
     });
   });
 
   it("counts ties as not beaten", async () => {
-    const bob = await play(TODAY, "2026-11-17", "bob2", [["reveal", "guess"], ["guess"]]); // same as Bob: 80 and 100
+    const bob = await play(TODAY, "2026-11-17", "bob2", [2, 0]); // same as Bob: AT_2 and AT_0
     const stats = await getDailyStats(db, bob.gameId);
     expect(stats.rounds[0]).toEqual({ position: 1, others: 3, beaten: 1 }); // beats Cara's 0, ties Bob, loses to Alice
-    expect(stats.beatenTotal).toBe(2); // beats Alice's 100 and Cara's 60; ties Bob's 180
+    expect(stats.beatenTotal).toBe(2); // beats Alice's AT_0 and Cara's AT_5; ties Bob
   });
 
   it("is empty-handed, not wrong, for the first finisher of a day", async () => {
     // Erin finished the same pack on Nov 18; Fay plays it on Nov 19, so nobody else played her day.
-    const first = await play(OTHER, "2026-11-19", "fay", [["guess"], ["guess"]]);
+    const first = await play(OTHER, "2026-11-19", "fay", [0, 0]);
     expect(await getDailyStats(db, first.gameId)).toEqual({ rounds: [{ position: 1, others: 0, beaten: 0 }, { position: 2, others: 0, beaten: 0 }], others: 0, beatenTotal: 0 });
   });
 

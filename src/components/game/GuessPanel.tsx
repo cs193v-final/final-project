@@ -27,13 +27,14 @@ export type GuessPanelProps = {
   /** True on the last image, so the button after the round says "See results". */
   isLastRound: boolean;
   /**
-   * True while the last move is still on its way to the server: Guess, Skip
+   * True while the last move is still on its way to the server: Start, Guess
    * and Next are marked disabled and ignored. The text box stays editable so
    * typing the next guess doesn't lose keystrokes.
    */
   pending?: boolean;
+  /** Starts the round's clock (#255). */
+  onStart: () => void;
   onGuess: (guess: string) => void;
-  onSkip: () => void;
   onNext: () => void;
 };
 
@@ -47,32 +48,35 @@ function feedbackText(feedback: Feedback): string {
       // The count makes each wrong guess change the live region's text, so a
       // screen reader announces a repeated guess too.
       const n = feedback.wrongGuesses;
-      return `“${feedback.guess}” isn't it (${n} wrong ${n === 1 ? "guess" : "guesses"}). Try again, zoom out, or skip.`;
+      return `“${feedback.guess}” isn't it (${n} wrong ${n === 1 ? "guess" : "guesses"}). Keep going.`;
     }
     case "correct":
       return feedback.matched === feedback.answer
         ? `Correct! It's ${feedback.answer}.`
         : `Correct! It's ${feedback.answer} (you said ${feedback.matched}).`;
-    case "skipped":
-      return `Skipped. It was ${feedback.answer}.`;
+    case "timedOut":
+      return `Time's up. It was ${feedback.answer}.`;
   }
 }
 
 /**
- * Guess input, feedback and round controls (#14). Render it with a key per
- * image (e.g. `key={round.position}`) so the input resets for each image.
+ * Start, guess input, feedback and round controls (#14; timed rounds, #255).
+ * Render it with a key per image (e.g. `key={round.position}`) so the input
+ * resets for each image.
  */
-export function GuessPanel({ round, feedback, isLastRound, pending = false, onGuess, onSkip, onNext }: GuessPanelProps) {
+export function GuessPanel({ round, feedback, isLastRound, pending = false, onStart, onGuess, onNext }: GuessPanelProps) {
   const [guess, setGuess] = useState("");
   const inputId = useId();
   const nextButton = useRef<HTMLButtonElement>(null);
+  const ready = round.state === "ready";
   const playing = round.state === "playing";
+  const over = !ready && !playing;
 
   // When the round ends, move focus to the next step so keyboard and
   // screen-reader users aren't left on a control that disappeared.
   useEffect(() => {
-    if (!playing) nextButton.current?.focus();
-  }, [playing]);
+    if (over) nextButton.current?.focus();
+  }, [over]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -104,7 +108,12 @@ export function GuessPanel({ round, feedback, isLastRound, pending = false, onGu
 
   return (
     <section aria-label="Your guess" className="flex w-full max-w-md flex-col gap-3">
-      {playing ? (
+      {ready ? (
+        // The screen's main action before the clock starts, so it has focus (keyboard: Enter starts).
+        <Button disabled={pending} onClick={onStart} className="self-start" autoFocus>
+          Start round
+        </Button>
+      ) : playing ? (
         <form onSubmit={submit} className="flex flex-col gap-3">
           <label htmlFor={inputId} className="text-sm font-medium">
             What is it?
@@ -128,15 +137,12 @@ export function GuessPanel({ round, feedback, isLastRound, pending = false, onGu
               Guess
             </Button>
           </div>
-          <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center text-sm">
             <span className="text-zinc-600 dark:text-zinc-400">
               {round.wrongGuesses > 0
                 ? `${round.wrongGuesses} wrong ${round.wrongGuesses === 1 ? "guess" : "guesses"}`
                 : ""}
             </span>
-            <Button variant="quiet" disabled={pending} onClick={onSkip}>
-              Skip this image
-            </Button>
           </div>
         </form>
       ) : (

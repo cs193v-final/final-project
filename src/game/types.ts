@@ -66,15 +66,22 @@ export type GuessOutcome =
   | { kind: "incorrect"; normalizedGuess: string }
   | { kind: "empty" };
 
-/** Owner: Jacky. playing → correct | skipped → next puzzle. */
-export type RoundState = "playing" | "correct" | "skipped";
+/**
+ * Owner: Jacky. Timed rounds (#255): ready → (start) playing → correct |
+ * timedOut → (next) the next puzzle's ready. `ready` is before the clock
+ * starts (no photo yet); `timedOut` is a round that reached the time limit.
+ */
+export type RoundState = "ready" | "playing" | "correct" | "timedOut";
 
-/** Emitted by Jacky's round logic, consumed by Ethan's scoring. Unchanged from the brief. */
+/**
+ * Emitted by Jacky's round logic, consumed by Ethan's scoring (#255, #256).
+ * `seconds` is the server's own elapsed time for the round, never one the
+ * browser sent. The old `reveal` and `skip` events went with the redesign.
+ */
 export type ScoringEvent =
-  | { type: "reveal"; puzzleId: string; revealLevel: RevealLevel }
   | { type: "wrongGuess"; puzzleId: string }
-  | { type: "correct"; puzzleId: string; revealLevel: RevealLevel }
-  | { type: "skip"; puzzleId: string };
+  | { type: "correct"; puzzleId: string; seconds: number }
+  | { type: "timeOut"; puzzleId: string };
 
 /**
  * Owner: Ethan. Point values for scoring. Unchanged from the brief's proposal.
@@ -105,14 +112,18 @@ export type TimedScoringConfig = {
   curve: number; // exponent: 1 drains evenly, higher drains faster early on
 };
 
-/** Owner: Ethan. The score for one finished round. Unchanged from the brief's proposal. */
+/**
+ * Owner: Ethan. The score for one finished timed round: #256's shape (points,
+ * seconds, wrong guesses; no reveal or penalty breakdown). Changed in #255,
+ * where the server starts scoring by time.
+ */
 export type RoundResult = {
   puzzleId: string;
-  outcome: "correct" | "skipped";
-  revealLevelReached: number;
-  wrongGuesses: number;
-  points: number;
-  breakdown: { base: number; revealPenalty: number; wrongGuessPenalty: number };
+  outcome: "correct" | "timedOut";
+  /** Server time from the start to the correct guess; `limitSeconds` for a time-out. */
+  seconds: number;
+  wrongGuesses: number; // counted for stats; they cost nothing
+  points: number; // scoreAt(seconds, scoring) when correct, 0 when timed out
 };
 
 // ---------------------------------------------------------------------------
@@ -132,7 +143,7 @@ export type Pack = {
   title: string; // e.g. "Landmarks"
   theme: string; // shown before play (open decision: hide it for a bonus?)
   puzzleIds: string[]; // play order; usually 5
-  scoring?: ScoringConfig; // per-pack override (type: Ethan; storage: Jacky, #64); default when absent. Set with `npm run db:scoring`, not by the seed script.
+  scoring?: TimedScoringConfig; // per-pack override (timed fields since #255) (type: Ethan; storage: Jacky, #64); default when absent. Set with `npm run db:scoring`, not by the seed script.
 };
 
 /** Owner: Joseph. Settled (#52). Which pack is a given day's daily challenge. */
@@ -148,35 +159,40 @@ export type DailyEntry = {
  * server share one definition. The field is `guess`, as `step` already uses.
  */
 export type GameAction =
-  | { type: "reveal" }
+  | { type: "start" } // starts the current round's clock (#255)
   | { type: "guess"; guess: string }
-  | { type: "skip" }
   | { type: "next" };
 
 /**
- * Owner: Jacky (image fields: Darian). PROPOSAL (#54, #57).
- * Everything the browser may see about the current puzzle. No answer until the round ends.
+ * Owner: Jacky (`aiSolvedLevel`: Darian). PROPOSAL (#54; timed rounds, #255).
+ * Everything the browser may see about the current puzzle. No answer until
+ * the round is over, and no photo until its clock has started.
  */
 export type PublicRound = {
   position: number; // 1-based
   puzzleCount: number;
   state: RoundState;
-  revealLevel: RevealLevel;
-  levelCount: number;
-  imageSrc: string; // Darian (#57): the image for revealLevel ONLY
   /**
-   * TEMPORARY (#54 → #57, Darian): only for a practice puzzle that hasn't
-   * been cut into level images yet. Then `imageSrc` is its full image and the
-   * browser crops it with this (focus point and zoom per level; no answer in
-   * it). Cut puzzles never have it: `imageSrc` is already the level reached.
-   * Remove once every database is seeded and cut.
+   * The round's time on the server's clock when this view was made: null
+   * while `ready`; while `playing`, the time so far (the browser counts on
+   * from it with its own clock, so a wrong device clock doesn't matter); once
+   * the round is over, its final time (as in its `RoundResult`). While
+   * playing it already has the network grace taken off and is NOT clamped:
+   * it starts at -0.5 (`-START_GRACE_SECONDS`) right after `start`, so the
+   * browser's count matches the time the server will score. Show it, and
+   * score it with `scoreAt`, as max(0, t).
    */
-  reveal?: Puzzle["reveal"];
-  wrongGuesses: number;
-  pointsAvailable: number;
-  aiSolvedLevel: RevealLevel | null; // Darian (Beat the AI, #56); null = the AI never got it
-  answer?: string; // only once state !== "playing"
-  credit?: Puzzle["credit"]; // only once state !== "playing"
+  elapsedSeconds: number | null;
+  /** The full photo, only once the round has started (never while `ready`). The browser draws `effect` over it. */
+  imageSrc?: string;
+  effect: PuzzleEffect; // the puzzle's effect, or `DEFAULT_EFFECT` (server-game.ts) while none is chosen (#258)
+  /** Opaque per-puzzle seed for effects that need one (the tiles' order, #257): the puzzle id, which is opaque (#52). */
+  seed: string;
+  focus: { x: number; y: number }; // `Puzzle.reveal.focus`: where zoom, spotlight and swirl centre
+  wrongGuesses: number; // counted, but they cost nothing
+  aiSolvedLevel: RevealLevel | null; // Darian (Beat the AI, #56); TODO(#257): switch to `Puzzle.aiSolvedSeconds` (merged in #194)
+  answer?: string; // only once the round is over (correct or timedOut)
+  credit?: Puzzle["credit"]; // only once the round is over
 };
 
 /** Owner: Jacky. PROPOSAL (#54). Returned by every game call (`startGame`, `act`, `getGame`). */
@@ -189,20 +205,25 @@ export type GameView = {
   lastOutcome?: GuessOutcome;
   results: RoundResult[]; // finished rounds so far, scored on the server
   total: number;
-  /**
-   * The scoring config this game plays with (#174): the pack's, as it was
-   * when the game started (#64). The UI shows these values, not the default
-   * `SCORING_CONFIG`. Not a secret: it holds no answers.
-   */
-  scoring: ScoringConfig;
   finished: boolean;
+  /**
+   * The scoring config this game plays with (#174; timed since #255): the
+   * pack's, as it was when the game started (#64). The live score and the
+   * final screen use these values, not the default `TIMED_SCORING_CONFIG`.
+   * Not a secret: it holds no answers.
+   */
+  scoring: TimedScoringConfig;
   /**
    * Once the whole game is finished (never while a round is played, #54): each
    * image's answer, index = position - 1, so a result loaded later (a reload,
    * the daily the next visit) can name the images (#58).
    */
   answers?: string[];
-  /** Darian (Beat the AI, #66): once the whole game is finished, how many images the player beat the AI on. */
+  /**
+   * Darian (Beat the AI, #66): once the whole game is finished, how many
+   * images the player beat the AI on. Not sent with timed rounds (#255) until
+   * it compares solve times (#257).
+   */
   beatAi?: BeatAiSummary;
 };
 

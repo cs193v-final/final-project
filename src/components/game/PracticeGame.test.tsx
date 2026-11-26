@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { act as reactAct, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runGameCall, type GameResult } from "@/game/game-result";
-import { pointsIfCorrect } from "@/game/scoring";
-import { SCORING_CONFIG } from "@/game/scoring-config";
+import { START_GRACE_SECONDS } from "@/game/round";
+import { scoreAt } from "@/game/scoring";
 import {
   act,
   getGame,
@@ -15,13 +15,13 @@ import {
   startGame,
   type GameOwner,
 } from "@/game/server-game";
-import type { GameAction, Pack, Puzzle, ScoringConfig } from "@/game/types";
+import type { GameAction, Pack, Puzzle, TimedScoringConfig } from "@/game/types";
 import { PracticeGame } from "./PracticeGame";
 
 function puzzle(id: string, answer: string, acceptedAnswers: string[] = []): Puzzle {
   return {
     id,
-    imageUrl: "",
+    imageUrl: `/puzzles/${id}.jpg`,
     answer,
     acceptedAnswers,
     reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [4, 2, 1] },
@@ -32,14 +32,20 @@ function puzzle(id: string, answer: string, acceptedAnswers: string[] = []): Puz
 const PUZZLES = [puzzle("p1", "Golden Gate Bridge", ["Golden Gate"]), puzzle("p2", "Big Ben")];
 const PACK: Pack = { id: "pk", kind: "practice", title: "Practice", theme: "Mixed", puzzleIds: ["p1", "p2"] };
 const OWNER: GameOwner = { anonId: "test-owner" };
+// Fixed numbers so these tests don't change when playtesting tweaks TIMED_SCORING_CONFIG.
+const CONFIG: TimedScoringConfig = { maxPoints: 10_000, minPoints: 100, revealSeconds: 25, limitSeconds: 30, curve: 2 };
 
 /**
  * Stand-ins for the Server Actions: the real game service (src/game/server-game.ts)
  * on an in-memory store, so these tests play the same rules as the server.
+ * The server's clock is `serverNow` (ms), moved by hand with `clock.advance`,
+ * or `Date.now` (faked by a test's fake timers) when `realClock` is set.
  * Every result the component receives is recorded.
  */
-function backend(puzzles: readonly Puzzle[] = PUZZLES, scoring: ScoringConfig = SCORING_CONFIG) {
-  const deps = { games: new MemoryGameStore(), puzzles: puzzleSourceFrom(puzzles) };
+function backend(puzzles: readonly Puzzle[] = PUZZLES, { realClock = false } = {}) {
+  let serverNow = Date.UTC(2030, 0, 1, 12);
+  const clock = { advance: (seconds: number) => (serverNow += seconds * 1000) };
+  const deps = { games: new MemoryGameStore(), puzzles: puzzleSourceFrom(puzzles), now: () => (realClock ? Date.now() : serverNow) };
   const received: GameResult[] = [];
   const record = async (result: Promise<GameResult>) => {
     const r = await result;
@@ -47,8 +53,9 @@ function backend(puzzles: readonly Puzzle[] = PUZZLES, scoring: ScoringConfig = 
     return r;
   };
   return {
+    clock,
     received,
-    start: vi.fn(() => record(runGameCall(() => startGame(deps, PACK, OWNER, scoring)))),
+    start: vi.fn(() => record(runGameCall(() => startGame(deps, PACK, OWNER, CONFIG)))),
     // Passes the client's revision through, so a client sending a stale one would get `conflict` (#107).
     act: vi.fn((gameId: string, action: GameAction, revision: number) =>
       record(runGameCall(() => act(deps, gameId, OWNER, action, revision))),
@@ -58,9 +65,11 @@ function backend(puzzles: readonly Puzzle[] = PUZZLES, scoring: ScoringConfig = 
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   window.history.replaceState(null, "", "/");
 });
 
+/** A game on screen, at image 1, ready (no clock running). */
 async function setup(puzzles: readonly Puzzle[] = PUZZLES) {
   const user = userEvent.setup();
   const server = backend(puzzles);
@@ -68,7 +77,11 @@ async function setup(puzzles: readonly Puzzle[] = PUZZLES) {
   const input = () => screen.getByRole("textbox", { name: "What is it?" });
   const status = () => screen.getByRole("status");
   await screen.findByText("Image 1 of 2");
-  return { user, input, status, server };
+  const startRound = async () => {
+    await user.click(await screen.findByRole("button", { name: "Start round" }));
+    await screen.findByRole("textbox", { name: "What is it?" });
+  };
+  return { user, input, status, server, startRound };
 }
 
 describe("PracticeGame start and resume (#54)", () => {
@@ -103,7 +116,6 @@ describe("PracticeGame start and resume (#54)", () => {
     const { unmount } = render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
     expect(screen.getByText("Starting a new game…")).toBeInTheDocument();
 
-    // "← Home": Next unmounts /play and shows "/".
     unmount();
     window.history.replaceState(null, "", "/");
     finish();
@@ -112,20 +124,22 @@ describe("PracticeGame start and resume (#54)", () => {
     expect(window.location.pathname + window.location.search).toBe("/");
   });
 
-  it("resumes a game loaded on the server, with its zoom level, wrong guesses and score", async () => {
+  it("resumes a game loaded on the server, with its clock, wrong guesses and score", async () => {
     const server = backend();
     const started = await server.start();
     if (!started.ok) throw new Error("start failed");
     const { gameId } = started.view;
-    const revealed = await server.act(gameId, { type: "reveal" }, started.view.revision);
-    if (!revealed.ok) throw new Error("reveal failed");
-    const initial = await server.act(gameId, { type: "guess", guess: "bay bridge" }, revealed.view.revision);
+    const running = await server.act(gameId, { type: "start" }, started.view.revision);
+    if (!running.ok) throw new Error("start round failed");
+    server.clock.advance(START_GRACE_SECONDS + 5);
+    const initial = await server.act(gameId, { type: "guess", guess: "bay bridge" }, running.view.revision);
 
     render(<PracticeGame initial={initial} start={server.start} act={server.act} get={server.get} />);
     expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
-    expect(screen.getByText("Zoom level 2 of 3")).toBeInTheDocument();
+    expect(screen.getByRole("img")).toBeInTheDocument();
     expect(screen.getByText("1 wrong guess")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("“bay bridge” isn't it (1 wrong guess).");
+    expect(screen.getByRole("status")).toHaveTextContent("“bay bridge” isn't it (1 wrong guess). Keep going.");
+    expect(screen.getByText(/now ·/)).toHaveTextContent(`Worth ${scoreAt(5, CONFIG).toLocaleString("en-US")} points now`);
     expect(server.start).toHaveBeenCalledTimes(1); // only ours, above
   });
 
@@ -149,48 +163,105 @@ describe("PracticeGame start and resume (#54)", () => {
   });
 
   it("reloads the game and says so when another tab changed it", async () => {
-    const { user, input, server } = await setup();
+    const { user, input, server, startRound } = await setup();
+    await startRound();
     server.act.mockResolvedValueOnce({ ok: false, error: "conflict" });
     await user.type(input(), "bay bridge{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent("updated since you last saw it");
     expect(server.get).toHaveBeenCalledTimes(1);
   });
 
-  it("doesn't apply a move from a tab that's behind: another tab's Skip + Next, then this tab's Skip (#107)", async () => {
+  it("doesn't apply a move from a tab that's behind: another tab starts and answers, then this tab's Start (#107)", async () => {
     const { user, server } = await setup();
     const started = server.received[0]!;
     if (!started.ok) throw new Error("start failed");
     const { gameId } = started.view;
-    // Another tab, on the same game, skips image 1 and moves on to image 2.
-    const skipped = await server.act(gameId, { type: "skip" }, started.view.revision);
-    if (!skipped.ok) throw new Error("other tab's skip failed");
-    await server.act(gameId, { type: "next" }, skipped.view.revision);
+    const running = await server.act(gameId, { type: "start" }, started.view.revision);
+    if (!running.ok) throw new Error("other tab's start failed");
+    await server.act(gameId, { type: "guess", guess: "golden gate" }, running.view.revision);
 
-    // This tab still shows image 1. Its Skip must not skip image 2.
-    expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Skip this image" }));
+    // This tab still shows image 1 ready. Its Start must not restart anything.
+    await user.click(screen.getByRole("button", { name: "Start round" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("updated since you last saw it");
-    expect(await screen.findByText("Image 2 of 2")).toBeInTheDocument();
-    const now = await server.get(gameId);
-    if (!now.ok) throw new Error("get failed");
-    expect(now.view.results.map((r) => r.outcome)).toEqual(["skipped"]);
-    expect(now.view.round).toMatchObject({ position: 2, state: "playing" });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Correct! It's Golden Gate Bridge."));
   });
 
-  it("never receives an answer while a round is being played", async () => {
-    const { user, input, server } = await setup();
+  it("never receives an answer before a round is over", async () => {
+    const { user, input, server, startRound } = await setup();
+    await startRound();
     await user.type(input(), "bay bridge{Enter}");
-    await user.click(screen.getByRole("button", { name: "Zoom out" }));
     await user.type(input(), "golden gate{Enter}");
     await user.click(await screen.findByRole("button", { name: "Next image" }));
-    await user.click(await screen.findByRole("button", { name: "Zoom out" }));
+    await startRound();
     await waitFor(() => expect(server.received.length).toBe(6));
     for (const result of server.received) {
-      if (!result.ok || result.view.round?.state !== "playing") continue;
+      if (!result.ok || (result.view.round?.state !== "playing" && result.view.round?.state !== "ready")) continue;
       const json = JSON.stringify(result).toLowerCase();
       const current = PUZZLES[result.view.round.position - 1]!;
       for (const answer of [current.answer, ...current.acceptedAnswers]) expect(json).not.toContain(answer.toLowerCase());
     }
+  });
+});
+
+describe("PracticeGame timed rounds (#255)", () => {
+  it("shows no photo and no guess box until Start round, then the photo and the guess box", async () => {
+    const { user, input } = await setup();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByText("The photo appears when you start.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByText(/Starts at/)).toHaveTextContent("Starts at 10,000 points and drops until you get it. 30 seconds per image.");
+
+    await user.click(screen.getByRole("button", { name: "Start round" }));
+    expect(await screen.findByRole("img")).toHaveAttribute("src", "/puzzles/p1.jpg");
+    expect(input()).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Start round" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Zoom out|Skip/ })).not.toBeInTheDocument();
+  });
+
+  it("scores the correct guess by the server's time, and shows what it earned", async () => {
+    const { user, input, server, startRound } = await setup();
+    await startRound();
+    server.clock.advance(START_GRACE_SECONDS + 12.5);
+    await user.type(input(), "golden gate{Enter}");
+    expect(await screen.findByText(/for this image/)).toHaveTextContent("+2,575 points for this image");
+    expect(screen.getByText(/^Score/)).toHaveTextContent("Score 2575");
+  });
+
+  it("counts the live score down with the clock, and at the limit asks the server, which ends the round", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "setInterval", "Date"], shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const server = backend(PUZZLES, { realClock: true });
+    render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
+    await user.click(await screen.findByRole("button", { name: "Start round" }));
+    await screen.findByRole("textbox", { name: "What is it?" });
+    expect(screen.getByText(/now ·/)).toHaveTextContent(/^Worth (10,000|9,9\d\d) points now · 30 s left$/);
+
+    // The view's clock starts at -0.5 s (the server's grace), so 12.5 s later it reads 12 s,
+    // the time the server would score a guess sent now. (The fake clock also moves with
+    // real time, so allow a few points of drift.)
+    await reactAct(async () => vi.advanceTimersByTime(12_500));
+    const shown = Number(/Worth ([\d,]+)/.exec(screen.getByText(/now ·/).textContent ?? "")![1]!.replace(",", ""));
+    expect(shown).toBeLessThanOrEqual(scoreAt(12, CONFIG));
+    expect(shown).toBeGreaterThan(scoreAt(12.2, CONFIG));
+    expect(screen.getByText(/now ·/)).toHaveTextContent("18 s left");
+    expect(server.get).not.toHaveBeenCalled();
+
+    // Past the limit (and the server's grace): the page asks the server, which times the round out.
+    await reactAct(async () => vi.advanceTimersByTime(18_500));
+    await waitFor(() => expect(server.get).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Time's up. It was Golden Gate Bridge."));
+    expect(screen.getByText(/for this image/)).toHaveTextContent("+0 points for this image");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next image" })).toHaveFocus();
+  });
+
+  it("shows a guess sent after the limit as timed out, not counted", async () => {
+    const { user, input, server, startRound } = await setup();
+    await startRound();
+    server.clock.advance(40);
+    await user.type(input(), "golden gate{Enter}");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Time's up. It was Golden Gate Bridge."));
+    expect(screen.getByText(/^Score/)).toHaveTextContent("Score 0");
   });
 });
 
@@ -202,7 +273,7 @@ function deferred<T>() {
 }
 
 describe("PracticeGame while a move is on its way to the server", () => {
-  it("ignores a second Zoom out click until the first one's result arrives", async () => {
+  it("ignores a second Start round click until the first one's result arrives", async () => {
     const { user, server } = await setup();
     const realAct = server.act.getMockImplementation()!;
     const gate = deferred<void>();
@@ -211,20 +282,20 @@ describe("PracticeGame while a move is on its way to the server", () => {
       return realAct(gameId, action, revision);
     });
 
-    const zoom = screen.getByRole("button", { name: "Zoom out" });
-    await user.click(zoom);
-    expect(zoom).toHaveAttribute("aria-disabled", "true");
-    await user.click(zoom);
+    const start = screen.getByRole("button", { name: "Start round" });
+    await user.click(start);
+    expect(start).toHaveAttribute("aria-disabled", "true");
+    await user.click(start);
     expect(server.act).toHaveBeenCalledTimes(1);
 
     gate.resolve();
-    expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
-    expect(zoom).toHaveAttribute("aria-disabled", "false");
+    expect(await screen.findByRole("textbox", { name: "What is it?" })).toBeInTheDocument();
     expect(server.act).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores a second guess, Skip and Next while a guess is pending, and keeps the typed text", async () => {
-    const { user, input, server } = await setup();
+  it("ignores a second guess while a guess is pending, and keeps the typed text", async () => {
+    const { user, input, server, startRound } = await setup();
+    await startRound();
     const realAct = server.act.getMockImplementation()!;
     const gate = deferred<void>();
     server.act.mockImplementationOnce(async (gameId, action, revision) => {
@@ -235,25 +306,12 @@ describe("PracticeGame while a move is on its way to the server", () => {
     await user.type(input(), "bay bridge{Enter}");
     expect(screen.getByRole("button", { name: "Guess" })).toHaveAttribute("aria-disabled", "true");
     await user.type(input(), "big ben{Enter}");
-    await user.click(screen.getByRole("button", { name: "Skip this image" }));
-    expect(server.act).toHaveBeenCalledTimes(1);
+    expect(server.act).toHaveBeenCalledTimes(2); // the Start round, and the first guess
     expect(input()).toHaveValue("big ben"); // not sent, not lost
 
     gate.resolve();
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("(1 wrong guess)"));
     expect(screen.getByRole("button", { name: "Guess" })).toHaveAttribute("aria-disabled", "false");
-  });
-
-  it("starts only one new game when Play again is clicked twice", async () => {
-    const { user, server } = await setup();
-    for (let i = 0; i < PUZZLES.length; i++) {
-      await user.click(await screen.findByRole("button", { name: "Skip this image" }));
-      await user.click(await screen.findByRole("button", { name: /Next image|See results/ }));
-    }
-    const again = await screen.findByRole("button", { name: "Play again" });
-    await user.dblClick(again);
-    expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
-    expect(server.start).toHaveBeenCalledTimes(2); // the first game, and one more
   });
 });
 
@@ -275,17 +333,16 @@ describe("PracticeGame when a Server Action fails outright (offline, or a redepl
   it("keeps the game on screen, offers a reload, and lets the player try the move again", async () => {
     const { user, server } = await setup();
     server.act.mockRejectedValueOnce(new TypeError("Failed to fetch"));
-    const zoom = screen.getByRole("button", { name: "Zoom out" });
-    await user.click(zoom);
+    const start = screen.getByRole("button", { name: "Start round" });
+    await user.click(start);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach the server.");
-    // Underlined all the time, not just on hover, so it reads as pressable on a touch screen.
     expect(screen.getByRole("button", { name: "Reload the page" })).toHaveClass("underline");
     expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
-    expect(zoom).toHaveAttribute("aria-disabled", "false");
+    expect(start).toHaveAttribute("aria-disabled", "false");
 
-    await user.click(zoom);
-    expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
+    await user.click(start);
+    expect(await screen.findByRole("textbox", { name: "What is it?" })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
@@ -310,22 +367,23 @@ describe("PracticeGame when a limit is hit (#85)", () => {
   it("keeps the game on screen when a move is rate-limited, and the move works once allowed again", async () => {
     const { user, server } = await setup();
     server.act.mockResolvedValueOnce(LIMITED);
-    const zoom = screen.getByRole("button", { name: "Zoom out" });
-    await user.click(zoom);
+    await user.click(screen.getByRole("button", { name: "Start round" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/wait a while \(up to an hour\), then try again/);
     expect(screen.getByText("Image 1 of 2")).toBeInTheDocument();
-    expect(screen.getByText("Zoom level 1 of 3")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
 
-    await user.click(zoom);
-    expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start round" }));
+    expect(await screen.findByRole("img")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("at the wrong-guess safety cap, says to zoom out or skip, and Skip still works (#209)", async () => {
+  it("at the wrong-guess safety cap, says no more guesses this image, and the round still times out (#209)", async () => {
     const user = userEvent.setup();
     const server = backend();
     let initial = await server.start();
+    if (!initial.ok) throw new Error("start failed");
+    initial = await server.act(initial.view.gameId, { type: "start" }, initial.view.revision);
     for (let i = 0; i < MAX_WRONG_GUESSES_PER_ROUND; i++) {
       if (!initial.ok) throw new Error("move failed");
       initial = await server.act(initial.view.gameId, { type: "guess", guess: "bay bridge" }, initial.view.revision);
@@ -335,28 +393,31 @@ describe("PracticeGame when a limit is hit (#85)", () => {
     // Even the right answer is refused at the cap, and the round stays as it was.
     await user.type(screen.getByRole("textbox", { name: "What is it?" }), "golden gate{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "That's the most guesses one image allows. Zoom out or skip it to keep playing.",
+      "That's the most guesses one image allows. This image ends when its time runs out.",
     );
     expect(screen.getByText(`${MAX_WRONG_GUESSES_PER_ROUND} wrong guesses`)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Skip this image" }));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Skipped. It was Golden Gate Bridge."));
+    server.clock.advance(40);
+    await user.type(screen.getByRole("textbox", { name: "What is it?" }), "golden gate{Enter}");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Time's up. It was Golden Gate Bridge."));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 
 describe("PracticeGame guessing", () => {
   it("submits with Enter, shows a wrong guess, counts it and clears the input", async () => {
-    const { user, input, status } = await setup();
+    const { user, input, status, startRound } = await setup();
+    await startRound();
     expect(input()).toHaveFocus();
     await user.type(input(), "  Bay  Bridge {Enter}");
     expect(input()).toHaveValue("");
-    await waitFor(() => expect(status()).toHaveTextContent("“bay bridge” isn't it (1 wrong guess)."));
+    await waitFor(() => expect(status()).toHaveTextContent("“bay bridge” isn't it (1 wrong guess). Keep going."));
     expect(screen.getByText("1 wrong guess")).toBeInTheDocument();
   });
 
   it("changes the announced text when the same wrong guess is repeated", async () => {
-    const { user, input, status } = await setup();
+    const { user, input, status, startRound } = await setup();
+    await startRound();
     await user.type(input(), "bay bridge{Enter}");
     await waitFor(() => expect(status()).toHaveTextContent("(1 wrong guess)"));
     const first = status().textContent;
@@ -366,179 +427,54 @@ describe("PracticeGame guessing", () => {
   });
 
   it("asks for a guess on blank input without counting it or asking the server", async () => {
-    const { user, input, status, server } = await setup();
+    const { user, input, status, server, startRound } = await setup();
+    await startRound();
     await user.type(input(), "   ");
     await user.click(screen.getByRole("button", { name: "Guess" }));
     expect(status()).toHaveTextContent("Type a guess first.");
     expect(screen.queryByText(/wrong guess/)).not.toBeInTheDocument();
     expect(input()).toHaveValue("   ");
-    expect(server.act).not.toHaveBeenCalled();
+    expect(server.act).toHaveBeenCalledTimes(1); // only the Start round
   });
 
-  it("accepts an alternate answer, shows the real answer, then focuses Next image", async () => {
-    const { user, input, status } = await setup();
+  it("accepts an alternate answer, shows the real answer, the credit, then focuses Next image", async () => {
+    const { user, input, status, startRound } = await setup();
+    await startRound();
+    expect(screen.queryByText(/Photo:/)).not.toBeInTheDocument();
     await user.type(input(), "golden gate{Enter}");
-    // The server sends the canonical answer only, never the alternate that matched (#54).
     await waitFor(() => expect(status()).toHaveTextContent("Correct! It's Golden Gate Bridge."));
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByText(/Photo: test \(CC0\)/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next image" })).toHaveFocus();
   });
 
-  it("skip reveals the answer", async () => {
-    const { user, status } = await setup();
-    await user.click(screen.getByRole("button", { name: "Skip this image" }));
-    await waitFor(() => expect(status()).toHaveTextContent("Skipped. It was Golden Gate Bridge."));
-  });
+  it("plays through every image to the final score, with each round's time, and can restart", async () => {
+    const { user, input, status, server, startRound } = await setup();
 
-  it("plays through every image to the end and can restart", async () => {
-    const { user, input, status, server } = await setup();
-
+    await startRound();
+    server.clock.advance(START_GRACE_SECONDS + 5);
+    await user.type(input(), "bay bridge{Enter}");
     await user.type(input(), "golden gate bridge{Enter}");
     await user.click(await screen.findByRole("button", { name: "Next image" }));
 
     expect(await screen.findByText("Image 2 of 2")).toBeInTheDocument();
     expect(status()).toHaveTextContent(""); // feedback reset for the new image
-    expect(screen.queryByText(/wrong guess/)).not.toBeInTheDocument();
-    expect(input()).toHaveFocus();
-
-    await user.click(screen.getByRole("button", { name: "Skip this image" }));
+    expect(screen.queryByRole("img")).not.toBeInTheDocument(); // the next photo waits for its start
+    await startRound();
+    server.clock.advance(31);
+    await user.type(input(), "big ben{Enter}"); // too late
     await user.click(await screen.findByRole("button", { name: "See results" }));
-    expect(await screen.findByRole("heading", { name: "Practice complete" })).toBeInTheDocument();
+
+    expect(await screen.findByRole("heading", { name: "Practice complete" })).toHaveFocus();
+    const first = scoreAt(5, CONFIG);
+    expect(screen.getByText(/You scored/)).toHaveTextContent(`You scored ${first} out of ${CONFIG.maxPoints * 2}`);
+    const [one, two] = screen.getAllByRole("listitem");
+    expect(one).toHaveTextContent("Golden Gate Bridge ✓ correct");
+    expect(one).toHaveTextContent("Got it in 5.0 s, 1 wrong guess");
+    expect(two).toHaveTextContent("Big Ben time's up");
 
     await user.click(screen.getByRole("button", { name: "Play again" }));
     expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
     expect(server.start).toHaveBeenCalledTimes(2); // a new server game
-  });
-
-  it("zoom out steps the viewer to the full image, then stays focused but does nothing", async () => {
-    const { user, server } = await setup();
-    const zoom = screen.getByRole("button", { name: "Zoom out" });
-    expect(screen.getByText("Zoom level 1 of 3")).toBeInTheDocument();
-    await user.click(zoom);
-    expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
-    await user.click(zoom);
-    expect(await screen.findByText("Zoom level 3 of 3")).toBeInTheDocument();
-    expect(screen.getByText("Showing the full image")).toBeInTheDocument();
-    expect(zoom).toHaveAttribute("aria-disabled", "true");
-    await user.click(zoom);
-    expect(screen.getByText("Zoom level 3 of 3")).toBeInTheDocument();
-    expect(zoom).toHaveFocus();
-    expect(server.act).toHaveBeenCalledTimes(2);
-  });
-
-  it("shows the full image and the photo credit once the round is over", async () => {
-    const { user, input } = await setup();
-    expect(screen.queryByText(/Photo:/)).not.toBeInTheDocument();
-    await user.type(input(), "golden gate{Enter}");
-    expect(await screen.findByText("Full image")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Zoom out" })).not.toBeInTheDocument();
-    expect(screen.getByText(/Photo: test \(CC0\)/)).toBeInTheDocument();
-  });
-
-  it("starts the next image at its tightest crop", async () => {
-    const { user } = await setup();
-    await user.click(screen.getByRole("button", { name: "Zoom out" }));
-    await screen.findByText("Zoom level 2 of 3");
-    await user.click(screen.getByRole("button", { name: "Skip this image" }));
-    await user.click(await screen.findByRole("button", { name: "Next image" }));
-    expect(await screen.findByText("Image 2 of 2")).toBeInTheDocument();
-    expect(screen.getByText("Zoom level 1 of 3")).toBeInTheDocument();
-  });
-});
-
-describe("PracticeGame score (#16), worked out on the server", () => {
-  // Expected numbers come from the live config, so tuning it doesn't break this test.
-  const worth = (revealLevel: number, wrongGuesses: number) => pointsIfCorrect(revealLevel, wrongGuesses);
-  const score = () => screen.getByText(/^Score/);
-  const value = () => screen.getByText(/now|for this image/);
-
-  it("updates the live score as you play and ends on the final score screen", async () => {
-    const { user, input } = await setup();
-    expect(score()).toHaveTextContent("Score 0");
-    expect(value()).toHaveTextContent(`Worth ${worth(0, 0)} points now`);
-
-    await user.click(screen.getByRole("button", { name: "Zoom out" }));
-    await waitFor(() => expect(value()).toHaveTextContent(`Worth ${worth(1, 0)} points now`));
-
-    await user.type(input(), "bay bridge{Enter}");
-    await waitFor(() => expect(value()).toHaveTextContent(`Worth ${worth(1, 1)} points now`));
-
-    await user.type(input(), "golden gate{Enter}");
-    const first = worth(1, 1);
-    await waitFor(() => expect(value()).toHaveTextContent(`+${first} points for this image`));
-    expect(score()).toHaveTextContent(`Score ${first}`);
-
-    await user.click(screen.getByRole("button", { name: "Next image" }));
-    await user.click(await screen.findByRole("button", { name: "Skip this image" }));
-    await waitFor(() => expect(value()).toHaveTextContent(`+${SCORING_CONFIG.skipPoints} points`));
-
-    await user.click(screen.getByRole("button", { name: "See results" }));
-    expect(await screen.findByRole("heading", { name: "Practice complete" })).toHaveFocus();
-    const total = first + SCORING_CONFIG.skipPoints;
-    expect(screen.getByText(/You scored/)).toHaveTextContent(
-      `You scored ${total} out of ${SCORING_CONFIG.basePoints * PUZZLES.length}`,
-    );
-    const [one, two] = screen.getAllByRole("listitem");
-    expect(one).toHaveTextContent("Golden Gate Bridge ✓ correct");
-    expect(one).toHaveTextContent("1 zoom-out, 1 wrong guess");
-    expect(two).toHaveTextContent("Big Ben skipped");
-
-    await user.click(screen.getByRole("button", { name: "Play again" }));
-    await waitFor(() => expect(score()).toHaveTextContent("Score 0"));
-  });
-
-  it("scores the final maximum with the game's own config, not the default (#174)", async () => {
-    const own: ScoringConfig = { ...SCORING_CONFIG, basePoints: SCORING_CONFIG.basePoints * 3 };
-    const server = backend(PUZZLES, own);
-    const user = userEvent.setup();
-    render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
-    await screen.findByText("Image 1 of 2");
-    expect(value()).toHaveTextContent(`Worth ${own.basePoints} points now`);
-
-    await user.click(screen.getByRole("button", { name: "Skip this image" }));
-    await user.click(await screen.findByRole("button", { name: "Next image" }));
-    await user.click(await screen.findByRole("button", { name: "Skip this image" }));
-    await user.click(await screen.findByRole("button", { name: "See results" }));
-    expect(await screen.findByText(/You scored/)).toHaveTextContent(
-      `You scored ${own.skipPoints * 2} out of ${own.basePoints * PUZZLES.length}`,
-    );
-  });
-});
-
-describe("PracticeGame against the AI (#66)", () => {
-  // The AI got image 1 at level 1 (zoom level 2 of 3); it has no result for image 2.
-  const withAi = [{ ...PUZZLES[0]!, aiSolvedLevel: 1 }, PUZZLES[1]!];
-
-  it("shows the AI's zoom level as a target, how you did once the round is over, and the count at the end", async () => {
-    const { user, input } = await setup(withAi);
-    expect(screen.getByText("The AI got this at zoom level 2 of 3. Can you beat it?")).toBeInTheDocument();
-
-    await user.type(input(), "golden gate bridge{Enter}");
-    expect(await screen.findByText("You beat the AI! It needed zoom level 2.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Next image" }));
-
-    expect(await screen.findByText("Image 2 of 2")).toBeInTheDocument();
-    expect(screen.queryByText(/the AI/)).not.toBeInTheDocument(); // no AI result for this image
-    await user.click(screen.getByRole("button", { name: "Skip this image" }));
-    await user.click(await screen.findByRole("button", { name: "See results" }));
-    expect(await screen.findByText("You beat the AI on 1 of the 1 images it played.")).toBeInTheDocument();
-  });
-
-  it("says when the AI got there first", async () => {
-    const { user, input } = await setup([{ ...PUZZLES[0]!, aiSolvedLevel: 0 }, PUZZLES[1]!]);
-    await user.click(screen.getByRole("button", { name: /Zoom out/ }));
-    await user.type(input(), "golden gate bridge{Enter}");
-    expect(await screen.findByText("The AI got this one first, at zoom level 1.")).toBeInTheDocument();
-  });
-
-  it("shows nothing about the AI when it has no results", async () => {
-    const { user } = await setup();
-    expect(screen.queryByText(/the AI/)).not.toBeInTheDocument();
-    for (let i = 0; i < 2; i++) {
-      await user.click(screen.getByRole("button", { name: "Skip this image" }));
-      await user.click(await screen.findByRole("button", { name: i === 0 ? "Next image" : "See results" }));
-    }
-    expect(await screen.findByRole("heading", { name: "Practice complete" })).toBeInTheDocument();
-    expect(screen.queryByText(/the AI/)).not.toBeInTheDocument();
   });
 });

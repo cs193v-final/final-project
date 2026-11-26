@@ -83,7 +83,8 @@ export async function startTodaysDaily(date: unknown, now = new Date()): Promise
     if (started !== null) return started;
     await checkStartLimits(db, owner, await requestIpHash(), now);
     // The pack's own scoring (#64) when it has one, checked like any stored
-    // override: an invalid one (hand-written SQL) is logged and the default used.
+    // override: an invalid one (hand-written SQL, or one with the old
+    // zoom-out fields from before #255) is logged and the default used.
     return startOrResumeDaily(deps(db), daily, today, owner, scoringFromStored(daily.id, daily.scoring ?? null));
   });
 }

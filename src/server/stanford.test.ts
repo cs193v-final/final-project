@@ -18,7 +18,7 @@ import { seedContent } from "@/db/content";
 import { setPackScoring } from "@/db/pack-scoring";
 import * as schema from "@/db/schema";
 import { combineContent } from "@/game/packs";
-import { SCORING_CONFIG } from "@/game/scoring-config";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import type { GameView, Pack, Puzzle } from "@/game/types";
 
 import { cutPuzzleImages } from "../../scripts/seed-images.ts";
@@ -112,9 +112,11 @@ describe("Stanford mode with a pack loaded", () => {
     });
   });
 
-  it("plays the Stanford pack from level images, with no answer or credit until the round ends, then the credit", async () => {
+  it("plays the Stanford pack from its cut full photo, after start, with no answer or credit until the round ends, then the credit", async () => {
     let view = ok(await startStanfordGame());
     expect(view.pack).toMatchObject({ kind: "stanford", theme: "Fake campus spots" });
+    expect(view.round).not.toHaveProperty("imageSrc"); // no photo before start (#255)
+    view = ok(await actOnGame(view.gameId, { type: "start" }, view.revision));
     expect(view.round!.imageSrc).toMatch(/^\/img\/[0-9a-f]{32}\.webp$/u);
     expect(view.round).not.toHaveProperty("credit");
     expect(JSON.stringify(view).toLowerCase()).not.toMatch(/fake spot|test photographer|\/puzzles\/|images\/pz-/u);
@@ -134,8 +136,9 @@ describe("Stanford mode with a pack loaded", () => {
     expect(ok(await startStanfordGame()).gameId).toBe(view.gameId);
     expect(await gameCount()).toBe(rows);
 
-    for (let i = 0; i < PUZZLES.length; i++) {
-      view = ok(await actOnGame(view.gameId, { type: "skip" }, view.revision));
+    for (const puzzle of PUZZLES) {
+      view = ok(await actOnGame(view.gameId, { type: "start" }, view.revision));
+      view = ok(await actOnGame(view.gameId, { type: "guess", guess: puzzle.answer }, view.revision));
       view = ok(await actOnGame(view.gameId, { type: "next" }, view.revision));
     }
     expect(view.finished).toBe(true);
@@ -151,9 +154,9 @@ describe("Stanford mode with a pack loaded", () => {
 
   it("plays with the pack's own scoring (#64)", async () => {
     try {
-      const basePoints = SCORING_CONFIG.basePoints + 50;
-      await setPackScoring(db, PACK.id, { basePoints });
-      expect(ok(await startStanfordGame()).round!.pointsAvailable).toBe(basePoints);
+      const maxPoints = TIMED_SCORING_CONFIG.maxPoints + 500;
+      await setPackScoring(db, PACK.id, { maxPoints });
+      expect(ok(await startStanfordGame()).scoring).toEqual({ ...TIMED_SCORING_CONFIG, maxPoints });
     } finally {
       await setPackScoring(db, PACK.id, null);
     }

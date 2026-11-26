@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DailyIntro } from "@/game/daily";
 import type { DailyStats } from "@/game/daily-result";
 import { runGameCall, type GameResult } from "@/game/game-result";
-import { SCORING_CONFIG } from "@/game/scoring-config";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import { act, getGame, MemoryGameStore, puzzleSourceFrom, startOrResumeDaily, type GameOwner } from "@/game/server-game";
 import type { GameAction, Pack, Puzzle } from "@/game/types";
 import { DailyPlay, type DailyStart } from "./DailyPlay";
@@ -38,7 +38,7 @@ function backend() {
     // Like startTodaysDaily: only the day the intro showed may be started.
     start: vi.fn(async (date: string): Promise<DailyStart> =>
       date === INTRO.date
-        ? runGameCall(() => startOrResumeDaily(deps, PACK, INTRO.date, OWNER, SCORING_CONFIG))
+        ? runGameCall(() => startOrResumeDaily(deps, PACK, INTRO.date, OWNER, TIMED_SCORING_CONFIG))
         : { ok: false, error: "day-over" },
     ),
     act: vi.fn((gameId: string, action: GameAction, revision: number) =>
@@ -79,11 +79,13 @@ describe("DailyPlay", () => {
     const server = backend();
     const started = await server.start(INTRO.date);
     if (!started.ok) throw new Error("start failed");
-    const moved = await server.act(started.view.gameId, { type: "skip" }, started.view.revision);
+    let moved = await server.act(started.view.gameId, { type: "start" }, started.view.revision);
+    if (!moved.ok) throw new Error("start failed");
+    moved = await server.act(moved.view.gameId, { type: "guess", guess: "zebra" }, moved.view.revision);
     render(<DailyPlay intro={INTRO} initial={moved} start={server.start} act={server.act} get={server.get} loadStats={server.stats} />);
     expect(screen.queryByRole("heading", { name: "Today: Fruit" })).not.toBeInTheDocument();
     expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
-    expect(screen.getByText(/Skipped/u)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("“zebra” isn't it (1 wrong guess). Keep going.");
   });
 
   it("after the last image shows the result with no Play again, Share, Home, and asks for that day's stats", async () => {
@@ -92,10 +94,11 @@ describe("DailyPlay", () => {
     render(<DailyPlay intro={INTRO} initial={null} start={server.start} act={server.act} get={server.get} loadStats={server.stats} />);
     await user.click(screen.getByRole("button", { name: "Start today's challenge" }));
     await screen.findByText("Image 1 of 2");
-    await user.click(screen.getByRole("button", { name: "Skip this image" }));
-    await user.click(await screen.findByRole("button", { name: "Next image" }));
-    await user.click(await screen.findByRole("button", { name: "Skip this image" }));
-    await user.click(await screen.findByRole("button", { name: "See results" }));
+    for (const answer of ["kiwi", "lychee"]) {
+      await user.click(await screen.findByRole("button", { name: "Start round" }));
+      await user.type(await screen.findByRole("textbox", { name: "What is it?" }), `${answer}{Enter}`);
+      await user.click(await screen.findByRole("button", { name: answer === "kiwi" ? "Next image" : "See results" }));
+    }
 
     expect(await screen.findByText(/That's today's challenge\./u)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Play again" })).not.toBeInTheDocument();
@@ -107,7 +110,15 @@ describe("DailyPlay", () => {
   it("a finished player who comes back sees their result, not a new game", async () => {
     const server = backend();
     let result = (await server.start(INTRO.date)) as GameResult;
-    for (const action of [{ type: "skip" }, { type: "next" }, { type: "skip" }, { type: "next" }] as GameAction[]) {
+    const moves: GameAction[] = [
+      { type: "start" },
+      { type: "guess", guess: "kiwi" },
+      { type: "next" },
+      { type: "start" },
+      { type: "guess", guess: "lychee" },
+      { type: "next" },
+    ];
+    for (const action of moves) {
       if (!result.ok) throw new Error("move failed");
       result = await server.act(result.view.gameId, action, result.view.revision);
     }

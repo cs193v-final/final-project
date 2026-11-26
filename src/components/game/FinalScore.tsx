@@ -2,28 +2,21 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import type { GameScore } from "@/game/scoring";
-import { SCORING_CONFIG } from "@/game/scoring-config";
-import type { BeatAiSummary, Puzzle, RoundResult, ScoringConfig } from "@/game/types";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
+import type { BeatAiSummary, Puzzle, RoundResult, TimedScoringConfig } from "@/game/types";
 import { Button } from "../ui/controls";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** The points math for one round, e.g. "100 − 40 for zoom-outs − 10 for wrong guesses". */
-export function breakdownText(result: RoundResult): string {
-  if (result.outcome === "skipped") return "Skipped";
-  const { base, revealPenalty, wrongGuessPenalty } = result.breakdown;
-  const parts = [`${base}`];
-  if (revealPenalty > 0) parts.push(`− ${revealPenalty} for zoom-outs`);
-  if (wrongGuessPenalty > 0) parts.push(`− ${wrongGuessPenalty} for wrong guesses`);
-  const raw = base - revealPenalty - wrongGuessPenalty;
-  return result.points > raw ? `${parts.join(" ")} (minimum applied)` : parts.join(" ");
+/** A round's time, e.g. "6.2 s". */
+export function secondsText(seconds: number): string {
+  return `${seconds.toFixed(1)} s`;
 }
 
-/** What the player did in a round, e.g. "2 zoom-outs, 1 wrong guess". */
+/** What happened in a timed round (#255), e.g. "Got it in 6.2 s, 1 wrong guess" or "Time's up". */
 export function actionsText(result: RoundResult): string {
-  const zooms = plural(result.revealLevelReached, "zoom-out", "zoom-outs");
-  const wrong = plural(result.wrongGuesses, "wrong guess", "wrong guesses");
-  return `${zooms}, ${wrong}`;
+  const wrong = result.wrongGuesses > 0 ? `, ${plural(result.wrongGuesses, "wrong guess", "wrong guesses")}` : "";
+  return result.outcome === "correct" ? `Got it in ${secondsText(result.seconds)}${wrong}` : `Time's up${wrong}`;
 }
 
 /**
@@ -37,7 +30,7 @@ export function beatAiText({ beaten, played }: BeatAiSummary, imageCount: number
 
 /**
  * The final score screen (#16): the total, how the player did against the AI
- * (#66), one line per image with how its points were worked out, and Play again.
+ * (#66), one line per image with its time and points (#255), and Play again.
  */
 export function FinalScore({
   puzzles,
@@ -46,7 +39,7 @@ export function FinalScore({
   onPlayAgain,
   after,
   title = "Practice complete",
-  config = SCORING_CONFIG,
+  config = TIMED_SCORING_CONFIG,
 }: {
   puzzles: readonly Pick<Puzzle, "id" | "answer">[];
   score: GameScore;
@@ -57,7 +50,8 @@ export function FinalScore({
   after?: ReactNode;
   /** The heading, e.g. "Stanford complete" (#65). */
   title?: string;
-  config?: ScoringConfig;
+  /** The game's scoring (`GameView.scoring`), for the most it could have scored. */
+  config?: TimedScoringConfig;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   // The game screen just disappeared; move focus here so keyboard and
@@ -67,7 +61,7 @@ export function FinalScore({
   }, []);
 
   const answers = new Map(puzzles.map((p) => [p.id, p.answer]));
-  const max = config.basePoints * puzzles.length;
+  const max = config.maxPoints * puzzles.length;
   const versusAi = beatAi === undefined ? null : beatAiText(beatAi, score.rounds.length);
 
   return (
@@ -89,11 +83,10 @@ export function FinalScore({
               <span className="font-medium">
                 {i + 1}. {answers.get(r.puzzleId) ?? r.puzzleId}{" "}
                 <span className={r.outcome === "correct" ? "text-emerald-700 dark:text-emerald-400" : "text-zinc-600 dark:text-zinc-400"}>
-                  {r.outcome === "correct" ? "✓ correct" : "skipped"}
+                  {r.outcome === "correct" ? "✓ correct" : "time's up"}
                 </span>
               </span>
               <span className="text-sm text-zinc-600 dark:text-zinc-400">{actionsText(r)}</span>
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">{breakdownText(r)}</span>
             </div>
             <span className="shrink-0 text-lg font-semibold">{r.points}</span>
           </li>

@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import { parseScoringOverride, resolveScoringConfig, ScoringConfigError } from "../game/scoring-override.ts";
-import type { ScoringConfig } from "../game/types.ts";
+import type { TimedScoringConfig } from "../game/types.ts";
 import { packs } from "./schema.ts";
 import type * as schema from "./schema.ts";
 
@@ -33,11 +33,11 @@ export async function readStoredScoring(db: PgDb, packId: string): Promise<unkno
 }
 
 /**
- * The scoring config for a pack: its override merged over `SCORING_CONFIG`,
- * or `SCORING_CONFIG` if it has none. Throws `PackNotFoundError` for an
+ * The scoring config for a pack: its override merged over `TIMED_SCORING_CONFIG`,
+ * or `TIMED_SCORING_CONFIG` if it has none. Throws `PackNotFoundError` for an
  * unknown pack id.
  *
- * A stored override that is malformed or fails `validateScoringConfig` does
+ * A stored override that is malformed or fails `validateTimedScoringConfig` does
  * NOT throw: it is logged with `console.error` (it shows up in the Vercel
  * function logs) and the pack plays with the default. Reason: the only way to
  * store a bad value is hand-written SQL, since `setPackScoring` (and so
@@ -46,7 +46,7 @@ export async function readStoredScoring(db: PgDb, packId: string): Promise<unkno
  * the default values. The log line names the pack and the problem so it can
  * be fixed.
  */
-export async function getPackScoringConfig(db: PgDb, packId: string): Promise<ScoringConfig> {
+export async function getPackScoringConfig(db: PgDb, packId: string): Promise<TimedScoringConfig> {
   return scoringFromStored(packId, await readStoredScoring(db, packId));
 }
 
@@ -56,7 +56,7 @@ export async function getPackScoringConfig(db: PgDb, packId: string): Promise<Sc
  * rules as `getPackScoringConfig`, including the log-and-default for an
  * invalid override, without another query.
  */
-export function scoringFromStored(packId: string, stored: unknown): ScoringConfig {
+export function scoringFromStored(packId: string, stored: unknown): TimedScoringConfig {
   try {
     return resolveScoringConfig(stored);
   } catch (error) {
@@ -73,7 +73,7 @@ export function scoringFromStored(packId: string, stored: unknown): ScoringConfi
  * throws `ScoringConfigError` without touching the database if the override is
  * invalid; throws `PackNotFoundError` if no pack has that id.
  *
- * A partial override is merged over the current `SCORING_CONFIG` and the full
+ * A partial override is merged over the current `TIMED_SCORING_CONFIG` and the full
  * result is stored, so the pack's values are pinned and don't move when the
  * default in code changes. Returns what was stored.
  */
@@ -81,7 +81,7 @@ export async function setPackScoring(
   db: PgDb,
   packId: string,
   override: unknown,
-): Promise<ScoringConfig | null> {
+): Promise<TimedScoringConfig | null> {
   const parsed = parseScoringOverride(override);
   const scoring = parsed === null ? null : resolveScoringConfig(parsed);
   const updated = await db

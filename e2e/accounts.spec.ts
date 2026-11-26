@@ -101,7 +101,7 @@ test("a stale session cookie still shows the pages, with Log in in the header", 
     const site = siteNav(page);
     await expect(site.getByRole("link", { name: "Log in" })).toBeVisible();
   }
-  await expect(page.getByRole("button", { name: "Zoom out" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start round" })).toBeVisible();
 });
 
 // The full flow needs a database (CI has one; locally, set DATABASE_URL for

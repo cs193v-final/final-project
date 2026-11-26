@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { ensurePackRow } from "@/db/games";
 import { setPackScoring } from "@/db/pack-scoring";
 import * as schema from "@/db/schema";
-import { SCORING_CONFIG } from "@/game/scoring-config";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import { PRACTICE_PACK } from "@/puzzles";
 
 const state = vi.hoisted(() => ({ db: undefined as unknown }));
@@ -49,28 +49,28 @@ describe("loadPracticeScoring", () => {
   it("gives the default, logged, when the practice pack has no row yet (no game started)", async () => {
     state.db = db;
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(await loadPracticeScoring()).toEqual(SCORING_CONFIG);
+    expect(await loadPracticeScoring()).toEqual(TIMED_SCORING_CONFIG);
     expect(log).toHaveBeenCalledOnce();
   });
 
   it("gives the default when the practice pack has no override", async () => {
     state.db = db;
     await ensurePackRow(db, PRACTICE_PACK);
-    expect(await loadPracticeScoring()).toEqual(SCORING_CONFIG);
+    expect(await loadPracticeScoring()).toEqual(TIMED_SCORING_CONFIG);
   });
 
   it("gives the practice pack's stored override, merged over the default", async () => {
     state.db = db;
     await ensurePackRow(db, PRACTICE_PACK);
-    await setPackScoring(db, PRACTICE_PACK.id, { basePoints: 250, skipPoints: 5 });
-    expect(await loadPracticeScoring()).toEqual({ ...SCORING_CONFIG, basePoints: 250, skipPoints: 5 });
+    await setPackScoring(db, PRACTICE_PACK.id, { maxPoints: 2_500, curve: 3 });
+    expect(await loadPracticeScoring()).toEqual({ ...TIMED_SCORING_CONFIG, maxPoints: 2_500, curve: 3 });
     await setPackScoring(db, PRACTICE_PACK.id, null);
   });
 
   it("gives the default, logged, without throwing, when the database can't be reached", async () => {
     state.db = undefined;
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    await expect(loadPracticeScoring()).resolves.toEqual(SCORING_CONFIG);
+    await expect(loadPracticeScoring()).resolves.toEqual(TIMED_SCORING_CONFIG);
     // One line, through errorSummary (#60): the cause, but not the raw error object.
     expect(log).toHaveBeenCalledWith(expect.stringMatching(/practice pack.*DATABASE_URL is not set/));
   });
@@ -78,12 +78,12 @@ describe("loadPracticeScoring", () => {
   it("gives the default when a query fails", async () => {
     state.db = db;
     await ensurePackRow(db, PRACTICE_PACK);
-    await setPackScoring(db, PRACTICE_PACK.id, { basePoints: 250 });
+    await setPackScoring(db, PRACTICE_PACK.id, { maxPoints: 2_500 });
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(db, "select").mockImplementation(() => {
       throw new Error("connection reset");
     });
-    await expect(loadPracticeScoring()).resolves.toEqual(SCORING_CONFIG);
+    await expect(loadPracticeScoring()).resolves.toEqual(TIMED_SCORING_CONFIG);
     expect(log).toHaveBeenCalledOnce();
     await setPackScoring(db, PRACTICE_PACK.id, null);
   });
@@ -92,6 +92,6 @@ describe("loadPracticeScoring", () => {
     state.db = undefined;
     vi.spyOn(console, "error").mockImplementation(() => {});
     const config = await loadPracticeScoring();
-    expect(config).not.toBe(SCORING_CONFIG);
+    expect(config).not.toBe(TIMED_SCORING_CONFIG);
   });
 });

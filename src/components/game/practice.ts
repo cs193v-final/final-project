@@ -17,7 +17,7 @@ export type Feedback =
    * `matched` is the canonical answer too.
    */
   | { kind: "correct"; answer: string; matched: string }
-  | { kind: "skipped"; answer: string }; // the canonical answer, revealed after skipping
+  | { kind: "timedOut"; answer: string }; // the canonical answer, revealed when the time ran out (#255)
 
 export const NO_FEEDBACK: Feedback = { kind: "none" };
 
@@ -34,9 +34,9 @@ export function feedbackFor(action: GameAction | null, view: GameView, previous:
     const matched = view.lastOutcome?.kind === "correct" ? view.lastOutcome.matched : answer;
     return { kind: "correct", answer, matched };
   }
-  if (round.state === "skipped") return { kind: "skipped", answer: round.answer ?? "" };
+  if (round.state === "timedOut") return { kind: "timedOut", answer: round.answer ?? "" };
 
-  // Still playing.
+  // Ready or still playing.
   const wrong: Feedback | null =
     view.lastOutcome?.kind === "incorrect"
       ? { kind: "incorrect", guess: view.lastOutcome.normalizedGuess, wrongGuesses: round.wrongGuesses }
@@ -46,10 +46,8 @@ export function feedbackFor(action: GameAction | null, view: GameView, previous:
     case "guess":
       return wrong ?? previous;
     case "next":
+    case "start":
       return NO_FEEDBACK;
-    case "reveal": // revealing more doesn't change what the player was last told
-    case "skip": // only reached if the server ignored the skip
-      return previous;
   }
 }
 

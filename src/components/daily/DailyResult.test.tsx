@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { DailyIntro } from "@/game/daily";
 import type { DailyStats } from "@/game/daily-result";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import type { GameView, RoundResult } from "@/game/types";
 import { DailyResult } from "./DailyResult";
 
@@ -13,24 +14,22 @@ import { DailyResult } from "./DailyResult";
 // ("better than X% of players") below.
 
 const INTRO: DailyIntro = { date: "2026-11-17", pack: { theme: "Fruit", puzzleCount: 2 } };
-const round = (puzzleId: string, outcome: RoundResult["outcome"], level: number, points: number): RoundResult => ({
+const round = (puzzleId: string, outcome: RoundResult["outcome"], seconds: number, points: number): RoundResult => ({
   puzzleId,
   outcome,
-  revealLevelReached: level,
+  seconds,
   wrongGuesses: 0,
   points,
-  // As the server scores them: a skipped round's base is skipPoints (0), not what it could have been worth.
-  breakdown: { base: outcome === "skipped" ? 0 : 100, revealPenalty: 0, wrongGuessPenalty: 0 },
 });
 const VIEW: GameView = {
   gameId: "g1",
   revision: 4,
   pack: { id: "pk", kind: "daily", title: "Fruit", theme: "Fruit" },
   round: null,
-  results: [round("pz-1", "correct", 0, 100), round("pz-2", "skipped", 3, 0)],
-  total: 100,
-  scoring: { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 },
+  results: [round("pz-1", "correct", 2, 8479), round("pz-2", "timedOut", 30, 0)],
+  total: 8479,
   finished: true,
+  scoring: TIMED_SCORING_CONFIG,
 };
 const STATS: DailyStats = {
   rounds: [
@@ -61,7 +60,7 @@ describe("DailyResult", () => {
     const { share, user } = setup();
     await user.click(screen.getByRole("button", { name: "Share result" }));
     const text = share.mock.calls[0]![0];
-    expect(text).toMatch(/^Zoom Out daily · Nov 17 · Fruit\n🟩⬛ 100\/200\nhttp:\/\/localhost(:\d+)?\/daily$/u);
+    expect(text).toMatch(/^Zoom Out daily · Nov 17 · Fruit\n🟩⬛ 8479\/20000\nhttp:\/\/localhost(:\d+)?\/daily$/u);
     expect(text).not.toMatch(/pz-|Kiwi|Lychee/u);
     expect(screen.getByRole("status")).toHaveTextContent("Copied to the clipboard, with no answers in it.");
   });
@@ -76,7 +75,7 @@ describe("DailyResult", () => {
     const { user } = setup({ share: vi.fn(async () => Promise.reject(new Error("denied"))) });
     await user.click(screen.getByRole("button", { name: "Share result" }));
     expect(screen.getByRole("status")).toHaveTextContent("Couldn't share. Copy this instead:");
-    expect((screen.getByRole("textbox", { name: "Your result to copy" }) as HTMLTextAreaElement).value).toContain("🟩⬛ 100/200");
+    expect((screen.getByRole("textbox", { name: "Your result to copy" }) as HTMLTextAreaElement).value).toContain("🟩⬛ 8479/20000");
   });
 
   it("treats closing the share sheet as nothing, not an error", async () => {
@@ -127,15 +126,11 @@ describe("DailyResult", () => {
   });
 
   it("scores the share text against the game's own scoring, not the default", async () => {
-    const own: GameView = {
-      ...VIEW,
-      results: VIEW.results.map((r) => (r.outcome === "correct" ? { ...r, points: 50, breakdown: { ...r.breakdown, base: 50 } } : r)),
-      total: 50,
-      scoring: { ...VIEW.scoring, basePoints: 50, minPoints: 5 },
-    };
+    // A pack scored out of 5,000 a round, with a 10 s clear time: 2 s is then a fifth of it (yellow).
+    const own = { ...VIEW, scoring: { ...TIMED_SCORING_CONFIG, maxPoints: 5_000, revealSeconds: 10, limitSeconds: 12 }, total: 50 };
     const { share, user } = setup({ view: own });
     await user.click(screen.getByRole("button", { name: "Share result" }));
-    expect(share.mock.calls[0]![0]).toContain("🟩⬛ 50/100");
+    expect(share.mock.calls[0]![0]).toContain("🟨⬛ 50/10000");
   });
 
   it("falls back to the clipboard when the share sheet refuses (default share)", async () => {
@@ -145,7 +140,7 @@ describe("DailyResult", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     render(<DailyResult intro={INTRO} view={VIEW} loadStats={vi.fn(async () => STATS)} now={EVENING} />);
     await user.click(screen.getByRole("button", { name: "Share result" }));
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("🟩⬛ 100/200"));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("🟩⬛ 8479/20000"));
     expect(screen.getByRole("status")).toHaveTextContent("Copied to the clipboard");
     Reflect.deleteProperty(navigator, "share");
   });

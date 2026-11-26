@@ -1,9 +1,12 @@
-// Boundary cases of the game server functions (#54) that server-game.test.ts
-// doesn't pin down: the last round (skipped or answered), the wrong-guess floor,
-// what `lastOutcome` reflects, a replayed action, and stored state the server
-// can't play. Same in-memory store and fixed config as server-game.test.ts.
+// Boundary cases of the game server functions (#54; timed rounds, #255) that
+// server-game.test.ts doesn't pin down: the last round (timed out or
+// answered), many wrong guesses, what `lastOutcome` reflects, a replayed
+// action, and stored state the server can't play. Same in-memory store, fake
+// clock and fixed config as server-game.test.ts.
 import { describe, expect, it } from "vitest";
 import { SAMPLE_PUZZLES } from "../puzzles/index.ts";
+import { START_GRACE_SECONDS } from "./round.ts";
+import { scoreAt } from "./scoring.ts";
 import {
   act,
   GameConflictError,
@@ -15,11 +18,10 @@ import {
   type GameOwner,
   type GameState,
 } from "./server-game.ts";
-import type { GameAction, GameView, Pack, Puzzle, ScoringConfig } from "./types.ts";
+import type { GameAction, GameView, Pack, Puzzle, TimedScoringConfig } from "./types.ts";
 
-// Fixed numbers so these tests don't change when playtesting tweaks SCORING_CONFIG.
-// skipPoints isn't 0, so a skipped round's points are visible.
-const CONFIG: ScoringConfig = { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 5 };
+// Fixed numbers so these tests don't change when playtesting tweaks TIMED_SCORING_CONFIG.
+const CONFIG: TimedScoringConfig = { maxPoints: 10_000, minPoints: 100, revealSeconds: 25, limitSeconds: 30, curve: 2 };
 
 const ALICE: GameOwner = { userId: "alice" };
 
@@ -32,63 +34,82 @@ const WRONG = "zzz definitely wrong";
 
 function setup() {
   let n = 0;
+  let now = Date.UTC(2030, 0, 1, 12);
   const store = new MemoryGameStore(() => `game-${++n}`);
-  const deps: GameDeps = { games: store, puzzles: puzzleSourceFrom(PUZZLES) };
-  return { store, deps };
+  const deps: GameDeps = { games: store, puzzles: puzzleSourceFrom(PUZZLES), now: () => now };
+  /** Move the server's clock on by `seconds`. */
+  const advance = (seconds: number) => {
+    now += seconds * 1000;
+  };
+  return { store, deps, advance };
 }
 
 async function play(deps: GameDeps, view: GameView, action: GameAction): Promise<GameView> {
   return act(deps, view.gameId, ALICE, action, view.revision);
 }
 
-/** A started game with every round but the last skipped, now playing the last round. */
+/** A game with its first round started (round time -START_GRACE_SECONDS). */
+async function started() {
+  const s = setup();
+  const view = await play(s.deps, await startGame(s.deps, PACK, ALICE, CONFIG), { type: "start" });
+  return { ...s, view };
+}
+
+/** A game with every round but the last timed out, now at the last round, ready. */
 async function atLastRound() {
   const s = setup();
   let view = await startGame(s.deps, PACK, ALICE, CONFIG);
   for (let i = 0; i < LAST; i++) {
-    view = await play(s.deps, view, { type: "skip" });
-    view = await play(s.deps, view, { type: "next" });
+    view = await play(s.deps, view, { type: "start" });
+    s.advance(CONFIG.limitSeconds + 1);
+    view = await play(s.deps, view, { type: "next" }); // times the round out, then moves on
   }
-  expect(view.round).toMatchObject({ position: PUZZLES.length, state: "playing" });
+  expect(view.round).toMatchObject({ position: PUZZLES.length, state: "ready" });
+  expect(view.results.map((r) => r.outcome)).toEqual(PUZZLES.slice(0, LAST).map(() => "timedOut"));
   return { ...s, view };
 }
 
 describe("the last round", () => {
-  it("skipped: shows only that round's answer, keeps the game open until `next`, then finishes with skipPoints", async () => {
-    const { deps, store, view: last } = await atLastRound();
-    const skipped = await play(deps, last, { type: "skip" });
+  it("timed out: shows only that round's answer, keeps the game open until `next`, then finishes with 0 for it", async () => {
+    const { deps, store, advance, view: ready } = await atLastRound();
+    const last = await play(deps, ready, { type: "start" });
+    advance(CONFIG.limitSeconds + 1);
+    const timedOut = await getGame(deps, last.gameId, ALICE);
 
     // The round is over, so its answer and credit are shown, but the game isn't finished yet.
-    expect(skipped.finished).toBe(false);
-    expect(skipped.round).toMatchObject({
+    expect(timedOut.finished).toBe(false);
+    expect(timedOut.round).toMatchObject({
       position: PUZZLES.length,
-      state: "skipped",
+      state: "timedOut",
+      elapsedSeconds: CONFIG.limitSeconds,
       answer: PUZZLES[LAST]!.answer,
       credit: PUZZLES[LAST]!.credit,
     });
-    expect(skipped).not.toHaveProperty("answers");
-    expect(skipped.results).toHaveLength(PUZZLES.length);
-    expect(skipped.results.at(-1)).toMatchObject({ puzzleId: PUZZLES[LAST]!.id, outcome: "skipped", points: CONFIG.skipPoints });
+    expect(timedOut).not.toHaveProperty("answers");
+    expect(timedOut.results).toHaveLength(PUZZLES.length);
+    expect(timedOut.results.at(-1)).toMatchObject({ puzzleId: PUZZLES[LAST]!.id, outcome: "timedOut", points: 0 });
 
-    // A second skip, a reveal or a guess on the ended round change nothing.
+    // A start or a guess (even the right one) on the ended round change nothing.
     const raw = store.raw(last.gameId);
-    for (const action of [{ type: "skip" }, { type: "reveal" }, { type: "guess", guess: PUZZLES[LAST]!.answer }] as const) {
-      expect(await play(deps, skipped, action)).toEqual(skipped);
+    for (const action of [{ type: "start" }, { type: "guess", guess: PUZZLES[LAST]!.answer }] as const) {
+      expect(await play(deps, timedOut, action)).toEqual(timedOut);
     }
     expect(store.raw(last.gameId)).toBe(raw);
 
-    const finished = await play(deps, skipped, { type: "next" });
-    expect(finished).toMatchObject({ finished: true, round: null, total: PUZZLES.length * CONFIG.skipPoints });
-    expect(finished.results.map((r) => r.outcome)).toEqual(PUZZLES.map(() => "skipped"));
+    const finished = await play(deps, timedOut, { type: "next" });
+    expect(finished).toMatchObject({ finished: true, round: null, total: 0 });
+    expect(finished.results.map((r) => r.outcome)).toEqual(PUZZLES.map(() => "timedOut"));
     expect(finished.answers).toEqual(PUZZLES.map((p) => p.answer));
     expect(finished).not.toHaveProperty("lastOutcome");
   });
 
-  it("answered with an accepted alternate: the canonical answer is shown, and the finished game scores it", async () => {
-    const { deps, view: last } = await atLastRound();
+  it("answered with an accepted alternate: the canonical answer is shown, and the finished game scores it by time", async () => {
+    const { deps, advance, view: ready } = await atLastRound();
     const alternate = PUZZLES[LAST]!.acceptedAnswers[0];
     if (alternate === undefined) throw new Error("the last sample puzzle needs an accepted answer for this test");
 
+    const last = await play(deps, ready, { type: "start" });
+    advance(5 + START_GRACE_SECONDS);
     const answered = await play(deps, last, { type: "guess", guess: alternate });
     expect(answered.finished).toBe(false);
     expect(answered.lastOutcome).toEqual({ kind: "correct", matched: PUZZLES[LAST]!.answer });
@@ -97,30 +118,30 @@ describe("the last round", () => {
 
     const finished = await play(deps, answered, { type: "next" });
     expect(finished.finished).toBe(true);
-    expect(finished.results.at(-1)).toMatchObject({ outcome: "correct", points: CONFIG.basePoints });
-    expect(finished.total).toBe(LAST * CONFIG.skipPoints + CONFIG.basePoints);
+    expect(finished.results.at(-1)).toMatchObject({ outcome: "correct", seconds: 5, points: scoreAt(5, CONFIG) });
+    expect(finished.total).toBe(scoreAt(5, CONFIG)); // the timed-out rounds scored 0
     // `answers` is the canonical list; the alternate the player typed never leaves the server.
     expect(JSON.stringify(finished)).not.toContain(JSON.stringify(alternate));
   });
 });
 
 describe("many wrong guesses", () => {
-  it("are all counted, but never take the points below minPoints, and a late correct answer still scores minPoints", async () => {
-    const { deps } = setup();
-    let view = await startGame(deps, PACK, ALICE, CONFIG);
-    // Enough misses to go well past the floor: (100 - 10) / 10 = 9 reach it.
-    const misses = 2 * ((CONFIG.basePoints - CONFIG.minPoints) / CONFIG.wrongGuessPenalty);
+  it("are all counted, never end the round, and cost nothing: a late correct answer scores by its time alone", async () => {
+    const { deps, advance, view: start } = await started();
+    let view = start;
+    const misses = 20;
     for (let i = 1; i <= misses; i++) {
+      advance(0.5);
       view = await play(deps, view, { type: "guess", guess: WRONG });
       expect(view.round!.wrongGuesses).toBe(i);
-      expect(view.round!.pointsAvailable).toBe(Math.max(CONFIG.minPoints, CONFIG.basePoints - i * CONFIG.wrongGuessPenalty));
       expect(view.round!.state).toBe("playing"); // wrong guesses never end the round on their own
     }
+    const seconds = misses * 0.5 - START_GRACE_SECONDS;
     view = await play(deps, view, { type: "guess", guess: PUZZLES[0]!.answer });
     expect(view.results).toEqual([
-      expect.objectContaining({ outcome: "correct", wrongGuesses: misses, points: CONFIG.minPoints }),
+      expect.objectContaining({ outcome: "correct", wrongGuesses: misses, seconds, points: scoreAt(seconds, CONFIG) }),
     ]);
-    expect(view.total).toBe(CONFIG.minPoints);
+    expect(view.total).toBe(scoreAt(seconds, CONFIG));
   });
   // The per-round cap on wrong guesses (#209) is tested in server-game.guess-cap.test.ts.
 });
@@ -129,6 +150,8 @@ describe("lastOutcome is the outcome of the last accepted action only", () => {
   it("survives a rejected action, and is cleared by an accepted one that isn't a guess", async () => {
     const { deps, store } = setup();
     let view = await startGame(deps, PACK, ALICE, CONFIG);
+    expect(view).not.toHaveProperty("lastOutcome");
+    view = await play(deps, view, { type: "start" });
     expect(view).not.toHaveProperty("lastOutcome");
 
     view = await play(deps, view, { type: "guess", guess: WRONG });
@@ -139,44 +162,50 @@ describe("lastOutcome is the outcome of the last accepted action only", () => {
     expect(await play(deps, view, { type: "guess", guess: "   " })).toEqual(view);
     expect(store.raw(view.gameId)).toBe(raw);
 
-    view = await play(deps, view, { type: "reveal" });
+    view = await play(deps, view, { type: "guess", guess: PUZZLES[0]!.answer });
+    expect(view.lastOutcome).toEqual({ kind: "correct", matched: PUZZLES[0]!.answer });
+
+    view = await play(deps, view, { type: "next" });
     expect(view).not.toHaveProperty("lastOutcome");
-    expect(view.round).toMatchObject({ revealLevel: 1, wrongGuesses: 1 });
+    expect(view.round).toMatchObject({ position: 2, state: "ready", wrongGuesses: 0 });
   });
 });
 
 describe("a replayed action (the same request sent twice, e.g. a retry after a lost response)", () => {
-  it.each<[string, GameAction]>([
-    ["wrong guess", { type: "guess", guess: WRONG }],
-    ["correct guess", { type: "guess", guess: PUZZLES[0]!.answer }],
-    ["reveal", { type: "reveal" }],
-  ])("%s: applied once; the replay gets GameConflictError and changes nothing", async (_name, action) => {
-    const { deps, store } = setup();
-    const start = await startGame(deps, PACK, ALICE, CONFIG);
-    const first = await act(deps, start.gameId, ALICE, action, start.revision);
-    const raw = store.raw(start.gameId);
+  it.each<[string, GameAction, boolean]>([
+    ["start", { type: "start" }, false],
+    ["wrong guess", { type: "guess", guess: WRONG }, true],
+    ["correct guess", { type: "guess", guess: PUZZLES[0]!.answer }, true],
+  ])("%s: applied once; the replay gets GameConflictError and changes nothing", async (_name, action, afterStart) => {
+    const s = setup();
+    const ready = await startGame(s.deps, PACK, ALICE, CONFIG);
+    const before = afterStart ? await play(s.deps, ready, { type: "start" }) : ready;
+    s.advance(2);
+    const first = await act(s.deps, before.gameId, ALICE, action, before.revision);
+    const raw = s.store.raw(before.gameId);
 
-    await expect(act(deps, start.gameId, ALICE, action, start.revision)).rejects.toBeInstanceOf(GameConflictError);
-    expect(store.raw(start.gameId)).toBe(raw);
-    const stored = (await store.get(start.gameId))!;
-    expect(stored.revision).toBe(1);
-    expect(stored.state.events).toHaveLength(1);
-    expect(await getGame(deps, start.gameId, ALICE)).toEqual(first);
+    await expect(act(s.deps, before.gameId, ALICE, action, before.revision)).rejects.toBeInstanceOf(GameConflictError);
+    expect(s.store.raw(before.gameId)).toBe(raw);
+    const stored = (await s.store.get(before.gameId))!;
+    expect(stored.revision).toBe(before.revision + 1);
+    expect(stored.state.events).toHaveLength(afterStart ? 1 : 0); // `start` emits no scoring event
+    expect(await getGame(s.deps, before.gameId, ALICE)).toEqual(first);
   });
 });
 
 describe("stored state the server can't play", () => {
-  it("refuses a game with an unknown schemaVersion on every read and never overwrites it", async () => {
+  it("refuses a game with an unknown (future) schemaVersion on every read and never overwrites it", async () => {
     const { deps, store } = setup();
     const view = await startGame(deps, PACK, ALICE, CONFIG);
     const stored = (await store.get(view.gameId))!;
     // A row written by a newer version of the app (or damaged): the shape may have changed.
-    const future = { ...stored.state, schemaVersion: 2 } as unknown as GameState;
+    // Version 2 is the current one (timed rounds); 1 is the old rules, tested in server-game.test.ts.
+    const future = { ...stored.state, schemaVersion: 3 } as unknown as GameState;
     await store.save({ ...stored, state: future });
     const raw = store.raw(view.gameId);
 
-    await expect(getGame(deps, view.gameId, ALICE)).rejects.toThrow(/unsupported schemaVersion 2/);
-    await expect(act(deps, view.gameId, ALICE, { type: "skip" }, 1)).rejects.toThrow(/unsupported schemaVersion 2/);
+    await expect(getGame(deps, view.gameId, ALICE)).rejects.toThrow(/unsupported schemaVersion 3/);
+    await expect(act(deps, view.gameId, ALICE, { type: "start" }, 1)).rejects.toThrow(/unsupported schemaVersion 3/);
     expect(store.raw(view.gameId)).toBe(raw);
   });
 
@@ -188,7 +217,7 @@ describe("stored state the server can't play", () => {
     const shrunk: GameDeps = { ...deps, puzzles: puzzleSourceFrom(PUZZLES.slice(0, LAST)) };
 
     await expect(getGame(shrunk, view.gameId, ALICE)).rejects.toThrow(/no puzzle/);
-    await expect(act(shrunk, view.gameId, ALICE, { type: "skip" }, view.revision)).rejects.toThrow(/no puzzle/);
+    await expect(act(shrunk, view.gameId, ALICE, { type: "start" }, view.revision)).rejects.toThrow(/no puzzle/);
     expect(store.raw(view.gameId)).toBe(raw);
   });
 });

@@ -1,15 +1,15 @@
 // Per-pack scoring overrides (#64): turning whatever is stored in
-// `packs.scoring` into a `ScoringConfig`. Pure, no database imports, so it is
+// `packs.scoring` into a `TimedScoringConfig`. Pure, no database imports, so it is
 // unit-testable and also usable by the update script (scripts/pack-scoring.ts).
 //
 // Relative imports keep their `.ts` extension so Node can run this file
 // directly (type stripping) when the script loads it.
-import { SCORING_CONFIG } from "./scoring-config.ts";
-import { validateScoringConfig } from "./scoring.ts";
-import type { ScoringConfig } from "./types.ts";
+import { TIMED_SCORING_CONFIG } from "./scoring-config.ts";
+import { validateTimedScoringConfig } from "./scoring.ts";
+import type { TimedScoringConfig } from "./types.ts";
 
-/** Some or all `ScoringConfig` fields. Missing fields take the default. */
-export type ScoringOverride = Partial<ScoringConfig>;
+/** Some or all `TimedScoringConfig` fields. Missing fields take the default. */
+export type ScoringOverride = Partial<TimedScoringConfig>;
 
 /** Thrown when a stored or supplied scoring override is malformed or invalid. */
 export class ScoringConfigError extends Error {
@@ -19,7 +19,7 @@ export class ScoringConfigError extends Error {
   }
 }
 
-const SCORING_KEYS = Object.keys(SCORING_CONFIG) as (keyof ScoringConfig)[];
+const SCORING_KEYS = Object.keys(TIMED_SCORING_CONFIG) as (keyof TimedScoringConfig)[];
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -28,13 +28,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 /**
  * Checks a stored override and returns it, or `null` if there is none
  * (`null`/`undefined`). Throws `ScoringConfigError` if it isn't an object,
- * has a field `ScoringConfig` doesn't (a typo like `basepoints` would
+ * has a field `TimedScoringConfig` doesn't (a typo like `maxpoint` would
  * otherwise be ignored without anyone noticing), has a non-number value, or
- * if the result of merging it over `base` fails `validateScoringConfig`.
+ * if the result of merging it over `base` fails `validateTimedScoringConfig`.
  */
 export function parseScoringOverride(
   stored: unknown,
-  base: ScoringConfig = SCORING_CONFIG,
+  base: TimedScoringConfig = TIMED_SCORING_CONFIG,
 ): ScoringOverride | null {
   if (stored === null || stored === undefined) return null;
   if (!isPlainObject(stored)) {
@@ -48,18 +48,18 @@ export function parseScoringOverride(
       );
     }
     if (typeof value !== "number") {
-      throw new ScoringConfigError(`ScoringConfig.${key} must be a number, got ${JSON.stringify(value)}`);
+      throw new ScoringConfigError(`TimedScoringConfig.${key} must be a number, got ${JSON.stringify(value)}`);
     }
-    override[key as keyof ScoringConfig] = value;
+    override[key as keyof TimedScoringConfig] = value;
   }
   mergeAndValidate(override, base);
   return override;
 }
 
-function mergeAndValidate(override: ScoringOverride, base: ScoringConfig): ScoringConfig {
-  const merged: ScoringConfig = { ...base, ...override };
+function mergeAndValidate(override: ScoringOverride, base: TimedScoringConfig): TimedScoringConfig {
+  const merged: TimedScoringConfig = { ...base, ...override };
   try {
-    validateScoringConfig(merged);
+    validateTimedScoringConfig(merged);
   } catch (error) {
     throw new ScoringConfigError(error instanceof Error ? error.message : String(error));
   }
@@ -69,16 +69,16 @@ function mergeAndValidate(override: ScoringOverride, base: ScoringConfig): Scori
 /**
  * The config a pack plays with, given its stored `packs.scoring` value:
  *
- * - `null`/`undefined` (no override): `base`, the default `SCORING_CONFIG`.
+ * - `null`/`undefined` (no override): `base`, the default `TIMED_SCORING_CONFIG`.
  * - A full or partial override: merged over `base`, so fields left out keep
- *   the default. The merged result must pass `validateScoringConfig`.
+ *   the default. The merged result must pass `validateTimedScoringConfig`.
  * - Anything else: throws `ScoringConfigError`. This function is strict; the
  *   database reader (`src/db/pack-scoring.ts`) decides what a game does with
  *   a bad stored value.
  *
  * Always returns a fresh object, never `base` itself.
  */
-export function resolveScoringConfig(stored: unknown, base: ScoringConfig = SCORING_CONFIG): ScoringConfig {
+export function resolveScoringConfig(stored: unknown, base: TimedScoringConfig = TIMED_SCORING_CONFIG): TimedScoringConfig {
   const override = parseScoringOverride(stored, base);
   return mergeAndValidate(override ?? {}, base);
 }

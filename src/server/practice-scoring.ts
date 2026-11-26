@@ -6,7 +6,7 @@ import { cacheLife } from "next/cache";
 
 import { getScoringConfig } from "@/db/scoring";
 import { resolveScoringConfig } from "@/game/scoring-override";
-import type { ScoringConfig } from "@/game/types";
+import type { TimedScoringConfig } from "@/game/types";
 import { PRACTICE_PACK } from "@/puzzles";
 
 import { errorSummary } from "./error-summary";
@@ -26,7 +26,7 @@ import { errorSummary } from "./error-summary";
  * default is cached too, for a minute, so a build without a database (CI) or a
  * short outage heals by itself on the next refresh.
  */
-export async function loadPracticeScoring(): Promise<ScoringConfig> {
+export async function loadPracticeScoring(): Promise<TimedScoringConfig> {
   "use cache";
   cacheLife("minutes");
   try {

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { MODES } from "@/components/modes";
 import { GAME_NAME } from "@/site";
-import { finishPractice, guessBox, homeLink, siteNav, tabToStartPractice } from "./helpers";
+import { finishPractice, homeLink, siteNav, startRoundButton, tabToStartPractice } from "./helpers";
 
 // The home screen and navigation in a real browser (#50): the mode picker,
 // and a way home from every screen, by mouse, keyboard and the Back button.
@@ -69,8 +69,8 @@ test("the whole trip works from the keyboard alone", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(PLAY_URL);
 
-  // The game puts focus in the guess box. Shift+Tab back to the header link.
-  await expect(guessBox(page)).toBeFocused();
+  // The game puts focus on Start round (#255). Shift+Tab back to the header link.
+  await expect(startRoundButton(page)).toBeFocused();
   for (let i = 0; i < 10 && !(await homeLink(page).evaluate((el) => el === document.activeElement)); i++) {
     await page.keyboard.press("Shift+Tab");
   }

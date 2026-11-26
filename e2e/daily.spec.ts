@@ -14,6 +14,7 @@ import { dailyDateFor } from "@/game/daily-date";
 
 import practicePack from "@/puzzles/practice-pack.json" with { type: "json" };
 import sample from "@/puzzles/sample.json" with { type: "json" };
+import { guess, startRound } from "./helpers";
 
 const THEME = "Practice mix (e2e)";
 const puzzleIds: string[] = practicePack.packs[0]!.puzzleIds;
@@ -66,10 +67,11 @@ test("plays today's daily from the home screen to the result, once", async ({ pa
   await expect(page.getByText(`${puzzleIds.length} images, the same for everyone.`, { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Start today's challenge" }).click();
 
-  // Play it through by skipping each image.
+  // Play it through (#255): start each round and answer it (no Skip; waiting out each clock takes 30 s).
   for (let i = 1; i <= puzzleIds.length; i++) {
     await expect(page.getByText(`Image ${i} of ${puzzleIds.length}`)).toBeVisible();
-    await page.getByRole("button", { name: "Skip this image" }).click();
+    await startRound(page);
+    await guess(page, sample.find((p) => p.id === puzzleIds[i - 1])!.answer);
     const next = i === puzzleIds.length ? "See results" : "Next image";
     await page.getByRole("button", { name: next }).click();
   }
@@ -95,7 +97,7 @@ test("plays today's daily from the home screen to the result, once", async ({ pa
   await page.getByRole("button", { name: "Share result" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Copied to the clipboard" })).toBeVisible();
   const shared = await page.evaluate(() => navigator.clipboard.readText());
-  expect(shared).toMatch(new RegExp(`daily · \\w+ \\d+ · ${THEME.replace(/[()]/gu, "\\$&")}\\n[⬛🟩🟨🟧🟥]{${puzzleIds.length}} 0/\\d+`, "u"));
+  expect(shared).toMatch(new RegExp(`daily · \\w+ \\d+ · ${THEME.replace(/[()]/gu, "\\$&")}\\n[⬛🟩🟨🟧🟥]{${puzzleIds.length}} \\d+/\\d+`, "u"));
   for (const puzzle of sample) expect(shared.toLowerCase()).not.toContain(puzzle.answer.toLowerCase());
 
   // Coming back the same day shows the same result, not the intro or a new game.
@@ -108,7 +110,8 @@ test("a game in progress picks up where it was after a reload", async ({ page })
   await page.goto("/daily");
   await page.getByRole("button", { name: "Start today's challenge" }).click();
   await expect(page.getByText(`Image 1 of ${puzzleIds.length}`)).toBeVisible();
-  await page.getByRole("button", { name: "Skip this image" }).click();
+  await startRound(page);
+  await guess(page, sample.find((p) => p.id === puzzleIds[0])!.answer);
   await page.getByRole("button", { name: "Next image" }).click();
   await expect(page.getByText(`Image 2 of ${puzzleIds.length}`)).toBeVisible();
 

@@ -35,7 +35,8 @@ vi.mock("next/headers", () => ({
 
 const { actOnGame, loadGame, startPracticeGame } = await import("./games");
 const { setPackScoring } = await import("@/db/pack-scoring");
-const { SCORING_CONFIG } = await import("@/game/scoring-config");
+const { TIMED_SCORING_CONFIG } = await import("@/game/scoring-config");
+const { SAMPLE_PUZZLES } = await import("@/puzzles");
 const { PRACTICE_PACK } = await import("@/puzzles");
 const { GAME_LIMITS, MAX_UNFINISHED_GAMES_PER_PACK } = await import("./limits");
 
@@ -97,7 +98,7 @@ describe("while Next prerenders /play", () => {
 
   it("actOnGame", async () => {
     const view = await started();
-    await expectPrerenderSignal(() => actOnGame(view.gameId, { type: "reveal" }, view.revision));
+    await expectPrerenderSignal(() => actOnGame(view.gameId, { type: "start" }, view.revision));
   });
 });
 
@@ -108,24 +109,27 @@ describe("startPracticeGame with per-pack scoring (#64)", () => {
 
   it("plays new games with the pack's stored scoring, and leaves games already started alone", async () => {
     const before = await started(); // also inserts the practice pack's row
-    expect(before.round!.pointsAvailable).toBe(SCORING_CONFIG.basePoints);
+    expect(before.scoring).toEqual(TIMED_SCORING_CONFIG);
 
-    const basePoints = SCORING_CONFIG.basePoints + 50;
-    await setPackScoring(state.db as never, PRACTICE_PACK.id, { basePoints });
+    const maxPoints = TIMED_SCORING_CONFIG.maxPoints + 500;
+    await setPackScoring(state.db as never, PRACTICE_PACK.id, { maxPoints });
     const beforeOwner = new Map(state.jar);
     state.jar.clear(); // a new player, so it's a new game rather than the untouched one
-    expect((await started()).round!.pointsAvailable).toBe(basePoints);
+    expect((await started()).scoring).toEqual({ ...TIMED_SCORING_CONFIG, maxPoints });
 
     state.jar = beforeOwner;
-    expect(await loadGame(before.gameId)).toMatchObject({ ok: true, view: { round: { pointsAvailable: SCORING_CONFIG.basePoints } } });
+    expect(await loadGame(before.gameId)).toMatchObject({ ok: true, view: { scoring: TIMED_SCORING_CONFIG } });
   });
 
-  it("plays with the default, and logs, when the stored override is invalid (hand-written SQL)", async () => {
+  it.each([
+    ["hand-written SQL", { maxPoints: -5 }],
+    ["an old zoom-out override from before timed rounds (#255)", { basePoints: 150 }],
+  ])("plays with the default, and logs, when the stored override is invalid (%s)", async (_name, stored) => {
     await started();
-    await pg.query("UPDATE packs SET scoring = $1::jsonb WHERE id = $2", [JSON.stringify({ basePoints: -5 }), PRACTICE_PACK.id]);
+    await pg.query("UPDATE packs SET scoring = $1::jsonb WHERE id = $2", [JSON.stringify(stored), PRACTICE_PACK.id]);
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     state.jar.clear();
-    expect((await started()).round!.pointsAvailable).toBe(SCORING_CONFIG.basePoints);
+    expect((await started()).scoring).toEqual(TIMED_SCORING_CONFIG);
     expect(log).toHaveBeenCalledWith(expect.stringContaining(`pack "${PRACTICE_PACK.id}" has an invalid scoring override`));
     log.mockRestore();
   });
@@ -134,9 +138,11 @@ describe("startPracticeGame with per-pack scoring (#64)", () => {
 describe("startPracticeGame / actOnGame / loadGame", () => {
   it("starts a practice game for a new anonymous owner and plays it", async () => {
     const view = await started();
-    expect(view.round).toMatchObject({ position: 1, state: "playing" });
-    expect(await actOnGame(view.gameId, { type: "reveal" }, view.revision)).toMatchObject({ ok: true, view: { round: { revealLevel: 1 } } });
-    expect(await loadGame(view.gameId)).toMatchObject({ ok: true, view: { round: { revealLevel: 1 } } });
+    expect(view.round).toMatchObject({ position: 1, state: "ready" });
+    expect(view.round).not.toHaveProperty("imageSrc");
+    const begun = await actOnGame(view.gameId, { type: "start" }, view.revision);
+    expect(begun).toMatchObject({ ok: true, view: { round: { state: "playing", imageSrc: expect.any(String) } } });
+    expect(await loadGame(view.gameId)).toMatchObject({ ok: true, view: { round: { state: "playing" } } });
   });
 
   it("rejects a malformed action as `invalid` and changes nothing", async () => {
@@ -150,21 +156,22 @@ describe("startPracticeGame / actOnGame / loadGame", () => {
   it("rejects a missing or malformed revision as `invalid` and changes nothing (#107)", async () => {
     const view = await started();
     for (const bad of [undefined, null, "0", -1, 0.5, Number.NaN]) {
-      expect(await actOnGame(view.gameId, { type: "skip" }, bad), String(bad)).toEqual({ ok: false, error: "invalid" });
+      expect(await actOnGame(view.gameId, { type: "start" }, bad), String(bad)).toEqual({ ok: false, error: "invalid" });
     }
     expect(await loadGame(view.gameId)).toEqual({ ok: true, view });
   });
 
   it("gives `conflict` for an action from a stale tab, and doesn't apply it (#107)", async () => {
     const tabA = await started();
-    // Tab B, on the same game, moves it on: a reveal, then a skip to round 2.
-    const afterReveal = await actOnGame(tabA.gameId, { type: "reveal" }, tabA.revision);
-    if (!afterReveal.ok) throw new Error(afterReveal.error);
-    const afterSkip = await actOnGame(tabA.gameId, { type: "skip" }, afterReveal.view.revision);
-    if (!afterSkip.ok) throw new Error(afterSkip.error);
-    // Tab A still shows round 1 and presses Skip: it must not skip round 2.
-    expect(await actOnGame(tabA.gameId, { type: "skip" }, tabA.revision)).toEqual({ ok: false, error: "conflict" });
-    expect(await loadGame(tabA.gameId)).toEqual({ ok: true, view: afterSkip.view });
+    // Tab B, on the same game, starts round 1 and answers it.
+    const afterStart = await actOnGame(tabA.gameId, { type: "start" }, tabA.revision);
+    if (!afterStart.ok) throw new Error(afterStart.error);
+    const answer = SAMPLE_PUZZLES.find((p) => p.id === PRACTICE_PACK.puzzleIds[0])!.answer;
+    const afterGuess = await actOnGame(tabA.gameId, { type: "guess", guess: answer }, afterStart.view.revision);
+    if (!afterGuess.ok) throw new Error(afterGuess.error);
+    // Tab A still shows round 1 ready and presses Start: it must not restart anything.
+    expect(await actOnGame(tabA.gameId, { type: "start" }, tabA.revision)).toEqual({ ok: false, error: "conflict" });
+    expect(await loadGame(tabA.gameId)).toMatchObject({ ok: true, view: { revision: afterGuess.view.revision, round: { state: "correct" } } });
   });
 
   it("gives `not-found` for someone else's game, a missing game, a bad id, and no cookie at all", async () => {
@@ -173,11 +180,11 @@ describe("startPracticeGame / actOnGame / loadGame", () => {
 
     state.jar.clear();
     expect(await loadGame(view.gameId)).toEqual({ ok: false, error: "not-found" });
-    expect(await actOnGame(view.gameId, { type: "skip" }, view.revision)).toEqual({ ok: false, error: "not-found" });
+    expect(await actOnGame(view.gameId, { type: "start" }, view.revision)).toEqual({ ok: false, error: "not-found" });
 
     await started(); // a second visitor, with their own cookie
     expect(await loadGame(view.gameId)).toEqual({ ok: false, error: "not-found" });
-    expect(await actOnGame(view.gameId, { type: "skip" }, view.revision)).toEqual({ ok: false, error: "not-found" });
+    expect(await actOnGame(view.gameId, { type: "start" }, view.revision)).toEqual({ ok: false, error: "not-found" });
 
     state.jar = mine;
     expect(await loadGame("00000000-0000-4000-8000-000000000000")).toEqual({ ok: false, error: "not-found" });
@@ -209,7 +216,7 @@ describe("one practice pack (#52)", () => {
 
     // And games keep working on the seeded pack.
     expect((await startPracticeGame()).ok).toBe(true);
-    expect(await actOnGame(view.gameId, { type: "skip" }, view.revision)).toMatchObject({ ok: true });
+    expect(await actOnGame(view.gameId, { type: "start" }, view.revision)).toMatchObject({ ok: true });
   });
 });
 
@@ -237,10 +244,10 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     expect((await started()).gameId).toBe(first.gameId); // a refresh of /play, or Start practice again
     expect(await ownGameCount()).toBe(1);
 
-    await actNow(first.gameId, { type: "reveal" });
+    await actNow(first.gameId, { type: "start" });
     const second = await started();
     expect(second.gameId).not.toBe(first.gameId);
-    expect(second.round).toMatchObject({ position: 1, revealLevel: 0 });
+    expect(second.round).toMatchObject({ position: 1, state: "ready" });
     expect(await ownGameCount()).toBe(2);
   });
 
@@ -260,13 +267,13 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     let latest = "";
     for (let i = 0; i < MAX_UNFINISHED_GAMES_PER_PACK; i++) {
       latest = (await started()).gameId;
-      await actNow(latest, { type: "reveal" });
+      await actNow(latest, { type: "start" });
     }
     expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
 
     const resumed = await started();
     expect(resumed.gameId).toBe(latest);
-    expect(resumed.round).toMatchObject({ revealLevel: 1 });
+    expect(resumed.round).toMatchObject({ state: "playing" });
     expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
   });
 
@@ -296,7 +303,7 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
       const ids: string[] = [];
       for (let i = 0; i < n; i++) {
         const id = (await started()).gameId;
-        await actNow(id, { type: "reveal" });
+        await actNow(id, { type: "start" });
         ids.push(id);
       }
       return ids;
@@ -336,8 +343,9 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
 
   it("starts a new game after a finished one (Play again), even with other unfinished games", async () => {
     const view = await started();
-    for (let i = 0; i < view.round!.puzzleCount; i++) {
-      await actNow(view.gameId, { type: "skip" });
+    for (const id of PRACTICE_PACK.puzzleIds) {
+      await actNow(view.gameId, { type: "start" });
+      await actNow(view.gameId, { type: "guess", guess: SAMPLE_PUZZLES.find((p) => p.id === id)!.answer });
       await actNow(view.gameId, { type: "next" });
     }
     expect(await loadGame(view.gameId)).toMatchObject({ ok: true, view: { finished: true } });
@@ -367,15 +375,15 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     // Abandoned games of another pack (e.g. old daily packs) never block practice.
     const fresh = await started();
     expect(fresh.gameId).not.toBe(view.gameId);
-    expect(fresh.round).toMatchObject({ position: 1, revealLevel: 0 });
+    expect(fresh.round).toMatchObject({ position: 1, state: "ready" });
     expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK + 1);
 
     // And the practice cap still holds on top of them.
     let latest = fresh.gameId;
-    await actNow(latest, { type: "reveal" });
+    await actNow(latest, { type: "start" });
     for (let i = 1; i < MAX_UNFINISHED_GAMES_PER_PACK; i++) {
       latest = (await started()).gameId;
-      await actNow(latest, { type: "reveal" });
+      await actNow(latest, { type: "start" });
     }
     expect((await started()).gameId).toBe(latest);
     expect(await ownGameCount()).toBe(2 * MAX_UNFINISHED_GAMES_PER_PACK);
@@ -413,7 +421,7 @@ describe("untrusted requests (#54)", () => {
     state.jar.clear();
 
     for (const id of [view.gameId, 42, null, { id: view.gameId }]) {
-      expect(await actOnGame(id, { type: "skip" }, view.revision)).toEqual({ ok: false, error: "not-found" });
+      expect(await actOnGame(id, { type: "start" }, view.revision)).toEqual({ ok: false, error: "not-found" });
       expect(await loadGame(id)).toEqual({ ok: false, error: "not-found" });
     }
     // Only starting a game hands out an owner cookie; moves and loads never do.
@@ -425,36 +433,53 @@ describe("untrusted requests (#54)", () => {
   it("with an owner cookie, a game id that isn't a string is `not-found` for moves too", async () => {
     const view = await started();
     for (const id of [42, null, undefined, { id: view.gameId }, [view.gameId]]) {
-      expect(await actOnGame(id, { type: "skip" }, view.revision)).toEqual({ ok: false, error: "not-found" });
+      expect(await actOnGame(id, { type: "start" }, view.revision)).toEqual({ ok: false, error: "not-found" });
     }
     expect(await loadGame(view.gameId)).toEqual({ ok: true, view });
   });
 
   it("applies a retried wrong guess (same revision, e.g. after a lost response) once, and answers the retry with `conflict`", async () => {
-    const view = await started();
-    const guess = { type: "guess", guess: "zzz definitely wrong" };
-    const first = await actOnGame(view.gameId, guess, view.revision);
-    expect(first).toMatchObject({ ok: true, view: { round: { wrongGuesses: 1 } } });
-    expect(await actOnGame(view.gameId, guess, view.revision)).toEqual({ ok: false, error: "conflict" });
-    expect(await loadGame(view.gameId)).toEqual(first);
+    // The server's clock stands still, so the reload shows the same elapsed time.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-17T12:00:00Z") });
+    try {
+      const ready = await started();
+      const start = await actOnGame(ready.gameId, { type: "start" }, ready.revision);
+      if (!start.ok) throw new Error(start.error);
+      const view = start.view;
+      const guess = { type: "guess", guess: "zzz definitely wrong" };
+      const first = await actOnGame(view.gameId, guess, view.revision);
+      expect(first).toMatchObject({ ok: true, view: { round: { wrongGuesses: 1 } } });
+      expect(await actOnGame(view.gameId, guess, view.revision)).toEqual({ ok: false, error: "conflict" });
+      expect(await loadGame(view.gameId)).toEqual(first);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
 describe("what a finished practice game stores", () => {
   it("keeps total and finished_at in step with the game, and writes no game_rounds rows (practice puzzles may not be seeded)", async () => {
     const { SAMPLE_PUZZLES } = await import("@/puzzles");
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-17T12:00:00Z") });
     let view = await started();
-    const rounds = view.round!.puzzleCount;
-    for (let i = 0; i < rounds; i++) {
-      const puzzleId = PRACTICE_PACK.puzzleIds[i]!;
-      const answer = SAMPLE_PUZZLES.find((p) => p.id === puzzleId)!.answer;
-      // Answer the first round, skip the rest, so the total isn't just skipPoints.
-      await actNow(view.gameId, i === 0 ? { type: "guess", guess: answer } : { type: "skip" });
-      const next = await actNow(view.gameId, { type: "next" });
-      if (!next.ok) throw new Error(next.error);
-      view = next.view;
+    try {
+      const rounds = view.round!.puzzleCount;
+      for (let i = 0; i < rounds; i++) {
+        const puzzleId = PRACTICE_PACK.puzzleIds[i]!;
+        const answer = SAMPLE_PUZZLES.find((p) => p.id === puzzleId)!.answer;
+        await actNow(view.gameId, { type: "start" });
+        // Answer the first round and let the rest time out, so the total isn't just 0.
+        if (i === 0) await actNow(view.gameId, { type: "guess", guess: answer });
+        else vi.setSystemTime(Date.now() + (TIMED_SCORING_CONFIG.limitSeconds + 1) * 1000);
+        const next = await actNow(view.gameId, { type: "next" });
+        if (!next.ok) throw new Error(next.error);
+        view = next.view;
+      }
+    } finally {
+      vi.useRealTimers();
     }
     expect(view.finished).toBe(true);
+    expect(view.results.map((r) => r.outcome)).toEqual(["correct", ...view.results.slice(1).map(() => "timedOut")]);
     expect(view.total).toBeGreaterThan(0);
 
     const { rows } = await pg.query<{ total: number; finished_at: Date | null }>(
@@ -490,11 +515,11 @@ describe("rate limits through the game server functions (#85)", () => {
     const view = await started();
     // Loads count too: they read the database like a move does.
     for (let i = 0; i < GAME_LIMITS.actionsPerOwner.max; i++) expect((await loadGame(view.gameId)).ok).toBe(true);
-    expect(await actNow(view.gameId, { type: "reveal" })).toEqual({ ok: false, error: "rate-limited" });
+    expect(await actNow(view.gameId, { type: "start" })).toEqual({ ok: false, error: "rate-limited" });
     expect(await loadGame(view.gameId)).toEqual({ ok: false, error: "rate-limited" });
 
     vi.setSystemTime(T0.getTime() + GAME_LIMITS.actionsPerOwner.windowMs);
-    expect(await actNow(view.gameId, { type: "reveal" })).toMatchObject({ ok: true, view: { round: { revealLevel: 1 } } });
+    expect(await actNow(view.gameId, { type: "start" })).toMatchObject({ ok: true, view: { round: { state: "playing" } } });
   });
 
   it("counts per IP from the first x-forwarded-for entry, across players, storing only keyed hashes", async () => {

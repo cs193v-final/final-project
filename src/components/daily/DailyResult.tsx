@@ -118,10 +118,10 @@ export function DailyResult({ intro, view, loadStats, streak, now = systemNow, s
     date: intro.date,
     theme: intro.pack?.theme ?? "",
     rounds: view.results,
+    revealSeconds: view.scoring.revealSeconds,
     total: view.total,
-    // The game's own scoring (#64, #174): every image is worth basePoints at most,
-    // including a skipped one (its breakdown's base is skipPoints, not the maximum).
-    maxTotal: view.scoring.basePoints * view.results.length,
+    // The game's own scoring (#64): each round was worth maxPoints at most.
+    maxTotal: view.scoring.maxPoints * view.results.length,
     ...(typeof window === "undefined" ? {} : { url: `${window.location.origin}/daily` }),
   });
 

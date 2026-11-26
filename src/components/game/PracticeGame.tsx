@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GameError, GameResult } from "@/game/game-result";
-import type { GameAction, GameView, Puzzle, PublicRound } from "@/game/types";
-import { AiBadge } from "./AiBadge";
+import type { GameAction, GameView, Puzzle } from "@/game/types";
 import { Confetti } from "./Confetti";
 import { FinalScore } from "./FinalScore";
 import { GuessPanel } from "./GuessPanel";
@@ -11,7 +10,6 @@ import { ImageViewer } from "./ImageViewer";
 import { POP, POP_TIMING, useAnimateOn } from "./motion";
 import { feedbackFor, finalScoreLabels, learnAnswer, NO_FEEDBACK, type Feedback, type KnownAnswers } from "./practice";
 import { RoundValue, ScoreHeader } from "./LiveScore";
-import { ZoomOutButton } from "./ZoomOutButton";
 import { Button, ButtonLink } from "../ui/controls";
 
 export type PracticeGameProps = {
@@ -42,7 +40,7 @@ const playHref = (gameId: string) => `/play?game=${encodeURIComponent(gameId)}`;
 const PROBLEMS: Record<GameError, string> = {
   "not-found": "We couldn't find that game. It may have been started in another browser.",
   invalid: "That didn't work. Please try again.",
-  "guess-limit": "That's the most guesses one image allows. Zoom out or skip it to keep playing.",
+  "guess-limit": "That's the most guesses one image allows. This image ends when its time runs out.",
   conflict: "This game was updated since you last saw it, so it was reloaded.",
   "rate-limited": "You're going faster than we allow right now. Please wait a while (up to an hour), then try again.",
   unavailable: "Couldn't reach the server. Check your connection and try again, or reload the page.",
@@ -50,11 +48,16 @@ const PROBLEMS: Record<GameError, string> = {
 };
 
 /**
- * The practice game: the image viewer and Zoom out (#10, #11), guessing (#14),
+ * The practice game: timed rounds (#255) with Start round, guessing (#14),
  * the live and final score (#16), and answer feedback (#48). The game runs on
  * the server (#54): every move is a Server Action that returns a `GameView`,
  * and this component only renders that view. It never sees answers before a
- * round ends, and it doesn't score anything.
+ * round ends, and it doesn't score anything: the live score is `scoreAt` of
+ * the server's elapsed time, counted on with this browser's clock, and when
+ * that reaches the limit it asks the server (`get`), which ends the round.
+ *
+ * A plain stand-in for the round screen (#256) and the effects (#257): the
+ * photo is shown clear, with no effect.
  */
 export function PracticeGame({
   initial,
@@ -92,6 +95,10 @@ export function PracticeGame({
   // loaded (a refresh, or the reload after another tab changed the game)
   // isn't celebrated again.
   const [justSolved, setJustSolved] = useState(false);
+  // The browser's clock (ms) when the current view arrived: the round's time
+  // is its `elapsedSeconds` plus the time since then. `now` ticks while playing.
+  const [receivedAt, setReceivedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(receivedAt);
 
   /**
    * Run one server round trip, unless one is already running. A Server Action
@@ -120,6 +127,9 @@ export function PracticeGame({
     setProblem(null);
     setJustSolved(action?.type === "guess" && result.view.round?.state === "correct");
     latest.current = result.view;
+    const at = Date.now();
+    setReceivedAt(at);
+    setNow(at);
     setView(result.view);
     setFeedback((previous) => feedbackFor(action, result.view, previous));
     setAnswers((known) => learnAnswer(known, result.view));
@@ -163,6 +173,32 @@ export function PracticeGame({
       show(result, action);
     });
   }
+
+  /** Ask the server for the game as it is now: at the time limit, it ends the round (#255). */
+  function refresh() {
+    return exclusive(async () => {
+      const current = latest.current;
+      if (current === null) return;
+      const result = await get(current.gameId);
+      if (!mounted.current) return;
+      show(result, null);
+    });
+  }
+
+  // While a round is played: tick the live score, and at the limit ask the server to end it.
+  const playingRound = view?.round?.state === "playing" ? view.round : null;
+  useEffect(() => {
+    if (playingRound === null) return;
+    const tick = setInterval(() => setNow(Date.now()), 100);
+    const left = (view!.scoring.limitSeconds - (playingRound.elapsedSeconds ?? 0)) * 1000;
+    const timeUp = setTimeout(() => void refresh(), Math.max(0, left) + 250);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(timeUp);
+    };
+    // Once per view of a playing round: a new view (a guess) restarts both from its time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playingRound]);
 
   // Set in its own effect, so React's development-mode mount → unmount →
   // mount leaves it true (and the one start below still counts).
@@ -254,14 +290,11 @@ export function PracticeGame({
     );
   }
 
-  const roundView = {
-    state: round.state,
-    revealLevel: round.revealLevel,
-    maxRevealLevel: round.levelCount - 1,
-    wrongGuesses: round.wrongGuesses,
-  };
   // Once this round has ended, its result is the last one scored.
-  const roundResult = round.state === "playing" ? undefined : view.results[round.position - 1];
+  const roundResult = round.state === "correct" || round.state === "timedOut" ? view.results[round.position - 1] : undefined;
+  const elapsed = round.elapsedSeconds ?? 0;
+  const seconds =
+    round.state === "playing" ? Math.min(view.scoring.limitSeconds, elapsed + Math.max(0, now - receivedAt) / 1000) : elapsed;
 
   return (
     <div className="flex w-full flex-col items-center gap-6" aria-busy={pending}>
@@ -269,46 +302,43 @@ export function PracticeGame({
 
       <div className="flex w-full max-w-md flex-col items-center gap-3">
         <div ref={imageBox} data-image-box className="relative flex w-full justify-center">
-          {/* key: each image starts at its own tight crop, with no zoom animation from the last one. */}
-          <ImageViewer
-            key={round.position}
-            puzzle={{ imageUrl: round.imageSrc, reveal: cropFor(round) }}
-            revealLevel={round.revealLevel}
-            showFull={round.state !== "playing"}
-          />
+          {round.imageSrc === undefined ? (
+            // No photo until the round starts: the server doesn't send it before then (#255).
+            <div
+              data-photo-placeholder
+              className="flex aspect-[4/3] w-full items-center justify-center rounded-lg bg-zinc-200 text-sm text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+            >
+              The photo appears when you start.
+            </div>
+          ) : (
+            // key: each image starts fresh. TODO(#256, #257): the round screen draws `round.effect` over it.
+            <ImageViewer
+              key={round.position}
+              puzzle={{ imageUrl: round.imageSrc, reveal: { focus: round.focus, zoomLevels: [1] } }}
+              revealLevel={0}
+              showFull
+            />
+          )}
           {/* Mounts fresh each time a guess here solves an image ("Next image" unmounts it), so it plays once per solve. */}
           {solvedRound !== null && <Confetti />}
         </div>
-        {round.state === "playing" ? (
-          <ZoomOutButton round={roundView} pending={pending} onZoomOut={() => void send({ type: "reveal" })} />
-        ) : round.credit ? (
-          <Credit credit={round.credit} />
-        ) : null}
-        <RoundValue round={roundView} result={roundResult} pointsNow={round.pointsAvailable} config={view.scoring} />
-        <AiBadge round={round} result={roundResult} />
+        {round.credit ? <Credit credit={round.credit} /> : null}
+        <RoundValue state={round.state} seconds={seconds} scoring={view.scoring} result={roundResult} />
       </div>
 
       <GuessPanel
         key={round.position}
-        round={roundView}
+        round={round}
         feedback={feedback}
         pending={pending}
         isLastRound={round.position === round.puzzleCount}
+        onStart={() => void send({ type: "start" })}
         onGuess={(guess) => void send({ type: "guess", guess })}
-        onSkip={() => void send({ type: "skip" })}
         onNext={() => void send({ type: "next" })}
       />
       {alert}
     </div>
   );
-}
-
-/**
- * How the viewer crops `imageSrc`. TODO(#57): once the server sends a
- * per-level image, show it as is and drop `PublicRound.reveal`.
- */
-function cropFor(round: PublicRound): Puzzle["reveal"] {
-  return round.reveal ?? { focus: { x: 0.5, y: 0.5 }, zoomLevels: Array.from({ length: round.levelCount }, () => 1) };
 }
 
 /**

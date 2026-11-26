@@ -7,9 +7,9 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { SCORING_CONFIG } from "@/game/scoring-config";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import { ScoringConfigError } from "@/game/scoring-override";
-import type { ScoringConfig } from "@/game/types";
+import type { TimedScoringConfig } from "@/game/types";
 
 import { getPackScoringConfig, PackNotFoundError, readStoredScoring, setPackScoring } from "./pack-scoring";
 import * as schema from "./schema";
@@ -36,7 +36,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const CUSTOM: ScoringConfig = { basePoints: 200, revealPenalty: 30, wrongGuessPenalty: 15, minPoints: 20, skipPoints: 5 };
+const CUSTOM: TimedScoringConfig = { maxPoints: 5_000, minPoints: 50, revealSeconds: 20, limitSeconds: 25, curve: 1.5 };
 
 let counter = 0;
 
@@ -58,7 +58,7 @@ async function storedJson(packId: string): Promise<unknown> {
 describe("getPackScoringConfig", () => {
   it("uses the default when the pack has no override", async () => {
     const packId = await addPack(null);
-    await expect(getPackScoringConfig(db, packId)).resolves.toEqual(SCORING_CONFIG);
+    await expect(getPackScoringConfig(db, packId)).resolves.toEqual(TIMED_SCORING_CONFIG);
   });
 
   it("uses a valid full override", async () => {
@@ -67,27 +67,27 @@ describe("getPackScoringConfig", () => {
   });
 
   it("merges a partial override (e.g. written by hand in SQL) over the default", async () => {
-    const packId = await addPack('{"basePoints": 150}');
-    await expect(getPackScoringConfig(db, packId)).resolves.toEqual({ ...SCORING_CONFIG, basePoints: 150 });
+    const packId = await addPack('{"maxPoints": 150}');
+    await expect(getPackScoringConfig(db, packId)).resolves.toEqual({ ...TIMED_SCORING_CONFIG, maxPoints: 150 });
   });
 
   it.each([
-    ["fails validateScoringConfig", '{"basePoints": 5}'],
-    ["has a negative value", '{"revealPenalty": -1}'],
-    ["has a string value", '{"basePoints": "150"}'],
+    ["fails validateTimedScoringConfig", '{"maxPoints": 5}'],
+    ["has a negative value", '{"curve": -1}'],
+    ["has a string value", '{"maxPoints": "150"}'],
     ["has an unknown field", '{"basepoints": 150}'],
     ["isn't an object", "[1, 2, 3]"],
   ])("logs and falls back to the default when the stored override %s", async (_, json) => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const packId = await addPack(json);
-    await expect(getPackScoringConfig(db, packId)).resolves.toEqual(SCORING_CONFIG);
+    await expect(getPackScoringConfig(db, packId)).resolves.toEqual(TIMED_SCORING_CONFIG);
     expect(error).toHaveBeenCalledOnce();
     expect(error.mock.calls[0]?.[0]).toMatch(new RegExp(`pack "${packId}" has an invalid scoring override`));
   });
 
   it("treats a JSON null like SQL NULL: no override, nothing logged", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    await expect(getPackScoringConfig(db, await addPack("null"))).resolves.toEqual(SCORING_CONFIG);
+    await expect(getPackScoringConfig(db, await addPack("null"))).resolves.toEqual(TIMED_SCORING_CONFIG);
     expect(error).not.toHaveBeenCalled();
   });
 
@@ -116,8 +116,8 @@ describe("setPackScoring", () => {
 
   it("stores a partial override merged over the default, so the pack's values are pinned", async () => {
     const packId = await addPack(null);
-    const expected = { ...SCORING_CONFIG, basePoints: 150 };
-    await expect(setPackScoring(db, packId, { basePoints: 150 })).resolves.toEqual(expected);
+    const expected = { ...TIMED_SCORING_CONFIG, maxPoints: 150 };
+    await expect(setPackScoring(db, packId, { maxPoints: 150 })).resolves.toEqual(expected);
     expect(await storedJson(packId)).toEqual(expected);
   });
 
@@ -125,12 +125,12 @@ describe("setPackScoring", () => {
     const packId = await addPack(JSON.stringify(CUSTOM));
     await expect(setPackScoring(db, packId, null)).resolves.toBeNull();
     expect(await readStoredScoring(db, packId)).toBeNull();
-    await expect(getPackScoringConfig(db, packId)).resolves.toEqual(SCORING_CONFIG);
+    await expect(getPackScoringConfig(db, packId)).resolves.toEqual(TIMED_SCORING_CONFIG);
   });
 
   it.each([
-    ["fails validateScoringConfig", { minPoints: 500 }],
-    ["has a string value", { basePoints: "150" }],
+    ["fails validateTimedScoringConfig", { minPoints: 50_000 }],
+    ["has a string value", { maxPoints: "150" }],
     ["has an unknown field", { bonus: 10 }],
     ["isn't an object", 150],
   ])("validates before writing: rejects an override that %s and leaves the row unchanged", async (_, override) => {

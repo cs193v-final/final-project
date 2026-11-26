@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runGameCall } from "@/game/game-result";
-import { SCORING_CONFIG } from "@/game/scoring-config";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import { act, getGame, MemoryGameStore, puzzleSourceFrom, startGame, type GameOwner } from "@/game/server-game";
 import type { GameAction, Pack, Puzzle } from "@/game/types";
 
@@ -30,7 +30,7 @@ const OWNER: GameOwner = { anonId: "test-owner" };
 function backend() {
   const deps = { games: new MemoryGameStore(), puzzles: puzzleSourceFrom(PUZZLES) };
   return {
-    start: () => runGameCall(() => startGame(deps, PACK, OWNER, SCORING_CONFIG)),
+    start: () => runGameCall(() => startGame(deps, PACK, OWNER, TIMED_SCORING_CONFIG)),
     act: (gameId: string, action: GameAction, revision: number) => runGameCall(() => act(deps, gameId, OWNER, action, revision)),
     get: (gameId: string) => runGameCall(() => getGame(deps, gameId, OWNER)),
   };
@@ -48,9 +48,10 @@ describe("StanfordGame", () => {
     expect(window.location.pathname).toBe("/stanford");
     expect(new URLSearchParams(window.location.search).get("game")).toMatch(/.+/u);
 
-    for (const next of ["Next image", "See results"]) {
+    for (const [i, next] of ["Next image", "See results"].entries()) {
       expect(screen.queryByText(/^Photo:/u)).not.toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "Skip this image" }));
+      await user.click(await screen.findByRole("button", { name: "Start round" }));
+      await user.type(await screen.findByRole("textbox", { name: "What is it?" }), `${PUZZLES[i]!.answer}{Enter}`);
       expect(await screen.findByText(/^Photo:/u)).toHaveTextContent("Photo: Test Photographer (CC BY 4.0)");
       await user.click(screen.getByRole("button", { name: next }));
     }

@@ -255,12 +255,9 @@ export class PgGameStore implements GameStore {
           position: i + 1,
           puzzle_id: r.puzzleId,
           outcome: r.outcome,
-          reveal_level_reached: r.revealLevelReached,
+          seconds: r.seconds,
           wrong_guesses: r.wrongGuesses,
           points: r.points,
-          base_points: r.breakdown.base,
-          reveal_penalty: r.breakdown.revealPenalty,
-          wrong_guess_penalty: r.breakdown.wrongGuessPenalty,
         }))
       : [];
 
@@ -277,15 +274,12 @@ export class PgGameStore implements GameStore {
         RETURNING id, pack_id, user_id, anon_owner_hash, revision, daily_date
       ),
       new_rounds AS (
-        INSERT INTO game_rounds (game_id, position, puzzle_id, outcome, reveal_level_reached,
-                                 wrong_guesses, points, base_points, reveal_penalty, wrong_guess_penalty)
-        SELECT updated.id, r.position, r.puzzle_id, r.outcome, r.reveal_level_reached,
-               r.wrong_guesses, r.points, r.base_points, r.reveal_penalty, r.wrong_guess_penalty
+        INSERT INTO game_rounds (game_id, position, puzzle_id, outcome, seconds, wrong_guesses, points)
+        SELECT updated.id, r.position, r.puzzle_id, r.outcome, r.seconds, r.wrong_guesses, r.points
         FROM updated
         CROSS JOIN jsonb_to_recordset(${JSON.stringify(roundRows)}::jsonb) AS r(
-          position integer, puzzle_id text, outcome round_outcome, reveal_level_reached integer,
-          wrong_guesses integer, points integer, base_points integer, reveal_penalty integer,
-          wrong_guess_penalty integer)
+          position integer, puzzle_id text, outcome round_outcome, seconds double precision,
+          wrong_guesses integer, points integer)
         ON CONFLICT (game_id, position) DO NOTHING
       )
       SELECT id, pack_id AS "packId", user_id AS "userId", anon_owner_hash AS "anonOwnerHash", revision,

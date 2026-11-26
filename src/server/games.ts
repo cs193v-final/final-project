@@ -29,7 +29,7 @@ import {
   type GameDeps,
   type GameOwner,
 } from "@/game/server-game";
-import type { GameAction, GameView, Pack, ScoringConfig } from "@/game/types";
+import type { GameAction, GameView, Pack, TimedScoringConfig } from "@/game/types";
 import { PRACTICE_PACK, SAMPLE_PUZZLES } from "@/puzzles";
 
 import { hashIp, ipHmacKey } from "./ip-key";
@@ -102,8 +102,9 @@ export async function startPracticeGame(): Promise<GameResult> {
     const db = getDb();
     await checkStartLimits(db, owner, await requestIpHash(), new Date());
     await ensurePracticePack(db);
-    // The pack's stored scoring (#64), read once here and kept in the game's
-    // state, so changing it only affects games started afterwards.
+    // The pack's stored scoring (#64, timed fields since #255), read once
+    // here and kept in the game's state, so changing it only affects games
+    // started afterwards.
     return startOrReuseGame(db, owner, PRACTICE_PACK, () => getScoringConfig(PRACTICE_PACK.id));
   });
 }
@@ -122,7 +123,7 @@ export async function startOrReuseGame(
   db: Db,
   owner: GameOwner,
   pack: Pack,
-  scoring: () => Promise<ScoringConfig> | ScoringConfig,
+  scoring: () => Promise<TimedScoringConfig> | TimedScoringConfig,
 ): Promise<GameView> {
   const unfinished = await findUnfinishedGames(db, owner, pack.id, MAX_UNFINISHED_GAMES_PER_PACK);
   const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;

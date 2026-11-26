@@ -1,4 +1,8 @@
 import { expect, type Page } from "@playwright/test";
+import { parsePuzzles } from "@/game/puzzles";
+import type { Puzzle } from "@/game/types";
+// The same data as SAMPLE_PUZZLES; see practice.spec.ts for why it's a JSON import.
+import sample from "@/puzzles/sample.json" with { type: "json" };
 import { GAME_NAME } from "@/site";
 
 // Helpers shared by the e2e specs, so each one (and the brittle tab order) has
@@ -26,15 +30,37 @@ export async function guess(page: Page, text: string) {
   await page.getByRole("button", { name: "Guess", exact: true }).click();
 }
 
+/** The practice pack's puzzles, in play order: image n is `PRACTICE_PUZZLES[n - 1]`. */
+export const PRACTICE_PUZZLES: Puzzle[] = parsePuzzles(sample);
+
+export const startRoundButton = (page: Page) => page.getByRole("button", { name: "Start round" });
+
+/** Press Start round (timed rounds, #255) and wait for the server's answer: the guess box. */
+export async function startRound(page: Page) {
+  await startRoundButton(page).click();
+  await expect(guessBox(page)).toBeVisible();
+}
+
+/** Which image is on screen ("Image 2 of 3" → 2). */
+export async function imagePosition(page: Page): Promise<number> {
+  const text = (await page.getByText(/^Image \d+ of \d+$/).textContent()) ?? "";
+  return Number(/^Image (\d+)/.exec(text)?.[1]);
+}
+
 /**
- * Skip every remaining image to reach the final score screen. Call it while an
- * image is being played. After each skip, wait for the button that ends the
- * round: with server-side games (#54) it only appears once the server has
- * answered, so checking right away would miss it.
+ * Answer every remaining image to reach the final score screen (there's no
+ * Skip with timed rounds, #255, and waiting out each clock would take 30 s an
+ * image). Call it while an image is ready or being played. `puzzles` are the
+ * pack's puzzles in play order. After each answer, wait for the button that
+ * ends the round: it only appears once the server has answered (#54).
  */
-export async function finishPractice(page: Page) {
+export async function finishPractice(page: Page, puzzles: readonly Puzzle[] = PRACTICE_PUZZLES) {
   for (;;) {
-    await page.getByRole("button", { name: "Skip this image" }).click();
+    // Wait for the round on screen (ready or playing), not the one a pending "Next image" is leaving.
+    await expect(startRoundButton(page).or(guessBox(page)).first()).toBeVisible();
+    const position = await imagePosition(page);
+    if (await startRoundButton(page).isVisible()) await startRound(page);
+    await guess(page, puzzles[position - 1]!.answer);
     const after = page.getByRole("button", { name: /^(Next image|See results)$/ });
     await expect(after).toBeVisible();
     const last = (await after.textContent()) === "See results";

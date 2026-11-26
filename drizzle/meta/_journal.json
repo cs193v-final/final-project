@@ -71,6 +71,13 @@
       "when": 1795686225699,
       "tag": "0009_ai_solved_seconds",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795735681411,
+      "tag": "0010_timed_rounds",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { RateLimitedError, runGameCall } from "./game-result.ts";
 import { errorForLog, type LoggedError } from "./log-safe.ts";
 import { SAMPLE_PUZZLES } from "../puzzles/index.ts";
-import { SCORING_CONFIG } from "./scoring-config.ts";
 import {
   act,
   GameConflictError,
@@ -19,7 +18,8 @@ import {
   type GameStore,
   type StoredGame,
 } from "./server-game.ts";
-import type { GameAction, GameView, Pack, ScoringConfig } from "./types.ts";
+import type { GameAction, GameView, Pack, TimedScoringConfig } from "./types.ts";
+import { TIMED_SCORING_CONFIG } from "./scoring-config.ts";
 
 const VIEW: GameView = {
   gameId: "g1",
@@ -28,8 +28,8 @@ const VIEW: GameView = {
   round: null,
   results: [],
   total: 0,
-  scoring: SCORING_CONFIG,
   finished: true,
+  scoring: TIMED_SCORING_CONFIG,
 };
 
 const QUERY = 'select "state" from "games" where "anon_owner_hash" = $1 and "id" = $2';
@@ -137,7 +137,7 @@ describe("runGameCall", () => {
 });
 
 describe("two tabs acting on the same game at once", () => {
-  const CONFIG: ScoringConfig = { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 };
+  const CONFIG: TimedScoringConfig = { maxPoints: 10_000, minPoints: 100, revealSeconds: 25, limitSeconds: 30, curve: 2 };
   const PUZZLES = SAMPLE_PUZZLES.map((p, i) => ({ ...p, id: `p${i + 1}`, imageUrl: `/img/p${i + 1}.jpg` }));
   const PACK: Pack = { id: "pk", kind: "practice", title: "Practice", theme: "Mixed", puzzleIds: PUZZLES.map((p) => p.id) };
   const OWNER = { anonId: "owner" };
@@ -163,27 +163,28 @@ describe("two tabs acting on the same game at once", () => {
     };
   }
 
-  it.each<[string, GameAction]>([
-    ["skip", { type: "skip" }],
-    ["reveal", { type: "reveal" }],
-    ["wrong guess", { type: "guess", guess: "zzz wrong" }],
-  ])("%s from both: one is applied, the other gets `conflict` and isn't applied", async (_name, action) => {
+  it.each<[string, GameAction, boolean, number]>([
+    // [name, action, start the clock first?, scoring events it adds]
+    ["start", { type: "start" }, false, 0],
+    ["wrong guess", { type: "guess", guess: "zzz wrong" }, true, 1],
+  ])("%s from both: one is applied, the other gets `conflict` and isn't applied", async (_name, action, startFirst, events) => {
     const inner = new MemoryGameStore();
     const plain: GameDeps = { games: inner, puzzles: puzzleSourceFrom(PUZZLES) };
-    const { gameId } = await startGame(plain, PACK, OWNER, CONFIG);
+    let { gameId, revision } = await startGame(plain, PACK, OWNER, CONFIG);
+    if (startFirst) ({ gameId, revision } = await act(plain, gameId, OWNER, { type: "start" }, revision));
 
     const racing: GameDeps = { games: raceStore(inner, 2), puzzles: plain.puzzles };
     const results = await Promise.all([
-      runGameCall(() => act(racing, gameId, OWNER, action, 0)),
-      runGameCall(() => act(racing, gameId, OWNER, action, 0)),
+      runGameCall(() => act(racing, gameId, OWNER, action, revision)),
+      runGameCall(() => act(racing, gameId, OWNER, action, revision)),
     ]);
 
     expect(results.map((r) => (r.ok ? "ok" : r.error)).sort()).toEqual(["conflict", "ok"]);
     const stored = (await inner.get(gameId))!;
-    expect(stored.revision).toBe(1);
-    expect(stored.state.events).toHaveLength(1); // applied exactly once
-    // Still on the first image: nobody skipped (or zoomed, or guessed on) a round they hadn't seen.
+    expect(stored.revision).toBe(revision + 1); // applied exactly once
+    expect(stored.state.events).toHaveLength(events);
+    // Still on the first image, playing: a second tab can't restart the clock or guess on a round it hadn't seen.
     const view = await getGame(plain, gameId, OWNER);
-    expect(view.round?.position).toBe(1);
+    expect(view.round).toMatchObject({ position: 1, state: "playing" });
   });
 });

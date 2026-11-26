@@ -13,7 +13,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 import { seedContent } from "@/db/content";
 import { setPackScoring } from "@/db/pack-scoring";
-import { SCORING_CONFIG } from "@/game/scoring-config";
+import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import * as schema from "@/db/schema";
 import { combineContent } from "@/game/packs";
 import type { GameView, Pack, Puzzle } from "@/game/types";
@@ -120,16 +120,23 @@ describe("the daily on the server", () => {
     expect(await gameCount()).toBe(0);
   });
 
-  it("once cut: plays from the level image only, resumes, and never starts a second game", async () => {
+  it("once cut: no photo before start, then only the cut full photo; resumes, and never starts a second game", async () => {
     // The stand-in originals are the practice photos in public/puzzles/.
     await cutPuzzleImages(db, PUZZLES, (p) => join(root, "public", "puzzles", p.imageUrl.replace("images/", "")));
 
     let view = ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
-    expect(view.round!.imageSrc).toMatch(/^\/img\/[0-9a-f]{32}\.webp$/u);
-    expect(view.round).not.toHaveProperty("reveal");
-    expect(JSON.stringify(view).toLowerCase()).not.toMatch(/giraffe|strawberry|\/puzzles\/|images\/pz-/u);
+    expect(view.round).toMatchObject({ state: "ready" });
+    expect(view.round).not.toHaveProperty("imageSrc");
 
-    view = ok(await actOnGame(view.gameId, { type: "reveal" }, view.revision));
+    view = ok(await actOnGame(view.gameId, { type: "start" }, view.revision));
+    expect(view.round!.imageSrc).toMatch(/^\/img\/[0-9a-f]{32}\.webp$/u);
+    // The full photo: the last level cut for this puzzle, never a tighter one.
+    const { rows } = await pg.query<{ src: string }>(
+      "SELECT src FROM puzzle_images WHERE puzzle_id = $1 ORDER BY level DESC LIMIT 1",
+      [PUZZLES[0]!.id],
+    );
+    expect(view.round!.imageSrc).toBe(rows[0]!.src);
+    expect(JSON.stringify(view).toLowerCase()).not.toMatch(/giraffe|strawberry|\/puzzles\/|images\/pz-/u);
     expect(ok(await loadTodaysDailyGame(BEFORE_MIDNIGHT)).round!.imageSrc).toBe(view.round!.imageSrc);
     expect(ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).gameId).toBe(view.gameId);
   }, 60_000);
@@ -137,14 +144,14 @@ describe("the daily on the server", () => {
   it("plays with the day's pack scoring (#64), or the default (logged) if the stored value is invalid", async () => {
     await cutPuzzleImages(db, PUZZLES, (p) => join(root, "public", "puzzles", p.imageUrl.replace("images/", "")));
     try {
-      const basePoints = SCORING_CONFIG.basePoints + 50;
-      await setPackScoring(db, "pk-n1", { basePoints });
-      expect(ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).round!.pointsAvailable).toBe(basePoints);
+      const maxPoints = TIMED_SCORING_CONFIG.maxPoints + 500;
+      await setPackScoring(db, "pk-n1", { maxPoints });
+      expect(ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).scoring).toEqual({ ...TIMED_SCORING_CONFIG, maxPoints });
 
       state.jar = new Map(); // another player
-      await pg.query("UPDATE packs SET scoring = $1::jsonb WHERE id = 'pk-n1'", [JSON.stringify({ basePoints: 1.5 })]);
+      await pg.query("UPDATE packs SET scoring = $1::jsonb WHERE id = 'pk-n1'", [JSON.stringify({ maxPoints: 1.5 })]);
       const log = vi.spyOn(console, "error").mockImplementation(() => {});
-      expect(ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).round!.pointsAvailable).toBe(SCORING_CONFIG.basePoints);
+      expect(ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).scoring).toEqual(TIMED_SCORING_CONFIG);
       expect(log).toHaveBeenCalledWith(expect.stringContaining('pack "pk-n1" has an invalid scoring override'));
       log.mockRestore();
     } finally {
@@ -186,8 +193,9 @@ describe("the daily on the server", () => {
     let view = ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
     expect(await loadDailyStats(NOV1)).toBeNull(); // still playing
     // The moves go by game id, so the clock passing midnight doesn't matter.
-    for (let i = 0; i < PUZZLES.length; i++) {
-      view = ok(await actOnGame(view.gameId, { type: "skip" }, view.revision));
+    for (const puzzle of PUZZLES) {
+      view = ok(await actOnGame(view.gameId, { type: "start" }, view.revision));
+      view = ok(await actOnGame(view.gameId, { type: "guess", guess: puzzle.answer }, view.revision));
       view = ok(await actOnGame(view.gameId, { type: "next" }, view.revision));
     }
     expect(view.finished).toBe(true);
@@ -205,8 +213,9 @@ describe("the daily on the server", () => {
   it("never shows, resumes or plays another player's daily, or gives their stats (#60)", async () => {
     await cutPuzzleImages(db, PUZZLES, (p) => join(root, "public", "puzzles", p.imageUrl.replace("images/", "")));
     let alice = ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
-    for (let i = 0; i < PUZZLES.length; i++) {
-      alice = ok(await actOnGame(alice.gameId, { type: "skip" }, alice.revision));
+    for (const puzzle of PUZZLES) {
+      alice = ok(await actOnGame(alice.gameId, { type: "start" }, alice.revision));
+      alice = ok(await actOnGame(alice.gameId, { type: "guess", guess: puzzle.answer }, alice.revision));
       alice = ok(await actOnGame(alice.gameId, { type: "next" }, alice.revision));
     }
     expect(alice.finished).toBe(true);
@@ -225,7 +234,7 @@ describe("the daily on the server", () => {
 
     // Alice's game id doesn't help: "not found", like a game that doesn't exist.
     // (Loading a game by id is checked the same way in games.test.ts.)
-    expect(await actOnGame(alice.gameId, { type: "skip" }, alice.revision)).toEqual({ ok: false, error: "not-found" });
+    expect(await actOnGame(alice.gameId, { type: "start" }, alice.revision)).toEqual({ ok: false, error: "not-found" });
   }, 60_000);
 
   it("gives no stats, without a database error, for a date that matches YYYY-MM-DD but doesn't exist", async () => {

@@ -12,12 +12,18 @@
 // The leaderboard's SQL (`beatAiCount` in src/db/leaderboard.ts, #62) counts
 // the same way; change both together.
 
-import type { BeatAiSummary, RevealLevel, RoundResult } from "./types.ts";
+import type { BeatAiSummary, RevealLevel } from "./types.ts";
+
+/**
+ * A round scored by zoom level. Timed rounds (#255) no longer have levels, so
+ * the game doesn't call these until they compare solve times (#257).
+ */
+export type LevelRoundResult = { puzzleId: string; outcome: "correct" | "skipped" | "timedOut"; revealLevelReached: number };
 
 export type AiVerdict = "beat" | "tie" | "lost" | "no-ai";
 
 /** How one finished round went against the AI. */
-export function aiVerdict(result: Pick<RoundResult, "outcome" | "revealLevelReached">, aiSolvedLevel: RevealLevel | null): AiVerdict {
+export function aiVerdict(result: Pick<LevelRoundResult, "outcome" | "revealLevelReached">, aiSolvedLevel: RevealLevel | null): AiVerdict {
   if (aiSolvedLevel === null) return "no-ai";
   if (result.outcome !== "correct") return "lost";
   if (result.revealLevelReached < aiSolvedLevel) return "beat";
@@ -26,7 +32,7 @@ export function aiVerdict(result: Pick<RoundResult, "outcome" | "revealLevelReac
 
 /** Counts a game's rounds against the AI. `aiSolvedLevelOf` gives each puzzle's level (null: no AI result). */
 export function beatAiSummary(
-  results: readonly Pick<RoundResult, "puzzleId" | "outcome" | "revealLevelReached">[],
+  results: readonly LevelRoundResult[],
   aiSolvedLevelOf: (puzzleId: string) => RevealLevel | null,
 ): BeatAiSummary {
   const verdicts = results.map((r) => aiVerdict(r, aiSolvedLevelOf(r.puzzleId)));

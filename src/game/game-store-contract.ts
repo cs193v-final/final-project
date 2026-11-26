@@ -18,7 +18,7 @@ import {
   type GameStore,
   type StoredGame,
 } from "./server-game.ts";
-import type { Pack, Puzzle, ScoringConfig } from "./types.ts";
+import type { Pack, Puzzle, TimedScoringConfig } from "./types.ts";
 
 export type GameStoreContext = {
   store: GameStore;
@@ -31,19 +31,25 @@ export type GameStoreContext = {
   missingId: string;
 };
 
-const CONFIG: ScoringConfig = { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 };
+const CONFIG: TimedScoringConfig = { maxPoints: 10_000, minPoints: 100, revealSeconds: 25, limitSeconds: 30, curve: 2 };
+
+/** A clock the tests move by hand (ms), so timed rounds don't depend on the real time. */
+function fakeClock(start = Date.UTC(2030, 0, 1, 12)) {
+  let now = start;
+  return { now: () => now, advance: (seconds: number) => (now += seconds * 1000) };
+}
 
 /** Opaque copies of the sample puzzles, so stored state never names an answer. */
 export const CONTRACT_PUZZLES: Puzzle[] = SAMPLE_PUZZLES.map((p, i) => ({ ...p, id: `p${i + 1}`, imageUrl: `/img/p${i + 1}.jpg` }));
 
 function state(packId: string, overrides: Partial<GameState> = {}): GameState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     pack: { id: packId, kind: "practice", title: "Practice", theme: "Mixed" },
     puzzleIds: CONTRACT_PUZZLES.map((p) => p.id),
     scoring: CONFIG,
     index: 0,
-    round: { puzzleId: "p1", state: "playing", revealLevel: 0, maxRevealLevel: 3, wrongGuesses: 0 },
+    round: { puzzleId: "p1", state: "ready", startedAt: null, wrongGuesses: 0 },
     finished: false,
     events: [],
     lastOutcome: null,
@@ -80,7 +86,7 @@ export function describeGameStoreContract(name: string, setup: () => Promise<Gam
     it("save replaces the state, bumps the revision and keeps owner and pack", async () => {
       const { store, alice, bob, packId } = await setup();
       const created = await store.create({ owner: alice, packId, state: state(packId) });
-      const next = state(packId, { events: [{ type: "skip", puzzleId: "p1" }], round: { ...created.state.round, state: "skipped" } });
+      const next = state(packId, { events: [{ type: "timeOut", puzzleId: "p1" }], round: { ...created.state.round, state: "timedOut", startedAt: 1 } });
       const saved = await store.save({ ...created, owner: bob, state: next });
       expect(saved).toEqual({ ...created, revision: 1, state: next });
       expect(await store.get(created.id)).toEqual(saved);
@@ -121,27 +127,33 @@ export function describeGameStoreContract(name: string, setup: () => Promise<Gam
     it("returns copies: changing a returned record doesn't change the store", async () => {
       const { store, alice, packId } = await setup();
       const created = await store.create({ owner: alice, packId, state: state(packId) });
-      created.state.events.push({ type: "skip", puzzleId: "p1" });
-      created.state.round.revealLevel = 3;
+      created.state.events.push({ type: "timeOut", puzzleId: "p1" });
+      created.state.round.startedAt = 3;
       expect(await store.get(created.id)).toEqual({ ...created, state: state(packId) });
     });
 
     it("runs a whole game through the service, owner checks included", async () => {
       const { store, alice, bob, packId } = await setup();
-      const deps: GameDeps = { games: store, puzzles: puzzleSourceFrom(CONTRACT_PUZZLES) };
+      const clock = fakeClock();
+      const deps: GameDeps = { games: store, puzzles: puzzleSourceFrom(CONTRACT_PUZZLES), now: clock.now };
       const pack: Pack = { id: packId, kind: "practice", title: "Practice", theme: "Mixed", puzzleIds: CONTRACT_PUZZLES.map((p) => p.id) };
       let view = await startGame(deps, pack, alice, CONFIG);
       await expect(getGame(deps, view.gameId, bob)).rejects.toBeInstanceOf(GameNotFoundError);
-      await expect(act(deps, view.gameId, bob, { type: "skip" }, view.revision)).rejects.toBeInstanceOf(GameNotFoundError);
+      await expect(act(deps, view.gameId, bob, { type: "start" }, view.revision)).rejects.toBeInstanceOf(GameNotFoundError);
 
-      view = await act(deps, view.gameId, alice, { type: "reveal" }, view.revision);
+      // Round 1: right at 0 s (within the grace): full points.
+      view = await act(deps, view.gameId, alice, { type: "start" }, view.revision);
       view = await act(deps, view.gameId, alice, { type: "guess", guess: CONTRACT_PUZZLES[0]!.answer }, view.revision);
+      // The other rounds time out.
       for (let i = 1; i < CONTRACT_PUZZLES.length; i++) {
         view = await act(deps, view.gameId, alice, { type: "next" }, view.revision);
-        view = await act(deps, view.gameId, alice, { type: "skip" }, view.revision);
+        view = await act(deps, view.gameId, alice, { type: "start" }, view.revision);
+        clock.advance(31);
+        view = await getGame(deps, view.gameId, alice);
+        expect(view.round?.state).toBe("timedOut");
       }
       view = await act(deps, view.gameId, alice, { type: "next" }, view.revision);
-      expect(view).toMatchObject({ finished: true, round: null, total: 80 });
+      expect(view).toMatchObject({ finished: true, round: null, total: CONFIG.maxPoints });
       expect(await getGame(deps, view.gameId, alice)).toEqual(view);
     });
 
@@ -190,7 +202,7 @@ export function describeGameStoreContract(name: string, setup: () => Promise<Gam
     it("startOrResumeDaily starts once, then resumes the same game, also when two start at once", async () => {
       const [day, nextDay] = freshDays();
       const { store, alice, bob, packId } = await setup();
-      const deps: GameDeps = { games: store, puzzles: puzzleSourceFrom(CONTRACT_PUZZLES) };
+      const deps: GameDeps = { games: store, puzzles: puzzleSourceFrom(CONTRACT_PUZZLES), now: fakeClock().now };
       const pack: Pack = { id: packId, kind: "daily", title: "Fruit", theme: "Fruit", puzzleIds: CONTRACT_PUZZLES.map((p) => p.id) };
 
       const [first, second] = await Promise.all([
@@ -199,7 +211,7 @@ export function describeGameStoreContract(name: string, setup: () => Promise<Gam
       ]);
       expect(second.gameId).toBe(first.gameId);
 
-      const moved = await act(deps, first.gameId, alice, { type: "reveal" }, first.revision);
+      const moved = await act(deps, first.gameId, alice, { type: "start" }, first.revision);
       const resumed = await startOrResumeDaily(deps, pack, day, alice, CONFIG);
       expect(resumed).toEqual(moved);
 
@@ -212,11 +224,12 @@ export function describeGameStoreContract(name: string, setup: () => Promise<Gam
     it("startOrResumeDaily returns a finished daily game as it is, with no new game", async () => {
       const [day] = freshDays();
       const { store, alice, packId } = await setup();
-      const deps: GameDeps = { games: store, puzzles: puzzleSourceFrom(CONTRACT_PUZZLES) };
+      const deps: GameDeps = { games: store, puzzles: puzzleSourceFrom(CONTRACT_PUZZLES), now: fakeClock().now };
       const pack: Pack = { id: packId, kind: "daily", title: "Fruit", theme: "Fruit", puzzleIds: CONTRACT_PUZZLES.map((p) => p.id) };
       let view = await startOrResumeDaily(deps, pack, day, alice, CONFIG);
-      for (let i = 0; i < CONTRACT_PUZZLES.length; i++) {
-        view = await act(deps, view.gameId, alice, { type: "skip" }, view.revision);
+      for (const puzzle of CONTRACT_PUZZLES) {
+        view = await act(deps, view.gameId, alice, { type: "start" }, view.revision);
+        view = await act(deps, view.gameId, alice, { type: "guess", guess: puzzle.answer }, view.revision);
         view = await act(deps, view.gameId, alice, { type: "next" }, view.revision);
       }
       expect(view.finished).toBe(true);

@@ -12,6 +12,8 @@ import pg from "pg";
 // Cleanup runs once after every project: e2e/global-teardown.ts.
 
 import practicePack from "@/puzzles/practice-pack.json" with { type: "json" };
+import sample from "@/puzzles/sample.json" with { type: "json" };
+import { guess, startRound } from "./helpers";
 
 const E2E_STANFORD_PACK = "pk-e2e-stanford";
 const THEME = "Practice photos standing in for Stanford (e2e)";
@@ -64,7 +66,9 @@ test("plays Stanford mode from the home screen to the final score, with every im
   for (let i = 1; i <= puzzleIds.length; i++) {
     await expect(page.getByText(`Image ${i} of ${puzzleIds.length}`)).toBeVisible();
     await expect(page.getByText(/^Photo:/u)).toHaveCount(0); // no credit before the round ends
-    await page.getByRole("button", { name: "Skip this image" }).click();
+    // Timed rounds (#255): start the round and answer it.
+    await startRound(page);
+    await guess(page, sample.find((p) => p.id === puzzleIds[i - 1])!.answer);
     await expect(page.getByText(/^Photo:/u)).toBeVisible();
     const next = i === puzzleIds.length ? "See results" : "Next image";
     await page.getByRole("button", { name: next }).click();
