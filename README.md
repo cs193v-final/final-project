@@ -70,6 +70,7 @@ scripts/install-gitleaks.sh
 - **pre-push** scans *every* commit being pushed.
 
 Notes:
+- `npm ci` / `npm install` also turn the hooks on (the `prepare` script, `scripts/enable-hooks.sh`) and warn if gitleaks is missing, but don't install it. It does nothing in CI, on Vercel, or outside a git clone.
 - Run the script on **every computer you commit from**. The hooks block all commits on a machine without gitleaks (v8.25+).
 - The hooks are an early warning, not the real gate. `--no-verify` and the GitHub web editor skip them, so CI also scans for secrets.
 - If gitleaks itself fails (bad config, unknown revision), the hook says so separately and doesn't report it as a secret.
