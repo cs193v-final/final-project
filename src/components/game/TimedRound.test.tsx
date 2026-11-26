@@ -183,6 +183,18 @@ describe("guessing", () => {
     expect(animate).toHaveBeenCalledTimes(2);
   });
 
+  it("stops the red flash as soon as the round ends, so the clear photo isn't tinted", () => {
+    const { rerender } = render(<TimedRound {...props()} />);
+    rerender(<TimedRound {...props({ wrongGuesses: 1, lastWrongGuess: "zebra" })} />);
+    expect(document.querySelector("[data-wrong-flash]")).toHaveAttribute("data-wrong-flash", "on");
+    rerender(
+      <TimedRound
+        {...props({ phase: "correct", wrongGuesses: 1, result: { answer: "giraffe", points: 9_000, seconds: 1 } })}
+      />,
+    );
+    expect(document.querySelector("[data-wrong-flash]")).toHaveAttribute("data-wrong-flash", "off");
+  });
+
   it("doesn't shake with reduced motion (the red flash and the message still show)", () => {
     fakeMotionSetting(true);
     const animate = fakeAnimate();

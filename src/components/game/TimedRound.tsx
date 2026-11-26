@@ -243,6 +243,9 @@ function PhotoStage({
     return () => clearTimeout(id);
   }, [flashing, flashedFor]);
 
+  // A flash still running when the round ends would tint the "Correct!" photo.
+  const flashOn = flashing && phase === "playing";
+
   const frame =
     "relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-xl bg-zinc-200 dark:bg-zinc-800";
 
@@ -273,9 +276,9 @@ function PhotoStage({
         draggable={false}
       />
       <div
-        data-wrong-flash={flashing ? "on" : "off"}
+        data-wrong-flash={flashOn ? "on" : "off"}
         aria-hidden="true"
-        className={`pointer-events-none absolute inset-0 rounded-xl ring-4 ring-inset ring-rose-600 ${reduced ? "" : "transition-opacity duration-300"} ${flashing ? "bg-rose-600/20 opacity-100" : "opacity-0"}`}
+        className={`pointer-events-none absolute inset-0 rounded-xl ring-4 ring-inset ring-rose-600 ${reduced ? "" : "transition-opacity duration-300"} ${flashOn ? "bg-rose-600/20 opacity-100" : "opacity-0"}`}
       />
     </div>
   );
