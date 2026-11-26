@@ -12,7 +12,8 @@
       "source": "Luca Galuzzi, via Wikimedia Commons",
       "license": "CC BY-SA 2.5",
       "url": "https://commons.wikimedia.org/wiki/File:Giraffe_Ithala_KZN_South_Africa_Luca_Galuzzi_2004.JPG"
-    }
+    },
+    "effect": "thermal"
   },
   {
     "id": "pz-683182e7",
@@ -27,7 +28,8 @@
       "source": "Dllu, via Wikimedia Commons",
       "license": "CC BY-SA 4.0",
       "url": "https://commons.wikimedia.org/wiki/File:Big_strawberry_small_strawberry.jpg"
-    }
+    },
+    "effect": "pixelate"
   },
   {
     "id": "pz-af6d3bbb",
@@ -42,6 +44,7 @@
       "source": "Frank Schulenburg, via Wikimedia Commons",
       "license": "CC BY-SA 4.0",
       "url": "https://commons.wikimedia.org/wiki/File:Golden_Gate_Bridge_as_seen_from_Marshall%E2%80%99s_Beach,_March_2018.jpg"
-    }
+    },
+    "effect": "zoom"
   }
 ]
