@@ -103,9 +103,12 @@ code { font-family: var(--mono); font-size: 12px; background: var(--chip); paddi
   </aside>
 </main>
 
-<script>
-"use strict";
-const EFFECTS = ["pixelate", "spotlight", "thermal", "swirl", "zoom", "tiles"];
+<script type="module">
+// The game's own effects (src/game/effects, #257), served as JavaScript by scripts/review-images.ts,
+// so the preview is exactly what players will see.
+import { createEffect, EFFECT_SETUPS } from "/effects/index.js";
+
+const EFFECTS = Object.keys(EFFECT_SETUPS);
 const REVEAL_SECONDS = 25;
 const $ = (id) => document.getElementById(id);
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
@@ -179,7 +182,7 @@ function card(c) {
   play.setAttribute("aria-label", "Play the round");
 
   const img = new Image();
-  const view = { img, canvas, ctx: canvas.getContext("2d", { willReadFrequently: true }), tiles: shuffledTiles(c.id), swirl: null };
+  const view = { img, canvas, ctx: canvas.getContext("2d"), seed: c.id, source: null, frame: null, effect: null, key: "" };
   const draw = () => {
     const t = Number(time.value);
     tlabel.textContent = `${t.toFixed(1)} s`;
@@ -189,7 +192,13 @@ function card(c) {
   };
   img.onload = () => {
     const w = Math.min(800, img.naturalWidth), h = Math.round(w * img.naturalHeight / img.naturalWidth);
-    canvas.width = w; canvas.height = h; draw();
+    canvas.width = w; canvas.height = h;
+    // The photo's pixels, up to twice the frame's size, so zoom starts on a sharp close-up (src/game/effects/index.ts).
+    const src = document.createElement("canvas"); src.width = img.naturalWidth; src.height = img.naturalHeight;
+    const sctx = src.getContext("2d"); sctx.drawImage(img, 0, 0);
+    view.source = sctx.getImageData(0, 0, src.width, src.height);
+    view.frame = view.ctx.createImageData(w, h);
+    draw();
   };
   img.src = `/img/${theme}/${c.file}`;
 
@@ -210,7 +219,7 @@ function card(c) {
   stage.onclick = (e) => {
     const box = canvas.getBoundingClientRect();
     r.focus = { x: clamp((e.clientX - box.left) / box.width, 0, 1), y: clamp((e.clientY - box.top) / box.height, 0, 1) };
-    view.swirl = null; draw(); void save(c);
+    draw(); void save(c);
   };
 
   const effects = el("div", { className: "row effects", role: "group" });
@@ -219,7 +228,7 @@ function card(c) {
     const b = el("button", { textContent: name, className: r.effect === name ? "on" : "" });
     b.setAttribute("aria-pressed", String(r.effect === name));
     b.onclick = () => {
-      r.effect = name; view.swirl = null;
+      r.effect = name;
       for (const other of effects.children) { other.classList.toggle("on", other === b); other.setAttribute("aria-pressed", String(other === b)); }
       draw(); void save(c);
     };
@@ -305,90 +314,20 @@ for (const b of $("filters").children) b.onclick = () => {
   render();
 };
 
-// ---------- effects (a copy of the prototype's, #254; #257 replaces it) ----------
-// p = how far the round is, 0 (start, hidden) to 1 (clear).
-function shuffledTiles(seed) {
-  let h = 2166136261; for (const ch of seed) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-  const rand = () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) ^ Math.imul(h ^ (h >>> 13), 3266489909)) >>> 0) / 4294967296;
-  const a = [...Array(48).keys()];
-  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
-  return a;
-}
-const THERMAL = (() => {
-  const stops = [[0, [0, 0, 10]], [0.18, [40, 10, 110]], [0.38, [150, 20, 140]], [0.55, [230, 40, 50]], [0.72, [255, 130, 0]], [0.88, [255, 220, 40]], [1, [255, 255, 230]]];
-  return Array.from({ length: 256 }, (_, i) => {
-    const v = i / 255; let k = 0; while (k < stops.length - 2 && v > stops[k + 1][0]) k++;
-    const [a, ca] = stops[k], [b, cb] = stops[k + 1], t = (v - a) / (b - a);
-    return ca.map((c, j) => Math.round(lerp(c, cb[j], t)));
-  });
-})();
-const work = document.createElement("canvas"), wctx = work.getContext("2d", { willReadFrequently: true });
-
+// ---------- effects ----------
+// p = how far the round is, 0 (start, hidden) to 1 (clear). An effect is set up
+// once per photo, effect and focus point, then each frame is cheap.
 function drawEffect(view, effect, p, focus) {
-  const { img, canvas, ctx } = view, W = canvas.width, H = canvas.height;
-  p = clamp(p, 0, 1);
-  if (!img.complete || !img.naturalWidth) return;
-  if (!effect || p >= 1) return ctx.drawImage(img, 0, 0, W, H);
-  if (effect === "pixelate") {
-    const block = Math.max(1, Math.round(lerp(W / 7, 1, Math.pow(p, 0.55))));
-    const w = Math.max(1, Math.round(W / block)), h = Math.max(1, Math.round(H / block));
-    work.width = w; work.height = h; wctx.drawImage(img, 0, 0, w, h);
-    ctx.imageSmoothingEnabled = false; ctx.drawImage(work, 0, 0, w, h, 0, 0, W, H); ctx.imageSmoothingEnabled = true;
-  } else if (effect === "spotlight") {
-    ctx.drawImage(img, 0, 0, W, H);
-    const e = Math.pow(p, 1.4), m = Math.min(1, p * 1.3);
-    const cx = lerp(focus.x, 0.5, m) * W, cy = lerp(focus.y, 0.5, m) * H, diag = Math.hypot(W, H);
-    const r = lerp(diag * 0.035, diag * 1.1, e);
-    const g = ctx.createRadialGradient(cx, cy, r * 0.75, cx, cy, r);
-    g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,1)");
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  } else if (effect === "thermal") {
-    const w = Math.round(W / 2), h = Math.round(H / 2); work.width = w; work.height = h;
-    const r = lerp(Math.max(10, w / 20), 0, Math.pow(p, 0.6));
-    wctx.filter = r >= 0.3 ? `blur(${r}px)` : "none";
-    wctx.drawImage(img, -r * 2, -r * 2, w + r * 4, h + r * 4); wctx.filter = "none";
-    const heat = 1 - clamp((p - 0.3) / 0.6, 0, 1);
-    if (heat > 0) {
-      const d = wctx.getImageData(0, 0, w, h), a = d.data;
-      for (let i = 0; i < a.length; i += 4) {
-        const c = THERMAL[Math.round(0.299 * a[i] + 0.587 * a[i + 1] + 0.114 * a[i + 2])];
-        a[i] = lerp(a[i], c[0], heat); a[i + 1] = lerp(a[i + 1], c[1], heat); a[i + 2] = lerp(a[i + 2], c[2], heat);
-      }
-      wctx.putImageData(d, 0, 0);
-    }
-    ctx.drawImage(work, 0, 0, W, H);
-  } else if (effect === "swirl") {
-    const sw = Math.round(W / 2), sh = Math.round(H / 2);
-    if (!view.swirl) {
-      const c = document.createElement("canvas"); c.width = sw; c.height = sh;
-      const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(img, 0, 0, sw, sh);
-      const cx = focus.x * sw, cy = focus.y * sh, R = Math.hypot(Math.max(cx, sw - cx), Math.max(cy, sh - cy)) * 1.05;
-      const rr = new Float32Array(sw * sh), th = new Float32Array(sw * sh);
-      for (let y = 0, i = 0; y < sh; y++) for (let x = 0; x < sw; x++, i++) { rr[i] = Math.hypot(x - cx, y - cy) / R; th[i] = Math.atan2(y - cy, x - cx); }
-      view.swirl = { data: g.getImageData(0, 0, sw, sh).data, rr, th, cx, cy, R };
-    }
-    const { data: src, rr, th, cx, cy, R } = view.swirl, e = Math.pow(1 - p, 1.3), spin = 26 * e, wobble = 18 * e * (sw / 600);
-    work.width = sw; work.height = sh;
-    const out = wctx.createImageData(sw, sh), o = out.data;
-    for (let y = 0, i = 0; y < sh; y++) for (let x = 0; x < sw; x++, i++) {
-      const f = 1 - rr[i], a = th[i] + (f > 0 ? spin * f * f : 0), r = rr[i] * R;
-      let sx = cx + r * Math.cos(a) + wobble * Math.sin(y * 0.045 + a * 2), sy = cy + r * Math.sin(a) + wobble * Math.cos(x * 0.04 - a * 2);
-      sx = sx < 0 ? 0 : sx > sw - 1 ? sw - 1 : sx | 0; sy = sy < 0 ? 0 : sy > sh - 1 ? sh - 1 : sy | 0;
-      const s = (sy * sw + sx) * 4, d = i * 4; o[d] = src[s]; o[d + 1] = src[s + 1]; o[d + 2] = src[s + 2]; o[d + 3] = 255;
-    }
-    wctx.putImageData(out, 0, 0); ctx.drawImage(work, 0, 0, W, H);
-  } else if (effect === "zoom") {
-    const z = Math.pow(16, 1 - Math.pow(p, 0.8)), vw = img.naturalWidth / z, vh = img.naturalHeight / z;
-    const sx = clamp(focus.x * img.naturalWidth - vw / 2, 0, img.naturalWidth - vw), sy = clamp(focus.y * img.naturalHeight - vh / 2, 0, img.naturalHeight - vh);
-    ctx.drawImage(img, sx, sy, vw, vh, 0, 0, W, H);
-  } else if (effect === "tiles") {
-    const cols = 8, rows = 6, n = cols * rows, tw = W / cols, th = H / rows;
-    ctx.drawImage(img, 0, 0, W, H);
-    for (let k = Math.floor(Math.pow(p, 1.15) * n); k < n; k++) {
-      const idx = view.tiles[k], x = (idx % cols) * tw, y = Math.floor(idx / cols) * th;
-      ctx.fillStyle = (Math.floor(idx / cols) + idx) % 2 ? "#2a2656" : "#241f4d"; ctx.fillRect(x, y, tw + 1, th + 1);
-    }
+  const { img, canvas, ctx } = view;
+  if (!view.source) return;
+  if (!effect || p >= 1) return ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const key = `${effect} ${focus.x} ${focus.y}`;
+  if (view.key !== key) {
+    view.effect = createEffect(effect, view.source, { focus, seed: view.seed, size: { width: canvas.width, height: canvas.height } });
+    view.key = key;
   }
+  view.effect(clamp(p, 0, 1), view.frame.data);
+  ctx.putImageData(view.frame, 0, 0);
 }
 
 loadThemes().catch((error) => { $("hint").textContent = `Couldn't load: ${error.message}`; $("hint").className = "msg bad"; });

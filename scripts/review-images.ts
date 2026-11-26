@@ -20,13 +20,14 @@
 // the git-ignored content/ folder. It's a script, never a route in src/app,
 // so private candidates can't be deployed.
 //
-// The effect previews are a copy of the prototype's (#254) until the shared
-// effects from #257 land.
+// The effect previews use the game's own effects (src/game/effects, #257),
+// served to the page as JavaScript, so they match what players see.
 //
 // Runs directly in Node 24 (type stripping), so imports keep their `.ts`.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { stripTypeScriptTypes } from "node:module";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -45,6 +46,22 @@ import { assertNotCommittable, REPO_ROOT } from "./not-committable.ts";
 
 const MAX_BODY = 64 * 1024;
 const PREVIEW_WIDTH = 1600;
+const EFFECTS_DIR = join(import.meta.dirname, "../src/game/effects");
+const MODULE_NAME = /^[a-z][a-z-]*$/u;
+
+/**
+ * The game's reveal effects (src/game/effects, #257) as browser JavaScript, so
+ * the preview draws exactly what players will see. Node strips the types (the
+ * files use only erasable TypeScript) and `./x.ts` imports become `./x.js`.
+ * Only the effects' own files are served, never their tests.
+ */
+export function effectsModule(name: string): string | null {
+  if (!MODULE_NAME.test(name) || name.includes("test")) return null;
+  const file = join(EFFECTS_DIR, `${name}.ts`);
+  if (!existsSync(file)) return null;
+  const js = stripTypeScriptTypes(readFileSync(file, "utf8"));
+  return js.replace(/(from\s+["']\.\/[a-z][a-z-]*)\.ts(["'])/gu, "$1.js$2");
+}
 
 export type ServerOptions = { contentDir: string; port: number };
 
@@ -104,6 +121,10 @@ export function createHandler({ contentDir, port }: ServerOptions) {
 
       if (req.method === "GET" && url.pathname === "/") return send(res, 200, page, "text/html; charset=utf-8");
       if (req.method === "GET" && url.pathname === "/api/themes") return send(res, 200, themes(candidatesDir));
+      if (req.method === "GET" && parts[0] === "effects" && parts.length === 2 && parts[1]!.endsWith(".js")) {
+        const js = effectsModule(parts[1]!.slice(0, -3));
+        return js === null ? send(res, 404, { error: "not found" }) : send(res, 200, js, "text/javascript; charset=utf-8");
+      }
 
       const [kind, theme, item, extra] = parts;
       if (theme === undefined || !THEME_PATTERN.test(theme)) return send(res, 404, { error: "not found" });

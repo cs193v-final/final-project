@@ -1,11 +1,12 @@
 // Spec for the local review server (#180): it serves the page, the theme's
 // candidates and previews, saves decisions, and refuses requests that could
 // come from another web page (wrong Host or Origin) or reach outside content/.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, get, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -96,6 +97,41 @@ describe("review server", () => {
   it("refuses writes from another site's page", async () => {
     const res = await fetch(`${base}/api/red-things/pz-0000aaaa`, { method: "PUT", ...json({ status: "rejected" }, "https://evil.example") });
     expect(res.status).toBe(403);
+  });
+
+  it("serves the game's effects as browser JavaScript, with .js imports, and never their tests", async () => {
+    const res = await fetch(`${base}/effects/index.js`);
+    expect(res.headers.get("content-type")).toMatch(/text\/javascript/);
+    const js = await res.text();
+    expect(js).toContain("export function createEffect");
+    expect(js).not.toMatch(/from\s+["']\.\/[a-z-]+\.ts["']/u);
+    expect(js).toMatch(/from\s+["']\.\/pixelate\.js["']/u);
+    for (const path of ["/effects/effects.test.js", "/effects/..%2Fpuzzles.js", "/effects/nope.js", "/effects/index.ts"]) {
+      expect((await fetch(`${base}${path}`)).status, path).toBe(404);
+    }
+  });
+
+  it("serves effects that draw exactly the frames the game's TypeScript draws", async () => {
+    // Save every served module, import the served index.js, and compare a frame of each effect.
+    const dir = mkdtempSync(join(tmpdir(), "served-effects-"));
+    try {
+      const names = readdirSync(join(import.meta.dirname, "../src/game/effects"))
+        .filter((f) => f.endsWith(".ts") && !f.includes(".test."))
+        .map((f) => f.slice(0, -3));
+      for (const name of names) writeFileSync(join(dir, `${name}.js`), await (await fetch(`${base}/effects/${name}.js`)).text());
+      const served = await import(pathToFileURL(join(dir, "index.js")).href);
+      const original = await import("../src/game/effects/index.ts");
+      const width = 40, height = 30;
+      const data = new Uint8ClampedArray(width * height * 4).map((_, i) => (i * 37) % 251);
+      const options = { focus: { x: 0.3, y: 0.6 }, seed: "pz-0000aaaa" };
+      for (const effect of Object.keys(original.EFFECT_SETUPS)) {
+        const a = original.createEffect(effect as never, { width, height, data }, options)(0.4);
+        const b = served.createEffect(effect, { width, height, data }, options)(0.4);
+        expect(Buffer.from(b).equals(Buffer.from(a)), effect).toBe(true);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("refuses paths outside a theme folder, and file names that aren't candidates", async () => {
