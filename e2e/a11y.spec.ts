@@ -178,6 +178,7 @@ test("right and wrong are told apart by their words and a symbol, not only by co
   // The game's own status; the header has one too (the login confirmation, #134).
   const status = page.getByRole("main").getByRole("status");
 
+  await startRound(page);
   await guess(page, "definitely not it");
   await expect(status).toContainText("isn't it (1 wrong guess)");
   await expect(status.getByText("✗", { exact: true })).toBeVisible();

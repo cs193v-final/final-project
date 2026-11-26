@@ -148,7 +148,7 @@ test("a test user signs up, plays the server game to the end and again, and logs
 
   // Image 1: no photo before Start round; then a wrong guess, then the right answer.
   const first = puzzleAt(0);
-  await expect(page.getByRole("img")).toHaveCount(0);
+  await expect(page.getByRole("img", { name: /^Mystery image/ })).toHaveCount(0);
   await startRound(page);
   await guess(page, "definitely not the answer");
   await expect(status(page)).toContainText("isn't it (1 wrong guess)");
