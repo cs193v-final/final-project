@@ -48,11 +48,12 @@ async function Today() {
   const now = new Date();
   const [intro, initial, streak] = await Promise.all([
     loadDailyIntro(now).catch((error: unknown) => {
-      console.error("Couldn't load today's daily challenge", error);
+      console.error(`Couldn't load today's daily challenge: ${errorSummary(error)}`);
       return null;
     }),
     loadTodaysDailyGame(now).catch((error: unknown) => {
-      console.error("Couldn't load this player's daily game", error);
+      // Without the query's parameters (the owner's id or hash, #60).
+      console.error(`Couldn't load this player's daily game: ${errorSummary(error)}`);
       return null;
     }),
     // For the result screen (#63): the streak once today's daily is finished.

@@ -13,6 +13,7 @@ import { runGameCall, type GameResult } from "@/game/game-result";
 import { GameNotFoundError, resumeDaily, startOrResumeDaily } from "@/game/server-game";
 
 import { deps, requestIpHash } from "./games";
+import { errorSummary } from "./error-summary";
 import { checkStartLimits } from "./limits";
 import { currentOrNewOwner, currentOwner } from "./owner";
 
@@ -71,7 +72,7 @@ export async function startTodaysDaily(date: unknown, now = new Date()): Promise
   try {
     pack = await getDailyPack(db, today);
   } catch (error) {
-    console.error("Couldn't read today's daily pack", error);
+    console.error(`Couldn't read today's daily pack: ${errorSummary(error)}`);
     return { ok: false, error: "unavailable" };
   }
   if (pack === null) return { ok: false, error: "no-daily" };
