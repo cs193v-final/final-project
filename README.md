@@ -31,7 +31,7 @@ Preview and production credentials are **never** stored in files. Jacky (the dep
 
 Schema and migrations (#47): the schema is `src/db/schema.ts` and the SQL migrations are in `drizzle/`. After changing the schema, run `npm run db:generate` and commit the new migration. `npm run db:migrate` applies migrations to the database in `DATABASE_URL_UNPOOLED` (your dev database from `.env.local` by default). Jacky applies them to preview and production; who runs what, and when, is in [TECHNICAL.md → Database](TECHNICAL.md#database-47).
 
-Puzzle content (#52): `npm run db:seed -- --dry-run` checks content files, and `npm run db:seed` loads the practice pack plus the private content in the git-ignored `content/` folder into your dev database. Never commit daily, Stanford or lobby content. Details: [TECHNICAL.md → Content and the seed script](TECHNICAL.md#content-and-the-seed-script-52).
+Puzzle content (#52): `npm run db:seed -- --dry-run` checks content files, and `npm run db:seed` loads the practice pack plus the private content in the git-ignored `content/` folder into your dev database. Get the private content with `gh repo clone cs193v-final/final-project-content content` (#196). Never commit daily, Stanford or lobby content. Details: [TECHNICAL.md → Content and the seed script](TECHNICAL.md#content-and-the-seed-script-52).
 
 Stanford mode (#65) plays the one pack of kind `"stanford"`. Put it in a content file in `content/` (e.g. `content/stanford.json`, with its photos next to it and a `credit` on every puzzle), check it with `npm run db:seed -- --dry-run content/stanford.json`, then load it with `npm run db:seed -- content/stanford.json`. Until it's loaded, `/stanford` says the mode is coming soon. A seed may bring only one Stanford pack; to replace it with a new pack id, seed the new one and Stanford mode plays the newest.
 
@@ -55,7 +55,7 @@ DATABASE_URL_UNPOOLED=postgresql://postgres@127.0.0.1:5432/zoomout npm run db:mi
 DATABASE_URL_UNPOOLED=postgresql://postgres@127.0.0.1:5432/zoomout npm run db:seed   # optional: /play works without it
 DATABASE_URL=postgresql://postgres@127.0.0.1:5432/zoomout npm run test:e2e
 ```
-A database on localhost is reached with node-postgres and no TLS; anything else with Neon's driver (see [TECHNICAL.md → Database](TECHNICAL.md#database-47)). On your own computer, run `npx playwright install chromium` once first.
+A database on localhost is reached with node-postgres and no TLS; anything else with Neon's driver (see [TECHNICAL.md → Database](TECHNICAL.md#database-47)). On your own computer, run `npx playwright install chromium` once first. In the course container, don't: `@playwright/test` is pinned to its `playwright --version`, whose Chromium is already installed.
 
 ### 4. Deploying
 Deploys go through Jacky's Vercel account (free-tier limitation). See `INSTRUCTIONS.md`.
