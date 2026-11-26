@@ -3,12 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { RateLimitedError, runGameCall } from "./game-result.ts";
 import { errorForLog, type LoggedError } from "./log-safe.ts";
 import { SAMPLE_PUZZLES } from "../puzzles/index.ts";
+import { SCORING_CONFIG } from "./scoring-config.ts";
 import {
   act,
   GameConflictError,
   GameNotFoundError,
   GameUnreadableError,
   getGame,
+  GuessLimitError,
   InvalidGameActionError,
   MemoryGameStore,
   puzzleSourceFrom,
@@ -26,6 +28,7 @@ const VIEW: GameView = {
   round: null,
   results: [],
   total: 0,
+  scoring: SCORING_CONFIG,
   finished: true,
 };
 
@@ -54,6 +57,12 @@ describe("runGameCall", () => {
       ok: false,
       error: "invalid",
     });
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("maps the wrong-guess safety cap to its own code, so the player is told to zoom out or skip (#209)", async () => {
+    const log = vi.fn();
+    expect(await runGameCall(() => Promise.reject(new GuessLimitError()), log)).toEqual({ ok: false, error: "guess-limit" });
     expect(log).not.toHaveBeenCalled();
   });
 

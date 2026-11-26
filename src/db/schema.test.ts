@@ -11,6 +11,8 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { EFFECTS } from "../game/puzzles";
+
 import * as schema from "./schema";
 
 const migrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url));
@@ -191,6 +193,16 @@ describe("packs and puzzles", () => {
       await expect(addPack(kind)).resolves.toEqual(expect.any(String));
     }
     await expect(addPack("weekly")).rejects.toThrow(/pack_kind/);
+  });
+
+  it("accept only the puzzle effects the loader knows (EFFECTS), or none yet (timed-reveal redesign)", async () => {
+    expect(schema.puzzleEffect.enumValues).toEqual([...EFFECTS]);
+    const puzzleId = await addPuzzle();
+    expect((await rows<{ effect: string | null }>("SELECT effect FROM puzzles WHERE id = $1", [puzzleId]))[0]!.effect).toBeNull();
+    for (const effect of EFFECTS) {
+      await pg.query("UPDATE puzzles SET effect = $2 WHERE id = $1", [puzzleId, effect]);
+    }
+    await expect(pg.query("UPDATE puzzles SET effect = 'blur' WHERE id = $1", [puzzleId])).rejects.toThrow(/puzzle_effect/);
   });
 
   it("keep a pack's puzzles in order, each puzzle and position at most once", async () => {
@@ -414,6 +426,7 @@ describe("games and rounds", () => {
         "games_user_id_created_at_idx",
         "games_anon_owner_hash_idx",
         "games_finished_pack_id_total_idx",
+        "games_daily_date_total_idx", // daily leaderboard (#206)
       ]),
     );
   });

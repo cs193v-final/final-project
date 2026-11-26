@@ -29,7 +29,7 @@ import {
   type GameDeps,
   type GameOwner,
 } from "@/game/server-game";
-import type { GameAction } from "@/game/types";
+import type { GameAction, GameView, Pack, ScoringConfig } from "@/game/types";
 import { PRACTICE_PACK, SAMPLE_PUZZLES } from "@/puzzles";
 
 import { hashIp, ipHmacKey } from "./ip-key";
@@ -90,19 +90,14 @@ function ensurePracticePack(db: Db): Promise<void> {
  * loopback or a missing address, so local and e2e runs don't share one count.
  * The per-owner limits apply either way.
  */
-async function requestIpHash(): Promise<string | null> {
+export async function requestIpHash(): Promise<string | null> {
   const ip = await requestIp();
   return limitsAddress(ip) ? hashIp(ip, ipHmacKey()) : null;
 }
 
 /**
  * Start a practice game for the current owner, creating the owner cookie if
- * needed. Rate-limited per owner and per IP (#85). Reuses a game instead of
- * creating a row when the owner has one nobody has played yet (a refresh of
- * /play, a second "Start practice"), or already has
- * `MAX_UNFINISHED_GAMES_PER_PACK` unfinished practice games (then the latest
- * one that can be read is resumed). The cap is per pack, so other packs' games never block
- * practice, and at the cap there is always a game of this pack to resume.
+ * needed. Rate-limited per owner and per IP (#85); see `startOrReuseGame`.
  */
 export async function startPracticeGame(): Promise<GameResult> {
   await connection(); // request time before `new Date()`; see loadGame (#169)
@@ -111,29 +106,52 @@ export async function startPracticeGame(): Promise<GameResult> {
     const db = getDb();
     await checkStartLimits(db, owner, await requestIpHash(), new Date());
     await ensurePracticePack(db);
-    const unfinished = await findUnfinishedGames(db, owner, PRACTICE_PACK.id, MAX_UNFINISHED_GAMES_PER_PACK);
-    const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;
-    // The untouched game first; at the cap, then the others, latest first.
-    const reuse = [unfinished.untouchedId, ...(atCap ? unfinished.recentIds : [])].filter(
-      (id, i, ids): id is string => id !== null && ids.indexOf(id) === i,
-    );
-    const resumed = await resumeFirstReadable(db, owner, reuse);
-    if (resumed.view !== undefined) return resumed.view;
-    // At the cap with none that loads (most likely a wrong key): report it.
-    if (atCap && resumed.unreadable !== null) throw resumed.unreadable;
     // The pack's stored scoring (#64), read once here and kept in the game's
     // state, so changing it only affects games started afterwards.
-    try {
-      return await startGame(deps(db), PRACTICE_PACK, owner, await getScoringConfig(PRACTICE_PACK.id));
-    } catch (error) {
-      // Another start for this owner took the last slot first (#225): resume, as at the cap.
-      if (!(error instanceof UnfinishedGamesCapError)) throw error;
-      const { recentIds } = await findUnfinishedGames(db, owner, PRACTICE_PACK.id, MAX_UNFINISHED_GAMES_PER_PACK);
-      const resumedAfterRace = await resumeFirstReadable(db, owner, recentIds);
-      if (resumedAfterRace.view !== undefined) return resumedAfterRace.view;
-      throw resumedAfterRace.unreadable ?? error;
-    }
+    return startOrReuseGame(db, owner, PRACTICE_PACK, () => getScoringConfig(PRACTICE_PACK.id));
   });
+}
+
+/**
+ * Start a game of `pack` for `owner`, after the start limits were checked.
+ * Reuses a game instead of creating a row when the owner has one of this pack
+ * nobody has played yet (a refresh, a second "Start"), or already has
+ * `MAX_UNFINISHED_GAMES_PER_PACK` unfinished games of it (then the latest one
+ * that can be read is resumed). The cap is per pack, so other packs' games never block this
+ * one, and at the cap there is always a game of this pack to resume.
+ * `scoring` is only read when a new game is created. Used by practice and
+ * Stanford mode (#65); the daily has its own one-game-per-day rule.
+ *
+ * The check here is only a fast path: the store enforces the cap atomically
+ * (#225). When a parallel start takes the last slot first, `startGame` throws
+ * `UnfinishedGamesCapError` and the latest readable game is resumed, as at the cap.
+ */
+export async function startOrReuseGame(
+  db: Db,
+  owner: GameOwner,
+  pack: Pack,
+  scoring: () => Promise<ScoringConfig> | ScoringConfig,
+): Promise<GameView> {
+  const unfinished = await findUnfinishedGames(db, owner, pack.id, MAX_UNFINISHED_GAMES_PER_PACK);
+  const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;
+  // The untouched game first; at the cap, then the others, latest first.
+  const reuse = [unfinished.untouchedId, ...(atCap ? unfinished.recentIds : [])].filter(
+    (id, i, ids): id is string => id !== null && ids.indexOf(id) === i,
+  );
+  const resumed = await resumeFirstReadable(db, owner, reuse);
+  if (resumed.view !== undefined) return resumed.view;
+  // At the cap with none that loads (most likely a wrong key): report it.
+  if (atCap && resumed.unreadable !== null) throw resumed.unreadable;
+  try {
+    return await startGame(deps(db), pack, owner, await scoring());
+  } catch (error) {
+    // Another start for this owner took the last slot first (#225): resume, as at the cap.
+    if (!(error instanceof UnfinishedGamesCapError)) throw error;
+    const { recentIds } = await findUnfinishedGames(db, owner, pack.id, MAX_UNFINISHED_GAMES_PER_PACK);
+    const resumedAfterRace = await resumeFirstReadable(db, owner, recentIds);
+    if (resumedAfterRace.view !== undefined) return resumedAfterRace.view;
+    throw resumedAfterRace.unreadable ?? error;
+  }
 }
 
 /**
@@ -145,7 +163,7 @@ async function resumeFirstReadable(
   db: Db,
   owner: GameOwner,
   ids: readonly string[],
-): Promise<{ view?: Awaited<ReturnType<typeof getGame>>; unreadable: GameUnreadableError | null }> {
+): Promise<{ view?: GameView; unreadable: GameUnreadableError | null }> {
   let unreadable: GameUnreadableError | null = null;
   for (const id of ids) {
     try {

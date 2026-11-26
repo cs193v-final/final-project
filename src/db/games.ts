@@ -300,6 +300,8 @@ export class PgGameStore implements GameStore {
     const { userId, anonOwnerHash } = ownerColumns(game.owner);
     const mine = userId !== null ? sql`user_id = ${userId}::uuid` : sql`anon_owner_hash = ${anonOwnerHash}`;
     const lockKey = `games:unfinished:${userId !== null ? `user:${userId}` : `anon:${anonOwnerHash}`}:${game.packId}`;
+    // The INSERT repeats `create`'s columns and values (and RETURNING repeats
+    // META_COLUMNS): keep the two in sync when the games table changes.
     const results = await inOneTransaction(this.db, [
       sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
       sql`

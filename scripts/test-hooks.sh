@@ -6,7 +6,9 @@ set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# A second folder, outside any repo, for the prepare-script cases (21-27).
+pwork="$(mktemp -d)"
+trap 'rm -rf "$work" "$pwork"' EXIT
 
 fails=0
 pass() { echo "PASS  $1"; }
@@ -181,6 +183,69 @@ try_commit "npg_ names and examples" names.ts
 if [ $rc -eq 0 ]; then pass "npg_ names and examples are allowed"
 else fail "npg_ names and examples were blocked: $out"; fi
 rm -f names.ts
+
+# 21-27. scripts/enable-hooks.sh (the npm `prepare` script, #88) turns the hooks
+# on in a clone and never fails an install. Each case runs a copy of it in its
+# own folder. CI and VERCEL are cleared unless a case sets them, since CI sets CI.
+prep() {  # $1 = folder holding scripts/enable-hooks.sh; rest = env assignments
+  local dir="$1"; shift
+  out="$(cd "$dir" && env -u CI -u VERCEL "$@" "$BASH" scripts/enable-hooks.sh 2>&1)"; rc=$?
+}
+newrepo() {  # $1 = folder: a fresh git repo with a copy of the script
+  mkdir -p "$1/scripts" && cp "$root/scripts/enable-hooks.sh" "$1/scripts/"
+  git -C "$1" init -q -b main
+}
+hookspath() { git -C "$1" config --get core.hooksPath; }
+# git must not find a repo above $pwork (if the temp folder sits inside one).
+export GIT_CEILING_DIRECTORIES="${pwork%/*}"
+# A PATH with git but no gitleaks, and one with neither.
+nogl="$pwork/bin-nogl" nogit="$pwork/bin-nogit"
+mkdir -p "$nogl" "$nogit"
+ln -s "$(command -v git)" "$nogl/git"
+for b in dirname env; do ln -s "$(command -v "$b")" "$nogl/$b"; ln -s "$(command -v "$b")" "$nogit/$b"; done
+
+# 21. Sets core.hooksPath in a fresh clone, then is quiet on a rerun.
+newrepo "$pwork/p-repo"
+prep "$pwork/p-repo"
+if [ $rc -eq 0 ] && [ "$(hookspath "$pwork/p-repo")" = .githooks ]; then pass "prepare sets core.hooksPath in a clone"
+else fail "prepare didn't set core.hooksPath (rc=$rc): $out"; fi
+prep "$pwork/p-repo"
+if [ $rc -eq 0 ] && [[ "$out" != *"hooks enabled"* ]]; then pass "prepare is a quiet no-op when hooks are already on"
+else fail "prepare rerun wasn't a quiet no-op (rc=$rc): $out"; fi
+
+# 22. Outside a git repo (a tarball, Vercel's build folder): exits 0, creates nothing.
+mkdir -p "$pwork/p-plain/scripts" && cp "$root/scripts/enable-hooks.sh" "$pwork/p-plain/scripts/"
+prep "$pwork/p-plain"
+if [ $rc -eq 0 ] && [ -z "$out" ] && [ ! -e "$pwork/p-plain/.git" ]; then pass "prepare is a silent no-op outside a git repo"
+else fail "prepare outside a git repo (rc=$rc): $out"; fi
+
+# 23. A copy inside another repo's subfolder doesn't touch that repo.
+newrepo "$pwork/p-outer" && mkdir -p "$pwork/p-outer/sub/scripts"
+cp "$root/scripts/enable-hooks.sh" "$pwork/p-outer/sub/scripts/"
+prep "$pwork/p-outer/sub"
+if [ $rc -eq 0 ] && [ -z "$(hookspath "$pwork/p-outer")" ]; then pass "prepare leaves an enclosing repo alone"
+else fail "prepare changed an enclosing repo (rc=$rc): $out"; fi
+
+# 24-25. CI and Vercel builds: exit 0 and change nothing.
+for var in CI VERCEL; do
+  newrepo "$pwork/p-$var"
+  prep "$pwork/p-$var" "$var=1"
+  if [ $rc -eq 0 ] && [ -z "$out" ] && [ -z "$(hookspath "$pwork/p-$var")" ]; then pass "prepare does nothing when $var is set"
+  else fail "prepare with $var set (rc=$rc): $out"; fi
+done
+
+# 26. gitleaks missing: still sets the hooks and exits 0, with a warning.
+newrepo "$pwork/p-nogl"
+prep "$pwork/p-nogl" PATH="$nogl"
+if [ $rc -eq 0 ] && [ "$(hookspath "$pwork/p-nogl")" = .githooks ] && [[ "$out" == *"gitleaks is not installed"* ]]; then
+  pass "prepare warns but exits 0 when gitleaks is missing"
+else fail "prepare without gitleaks (rc=$rc): $out"; fi
+
+# 27. git missing: exits 0 silently.
+newrepo "$pwork/p-nogit"
+prep "$pwork/p-nogit" PATH="$nogit"
+if [ $rc -eq 0 ] && [ -z "$out" ]; then pass "prepare is a silent no-op when git is missing"
+else fail "prepare without git (rc=$rc): $out"; fi
 
 echo
 if [ $fails -eq 0 ]; then echo "All hook tests passed."; else echo "$fails hook test(s) failed."; exit 1; fi

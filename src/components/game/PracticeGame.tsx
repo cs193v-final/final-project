@@ -26,6 +26,8 @@ export type PracticeGameProps = {
   /** Whether the final score offers Play again. The daily (#58) is one game per day: false, with `afterFinish`. */
   replay?: boolean;
   afterFinish?: ReactNode | ((view: GameView) => ReactNode);
+  /** The final score's heading. Default: "Practice complete". Stanford mode (#65): "Stanford complete". */
+  finishedTitle?: string;
   /**
    * For a mode that can't start over (the daily, one game per day): what to
    * say when this game can't be loaded anymore (`unreadable`, #164). Then
@@ -40,6 +42,7 @@ const playHref = (gameId: string) => `/play?game=${encodeURIComponent(gameId)}`;
 const PROBLEMS: Record<GameError, string> = {
   "not-found": "We couldn't find that game. It may have been started in another browser.",
   invalid: "That didn't work. Please try again.",
+  "guess-limit": "That's the most guesses one image allows. Zoom out or skip it to keep playing.",
   conflict: "This game was updated since you last saw it, so it was reloaded.",
   "rate-limited": "You're going faster than we allow right now. Please wait a while (up to an hour), then try again.",
   unavailable: "Couldn't reach the server. Check your connection and try again, or reload the page.",
@@ -61,6 +64,7 @@ export function PracticeGame({
   gameHref = playHref,
   replay = true,
   afterFinish,
+  finishedTitle,
   lostGameMessage,
 }: PracticeGameProps) {
   const [view, setView] = useState<GameView | null>(initial?.ok ? initial.view : null);
@@ -241,7 +245,9 @@ export function PracticeGame({
           puzzles={finalScoreLabels(view, answers)}
           score={{ rounds: view.results, total: view.total }}
           beatAi={view.beatAi}
+          config={view.scoring}
           {...(replay ? { onPlayAgain: () => void newGame() } : {})}
+          {...(finishedTitle === undefined ? {} : { title: finishedTitle })}
           after={typeof afterFinish === "function" ? afterFinish(view) : afterFinish}
         />
       </div>
@@ -278,7 +284,7 @@ export function PracticeGame({
         ) : round.credit ? (
           <Credit credit={round.credit} />
         ) : null}
-        <RoundValue round={roundView} result={roundResult} pointsNow={round.pointsAvailable} />
+        <RoundValue round={roundView} result={roundResult} pointsNow={round.pointsAvailable} config={view.scoring} />
         <AiBadge round={round} result={roundResult} />
       </div>
 

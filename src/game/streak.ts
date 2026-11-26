@@ -2,10 +2,11 @@
  * Play streaks (#63).
  *
  * Streaks are counted over daily dates ("YYYY-MM-DD", see ./daily-date.ts).
- * PLANNED: the played days should come from the challenge date stored on each
- * game when it starts (a `games.daily_date` column, not there yet), not from
- * timestamps or a join on pack_id. See the comment at the top of
- * ./daily-date.ts.
+ * The played days come from the challenge date stored on each game when it
+ * starts (`games.daily_date`, migration 0005), read by `getPlayedDailyDates`
+ * in src/db/streaks.ts: never from timestamps, and never from a join on
+ * pack_id (a pack scheduled on two days would count twice). Only logged-in
+ * players' finished dailies count; anonymous games never do (#58).
  */
 
 import { daysBetween } from "./daily-date.ts";
@@ -53,4 +54,28 @@ export function longestStreak(playedDays: Iterable<string>): number {
     previous = day;
   }
   return longest;
+}
+
+/** What the home screen and the daily result show (#63). */
+export type StreakSummary = {
+  /** Consecutive days played, ending today (or yesterday, while today isn't played yet). */
+  current: number;
+  /** The longest run ever, so at least `current`. */
+  longest: number;
+  /** Whether today's daily has been played. If not, `current` is lost at the next reset. */
+  playedToday: boolean;
+};
+
+/**
+ * The streak as of `today`, from the days played. Days after `today` are
+ * ignored, for `longest` too, so a summary never counts a day that hasn't
+ * started yet. Throws a RangeError for an invalid date, like the others.
+ */
+export function summarizeStreak(playedDays: Iterable<string>, today: string): StreakSummary {
+  const upToToday = [...playedDays].filter((date) => daysBetween(date, today) >= 0);
+  return {
+    current: currentStreak(upToToday, today),
+    longest: longestStreak(upToToday),
+    playedToday: upToToday.includes(today),
+  };
 }

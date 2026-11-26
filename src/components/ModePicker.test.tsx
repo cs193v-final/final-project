@@ -21,6 +21,12 @@ function setup(modes?: readonly GameMode[]) {
   return { picker, cards, card };
 }
 
+/** The modes with Stanford as a mode that isn't built, as it was before #65. */
+const withStanfordComingSoon = () =>
+  MODES.map((m): GameMode =>
+    m.id === "stanford" ? { id: m.id, title: m.title, description: m.description, status: "coming-soon" } : m,
+  );
+
 describe("ModePicker", () => {
   it("lists the ways to play: Daily, Stanford and Practice, in that order", () => {
     const { cards } = setup();
@@ -41,8 +47,14 @@ describe("ModePicker", () => {
     expect(within(card("Practice")).getByRole("link", { name: "Start practice" })).toHaveAttribute("href", "/play");
   });
 
-  it("marks modes that aren't built as Coming soon, with no link to a dead end", () => {
+  it("links Stanford mode to /stanford (#65)", () => {
     const { card } = setup();
+    expect(within(card("Stanford")).getByRole("link", { name: "Play Stanford" })).toHaveAttribute("href", "/stanford");
+    expect(within(card("Stanford")).queryByText("Coming soon")).not.toBeInTheDocument();
+  });
+
+  it("marks modes that aren't built as Coming soon, with no link to a dead end", () => {
+    const { card } = setup(withStanfordComingSoon());
     for (const title of ["Stanford"]) {
       expect(within(card(title)).getByText("Coming soon")).toBeInTheDocument();
       expect(within(card(title)).queryByRole("link")).not.toBeInTheDocument();
@@ -76,9 +88,20 @@ describe("ModePicker", () => {
     expect(screen.queryByText(/lobb/i)).not.toBeInTheDocument();
   });
 
-  it("puts only playable modes in the keyboard tab order", async () => {
+  it("puts every playable mode in the keyboard tab order: Daily, Stanford, Practice", async () => {
     const user = userEvent.setup();
     setup();
+    for (const name of ["Play today's", "Play Stanford", "Start practice"]) {
+      await user.tab();
+      expect(screen.getByRole("link", { name })).toHaveFocus();
+    }
+    await user.tab();
+    expect(document.body).toHaveFocus();
+  });
+
+  it("puts only playable modes in the keyboard tab order", async () => {
+    const user = userEvent.setup();
+    setup(withStanfordComingSoon());
     await user.tab();
     expect(screen.getByRole("link", { name: "Play today's" })).toHaveFocus();
     await user.tab();
