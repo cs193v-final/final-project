@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { MODES } from "@/components/modes";
 import { GAME_NAME } from "@/site";
-import { finishPractice, guessBox, homeLink, tabToStartPractice } from "./helpers";
+import { finishPractice, guessBox, homeLink, siteNav, tabToStartPractice } from "./helpers";
 
 // The home screen and navigation in a real browser (#50): the mode picker,
 // and a way home from every screen, by mouse, keyboard and the Back button.
@@ -64,7 +64,7 @@ test("the header links home from the game and the final score screen", async ({ 
 });
 
 test("the whole trip works from the keyboard alone", async ({ page }) => {
-  // Tab order: the home link, Log in (#53), then the playable modes (Daily, then Practice); see the helper.
+  // Tab order: the home link, Leaderboard (#62), Log in (#53), then the playable modes (Daily, then Practice); see the helper.
   await tabToStartPractice(page);
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(PLAY_URL);
@@ -92,11 +92,31 @@ test("the browser's Back and Forward buttons move between home and the game", as
   await waitForGame(page);
 });
 
-test("a page that doesn't exist still has the way home", async ({ page }) => {
+test("the header links to today's leaderboard, which asks a logged-out player to log in (#62)", async ({ page }) => {
+  await page.goto("/play");
+  await siteNav(page).getByRole("link", { name: "Leaderboard" }).click();
+  await expect(page).toHaveURL(/\/leaderboard$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Leaderboard" })).toBeVisible();
+  await expect(siteNav(page).getByRole("link", { name: "Leaderboard" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("main").getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/login?next=%2Fleaderboard");
+});
+
+test("a page that doesn't exist shows our 404, with the way home and to practice (#229)", async ({ page }) => {
   const response = await page.goto("/no-such-page");
   expect(response?.status()).toBe(404);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Page not found");
+  await expect(page).toHaveTitle(`Page not found · ${GAME_NAME}`);
+  const main = page.getByRole("main");
+  await expect(main.getByRole("link", { name: "Start practice" })).toHaveAttribute("href", "/play");
+
+  // The page's own Home link, then the header's.
+  await main.getByRole("link", { name: "Home", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(GAME_NAME);
+  await page.goto("/no-such-page");
   await homeLink(page).click();
   await expect(page).toHaveURL(/\/$/);
+  await expect(picker(page)).toBeVisible();
 });
 
 test("nothing scrolls sideways on the home screen or in the game", async ({ page }) => {

@@ -1,5 +1,5 @@
 {
-  "id": "a65894cd-8c20-4043-815b-6c9d93ceaabd",
+  "id": "8f0a66e6-14a1-4cd3-a881-94b9cd0bc3d7",
   "prevId": "6c5af2ea-dad2-406f-a074-05e9fec02876",
   "version": "7",
   "dialect": "postgresql",
@@ -392,28 +392,6 @@
           ],
           "isUnique": false,
           "where": "\"games\".\"finished_at\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "games_daily_date_total_idx": {
-          "name": "games_daily_date_total_idx",
-          "columns": [
-            {
-              "expression": "daily_date",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "total",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "first"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"games\".\"finished_at\" IS NOT NULL AND \"games\".\"user_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -847,6 +825,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "effect": {
+          "name": "effect",
+          "type": "puzzle_effect",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1086,6 +1071,18 @@
         "daily",
         "stanford",
         "lobby"
+      ]
+    },
+    "public.puzzle_effect": {
+      "name": "puzzle_effect",
+      "schema": "public",
+      "values": [
+        "pixelate",
+        "spotlight",
+        "thermal",
+        "swirl",
+        "zoom",
+        "tiles"
       ]
     },
     "public.round_outcome": {

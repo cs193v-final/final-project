@@ -160,7 +160,7 @@ A puzzle is the same `Puzzle` format as `sample.json`, plus an optional `aiSolve
 
 **`imageUrl` is the original photo** (#57): for a content puzzle, a path relative to its content file (e.g. `images/fig.jpg` next to `content/fruit.json`); for the practice pack, `/puzzles/…` in `public/`. The seed cuts it into one image per zoom level, and only those level images ever reach a browser, so the path itself is never sent. A remote URL can't be cut: download the photo first.
 
-**Where private content lives:** in `content/` at the repo root, or anywhere outside the repo. `content/` is in `.gitignore` and in `.vercelignore` (a `vercel deploy` uploads from disk). It may be a symlink to a shared folder. The seed script refuses a content file inside the repo that git would commit.
+**Where private content lives:** in the private repo `cs193v-final/final-project-content` (#196), cloned into `content/` at the repo root with `gh repo clone cs193v-final/final-project-content content` (the folder must be empty or missing). You can also clone it elsewhere and symlink it to `content/`. `content/` is in `.gitignore` and in `.vercelignore` (a `vercel deploy` uploads from disk). The seed script refuses a content file inside the repo that git would commit. That repo's README has its layout: content files at the top level (the seed doesn't read subfolders), photos in `images/`, and the image picker's `candidates/` git-ignored.
 
 **Running it.**
 

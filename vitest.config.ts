@@ -20,6 +20,8 @@ export default defineConfig({
     environment: "node",
     setupFiles: ["./src/test/setup.ts"],
     // e2e/ holds Playwright specs (`npm run test:e2e`), not Vitest tests.
-    exclude: [...configDefaults.exclude, "e2e/**"],
+    // .claude/ holds Claude Code agent worktrees: full copies of the repo on
+    // other branches, whose tests would otherwise run (and fail) here too.
+    exclude: [...configDefaults.exclude, "e2e/**", ".claude/**"],
   },
 });

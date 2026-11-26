@@ -127,6 +127,9 @@ export const rateLimits = pgTable(
 /** Matches `PackKind` (#52). */
 export const packKind = pgEnum("pack_kind", ["practice", "daily", "stanford", "lobby"]);
 
+/** Matches `PuzzleEffect` and `EFFECTS` (timed-reveal redesign); schema.test.ts checks they agree. */
+export const puzzleEffect = pgEnum("puzzle_effect", ["pixelate", "spotlight", "thermal", "swirl", "zoom", "tiles"]);
+
 export const packs = pgTable("packs", {
   id: opaqueId(),
   kind: packKind("kind").notNull(),
@@ -162,6 +165,9 @@ export const puzzles = pgTable(
     // First reveal level at which the AI got it (#56). NULL = it never did,
     // or the solver hasn't run yet.
     aiSolvedLevel: integer("ai_solved_level"),
+    // How the photo is hidden while the round's clock runs (timed-reveal
+    // redesign). NULL = not chosen yet.
+    effect: puzzleEffect("effect"),
     createdAt: createdAt(),
   },
   (t) => [

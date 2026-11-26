@@ -30,3 +30,7 @@ npm-debug.log*
 
 # private puzzle content for the seed script (#52): never commit it
 /content/
+
+# CLIP (#56): its own install (npm run clip:install) and the downloaded model
+/tools/clip/node_modules/
+/tools/clip/.cache/

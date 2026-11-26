@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePuzzle, parsePuzzles, PuzzleDataError } from "./puzzles.ts";
+import { EFFECTS, parsePuzzle, parsePuzzles, PuzzleDataError } from "./puzzles.ts";
 
 function valid(): Record<string, unknown> {
   return {
@@ -56,6 +56,25 @@ describe("parsePuzzle", () => {
 
   it.each([-1, 4, 1.5, "2"])("rejects aiSolvedLevel %j", (level) => {
     expect(errorPath(() => parsePuzzle(withField("aiSolvedLevel", level)))).toBe("puzzle.aiSolvedLevel");
+  });
+
+  // Timed-reveal redesign: each puzzle names the effect that hides it.
+  it("leaves effect out when the data has none (not chosen yet)", () => {
+    expect(parsePuzzle(valid())).not.toHaveProperty("effect");
+  });
+
+  it.each(EFFECTS)("accepts the effect %j", (name) => {
+    expect(parsePuzzle(withField("effect", name)).effect).toBe(name);
+  });
+
+  it("offers every effect, coarse ones first", () => {
+    expect(EFFECTS).toEqual(["pixelate", "spotlight", "thermal", "swirl", "zoom", "tiles"]);
+  });
+
+  it.each(["blur", "Pixelate", "", null, 3])("rejects the effect %j, naming the allowed ones", (name) => {
+    const fn = () => parsePuzzle(withField("effect", name));
+    expect(errorPath(fn)).toBe("puzzle.effect");
+    expect(fn).toThrow("must be one of: pixelate, spotlight, thermal, swirl, zoom, tiles");
   });
 
   it.each(["pz-7c1e9a40", "pk_3f9c2a7e51d84b06", "a1"])("accepts the opaque id %j", (value) => {

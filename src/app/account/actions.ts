@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 
 import { login, register, type AuthResult, type FieldErrors } from "@/auth/accounts";
 import { safeNextPath, withWelcome } from "@/auth/next-path";
-import { discardSession, endSession, requestIp, setSessionCookie } from "@/auth/session";
+import { discardSession, endSession, requestDeviceToken, requestIp, setDeviceCookie, setSessionCookie } from "@/auth/session";
 import { getDb } from "@/db";
 import { errorSummary } from "@/server/error-summary";
 
@@ -50,8 +50,9 @@ async function attempt(
   const input = { username: formData.get("username"), password: formData.get("password") };
   const username = typeof input.username === "string" ? input.username : "";
   let result: AuthResult;
+  const now = new Date();
   try {
-    result = await run(getDb, input, { ip: await requestIp(), now: new Date() });
+    result = await run(getDb, input, { ip: await requestIp(), now, device: await requestDeviceToken() });
   } catch (error) {
     // A missing or malformed DATA_ENCRYPTION_KEY keeps its message, which
     // never includes the key and says how to fix it; a failed query keeps
@@ -67,6 +68,10 @@ async function attempt(
       await discardSession(result.session.token);
       return { username, errors: {}, message: kind === "register" ? CREATED_NOT_LOGGED_IN : UNAVAILABLE };
     }
+    // Best effort (#151): without it, this browser is just treated like a new one next time.
+    await setDeviceCookie(result.device, now).catch((error: unknown) => {
+      console.error(`${kind}: couldn't set the device cookie: ${errorSummary(error)}`);
+    });
   }
   // Outside the try: on success, finish() redirects, which works by throwing.
   return finish(kind, result, formData);
