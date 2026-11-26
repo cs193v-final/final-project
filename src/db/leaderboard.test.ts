@@ -14,8 +14,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { newUserRow } from "@/auth/user-row";
 import { Vault } from "@/crypto/vault";
 import { combineContent } from "@/game/packs";
-import { act, puzzleSourceFrom, startGame, startOrResumeDaily, type GameDeps, type GameOwner } from "@/game/server-game";
-import type { GameAction, Pack, Puzzle, ScoringConfig } from "@/game/types";
+import { START_GRACE_SECONDS } from "@/game/round";
+import { act, getGame, puzzleSourceFrom, startGame, startOrResumeDaily, type GameDeps, type GameOwner } from "@/game/server-game";
+import type { Pack, Puzzle, TimedScoringConfig } from "@/game/types";
 
 import { seedContent } from "./content";
 import { PgGameStore } from "./games";
@@ -30,7 +31,12 @@ let db: Db;
 let deps: GameDeps;
 const vault = new Vault(Buffer.alloc(32, 6));
 
-const CONFIG: ScoringConfig = { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 };
+const CONFIG: TimedScoringConfig = { maxPoints: 10_000, minPoints: 100, revealSeconds: 25, limitSeconds: 30, curve: 2 };
+const AT_0 = 10_000; // a correct guess at 0 s
+const AT_2 = 8_479; // at 2 s: 100 + 9,900 × (1 − 2/25)²
+
+/** The server's clock, moved by hand (ms). */
+let now = Date.UTC(2026, 10, 17, 12);
 const puzzle = (id: string, answer: string, aiSolvedLevel: number | null): Puzzle => ({
   id,
   imageUrl: `https://images.example.com/${id}.jpg`,
@@ -55,13 +61,18 @@ async function user(name: string): Promise<GameOwner> {
 }
 const anon = (name: string): GameOwner => ({ anonId: createHash("sha256").update(name).digest("hex") });
 
-/** Play a whole daily: per image, the moves before it's over ("guess" = the right answer). */
-async function play(owner: GameOwner, date: string, perImage: GameAction["type"][][], finish = true) {
+/** Play a whole daily: per image, the seconds to the right answer, or "out" for a time-out. */
+async function play(owner: GameOwner, date: string, perImage: (number | "out")[], finish = true) {
   let view = await startOrResumeDaily(deps, DAILY, date, owner, CONFIG);
-  for (const [i, moves] of perImage.entries()) {
-    for (const move of moves) {
+  for (const [i, move] of perImage.entries()) {
+    view = await act(deps, view.gameId, owner, { type: "start" }, view.revision);
+    if (move === "out") {
+      now += (CONFIG.limitSeconds + 1) * 1000;
+      view = await getGame(deps, view.gameId, owner);
+    } else {
+      now += (move + START_GRACE_SECONDS) * 1000;
       const answer = PUZZLES.find((p) => p.id === DAILY.puzzleIds[i])!.answer;
-      view = await act(deps, view.gameId, owner, move === "guess" ? { type: "guess", guess: answer } : ({ type: move } as GameAction), view.revision);
+      view = await act(deps, view.gameId, owner, { type: "guess", guess: answer }, view.revision);
     }
     if (i < perImage.length - 1 || finish) view = await act(deps, view.gameId, owner, { type: "next" }, view.revision);
   }
@@ -74,22 +85,23 @@ beforeAll(async () => {
   await migrate(pglite, { migrationsFolder });
   db = pglite as unknown as Db;
   await seedContent(pglite, combineContent([{ source: "test", content: { puzzles: PUZZLES, packs: [DAILY, PRACTICE], schedule: [] } }]));
-  deps = { games: new PgGameStore(db, vault, { recordRounds: (s) => s.pack.kind !== "practice" }), puzzles: puzzleSourceFrom(PUZZLES) };
+  deps = { games: new PgGameStore(db, vault, { recordRounds: (s) => s.pack.kind !== "practice" }), puzzles: puzzleSourceFrom(PUZZLES), now: () => now };
 
-  // Bob: right at once (100) on both. Total 200. Beat the AI on image 1.
-  await play(await user("Bob"), DAY, [["guess"], ["guess"]]);
-  // Alice and Cara tie: one zoom-out then right (80), right at once (100). Total 180.
-  await play(await user("Alice"), DAY, [["reveal", "guess"], ["guess"]]);
-  await play(await user("cara_99"), DAY, [["reveal", "guess"], ["guess"]]);
-  // Dan: skips both. Total 0.
-  await play(await user("Dan"), DAY, [["skip"], ["skip"]]);
+  // Bob: right at once on both. Total 2 × AT_0.
+  await play(await user("Bob"), DAY, [0, 0]);
+  // Alice and Cara tie: right at 2 s, then right at once. Total AT_2 + AT_0.
+  await play(await user("Alice"), DAY, [2, 0]);
+  await play(await user("cara_99"), DAY, [2, 0]);
+  // Dan: both time out. Total 0.
+  await play(await user("Dan"), DAY, ["out", "out"]);
   // Not on the board: Erin is still playing, an anonymous player, Gus on another
   // day, and Hal only played practice.
-  await play(await user("Erin"), DAY, [["guess"]], false);
-  await play(anon("anon"), DAY, [["guess"], ["guess"]]);
-  await play(await user("Gus"), "2026-11-18", [["guess"], ["guess"]]);
+  await play(await user("Erin"), DAY, [0], false);
+  await play(anon("anon"), DAY, [0, 0]);
+  await play(await user("Gus"), "2026-11-18", [0, 0]);
   const hal = await user("Hal");
-  const practice = await startGame(deps, PRACTICE, hal, CONFIG);
+  let practice = await startGame(deps, PRACTICE, hal, CONFIG);
+  practice = await act(deps, practice.gameId, hal, { type: "start" }, practice.revision);
   await act(deps, practice.gameId, hal, { type: "guess", guess: "Mango" }, practice.revision);
 }, 60_000);
 
@@ -101,9 +113,9 @@ describe("getDailyTop", () => {
   it("ranks the day's finished, logged-in games by score; a tie shares a rank and the next rank skips", async () => {
     const { top, players } = await getDailyTop(db, vault, DAY);
     expect(top.map(({ rank, username, score }) => ({ rank, username, score }))).toEqual([
-      { rank: 1, username: "Bob", score: 200 },
-      { rank: 2, username: "Alice", score: 180 },
-      { rank: 2, username: "cara_99", score: 180 },
+      { rank: 1, username: "Bob", score: 2 * AT_0 },
+      { rank: 2, username: "Alice", score: AT_2 + AT_0 },
+      { rank: 2, username: "cara_99", score: AT_2 + AT_0 },
       { rank: 4, username: "Dan", score: 0 },
     ]);
     expect(players).toBe(4);
@@ -115,19 +127,19 @@ describe("getDailyTop", () => {
     expect(JSON.stringify(top)).not.toContain(userIds.get("Bob"));
   });
 
-  it("counts the images where the player got it right before the AI did", async () => {
+  it("counts no Beat the AI wins for timed rounds, which have no zoom level, until it compares solve times (#257)", async () => {
     const { top } = await getDailyTop(db, vault, DAY);
-    // Image 1: the AI needed level 1. Bob got it at level 0; Alice and Cara at level 1 (a tie isn't a win).
-    expect(Object.fromEntries(top.map((e) => [e.username, e.beatAiCount]))).toEqual({ Bob: 1, Alice: 0, cara_99: 0, Dan: 0 });
+    // Bob got image 1 at once, but a timed round has no reveal_level_reached to compare with the AI's level.
+    expect(Object.fromEntries(top.map((e) => [e.username, e.beatAiCount]))).toEqual({ Bob: 0, Alice: 0, cara_99: 0, Dan: 0 });
   });
 
   it(`shows at most ${LEADERBOARD_SIZE} players`, async () => {
     const day = "2026-11-20";
-    for (let i = 0; i < LEADERBOARD_SIZE + 2; i++) await play(await user(`p${i}`), day, i % 2 ? [["guess"], ["skip"]] : [["skip"], ["skip"]]);
+    for (let i = 0; i < LEADERBOARD_SIZE + 2; i++) await play(await user(`p${i}`), day, i % 2 ? [0, "out"] : ["out", "out"]);
     const { top, players } = await getDailyTop(db, vault, day);
     expect(top).toHaveLength(LEADERBOARD_SIZE);
     expect(players).toBe(LEADERBOARD_SIZE + 2);
-    expect(top[0]).toMatchObject({ rank: 1, score: 100 });
+    expect(top[0]).toMatchObject({ rank: 1, score: AT_0 });
     // The cut can fall inside a tie (intended): six players share rank 1 and six
     // share rank 7, so only the first four rank-7 players to finish are listed.
     // The others still get "Your rank: 7" from getDailyRank.
@@ -161,7 +173,7 @@ describe("getDailyTop", () => {
 describe("getDailyRank", () => {
   it("is your own entry, ranked the same way as the top list, and the day's player count", async () => {
     expect(await getDailyRank(db, vault, DAY, userIds.get("cara_99")!)).toEqual({
-      entry: { rank: 2, username: "cara_99", score: 180, beatAiCount: 0 },
+      entry: { rank: 2, username: "cara_99", score: AT_2 + AT_0, beatAiCount: 0 },
       players: 4,
     });
     expect(await getDailyRank(db, vault, DAY, userIds.get("Dan")!)).toEqual({
@@ -175,7 +187,7 @@ describe("getDailyRank", () => {
     // just finished is counted at once.
     const day = "2026-11-21";
     expect((await getDailyTop(db, vault, day)).players).toBe(0);
-    await play(await user("Ivy"), day, [["guess"], ["guess"]]);
+    await play(await user("Ivy"), day, [0, 0]);
     expect(await getDailyRank(db, vault, day, userIds.get("Ivy")!)).toMatchObject({ entry: { rank: 1 }, players: 1 });
   });
 
