@@ -5,7 +5,7 @@
 // and Zoom out and Skip still work. Scoring is unchanged.
 import { describe, expect, it } from "vitest";
 import { SAMPLE_PUZZLES } from "../puzzles/index.ts";
-import { pointsIfCorrect } from "./scoring.ts";
+import { MAX_SCORING_VALUE, pointsIfCorrect } from "./scoring.ts";
 import {
   act,
   GameConflictError,
@@ -66,6 +66,10 @@ function stateOf(store: MemoryGameStore, id: string): GameState {
 describe("MAX_WRONG_GUESSES_PER_ROUND (#209)", () => {
   it("is a safety cap far above what a player makes, not a gameplay limit (#21)", () => {
     expect(MAX_WRONG_GUESSES_PER_ROUND).toBe(50);
+  });
+
+  it("keeps a round's wrong-guess penalty within its Postgres integer column (#236)", () => {
+    expect(MAX_WRONG_GUESSES_PER_ROUND * MAX_SCORING_VALUE).toBeLessThanOrEqual(2_147_483_647);
   });
 
   it("accepts the 50th wrong guess: counted, saved and scored as usual", async () => {
