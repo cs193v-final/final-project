@@ -41,8 +41,12 @@ export const MODES: readonly GameMode[] = [
   {
     id: "stanford",
     title: "Stanford",
-    description: "Campus spots, flags and mascots.",
-    status: "coming-soon", // #65
+    description: "Campus spots, flags and mascots. Play as often as you like.",
+    // #65. Until the pack is loaded, /stanford says it's coming soon (the
+    // home screen stays static, so it doesn't ask the database).
+    status: "available",
+    href: "/stanford",
+    cta: "Play Stanford",
   },
   {
     id: "practice",

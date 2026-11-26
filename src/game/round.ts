@@ -95,9 +95,22 @@ export function currentPuzzle(game: Game): Puzzle {
  * exactly). null while the round is `ready`.
  */
 export function elapsedSeconds(round: Round, now: number): number | null {
+  const seconds = clockSeconds(round, now);
+  return seconds === null ? null : Math.max(0, seconds);
+}
+
+/**
+ * Like `elapsedSeconds`, but not clamped at 0: from `-START_GRACE_SECONDS`
+ * right at the start. What the view sends while a round is played, so a
+ * browser that counts on from it stays in step with the time the server will
+ * score: the grace stands for the start response's and the guess's trips over
+ * the network, so the browser's count starts that much below 0 (review of
+ * #262). Clamped, the browser's clock would run up to the grace ahead.
+ */
+export function clockSeconds(round: Round, now: number): number | null {
   if (round.startedAt === null) return null;
   const seconds = (now - round.startedAt) / 1000 - START_GRACE_SECONDS;
-  return Math.max(0, Math.round(seconds * 1000) / 1000);
+  return Math.round(seconds * 1000) / 1000;
 }
 
 /** Whether a playing round has reached its time limit at `now`. */

@@ -8,6 +8,14 @@ import type { GuessOutcome, Puzzle } from "./types.ts";
 const APOSTROPHES = /[`´‘’‚‛′ʼ]/gu;
 const QUOTES = /[“”„‟″]/gu;
 
+/**
+ * Invisible format characters (Unicode category Cf), removed outright: zero-width
+ * space, soft hyphen, zero-width joiners, word joiner, direction marks. They
+ * come in with pasted text, NFKC keeps them, and they would make a guess that
+ * looks exactly right fail to match ("Ov\u200Bal" for "Oval").
+ */
+const INVISIBLE = /\p{Cf}/gu;
+
 /** Punctuation inside words, removed outright: `St. Paul's` -> `st pauls`. */
 const STRIPPED_PUNCTUATION = /[.'"]/gu;
 
@@ -18,9 +26,10 @@ const STRIPPED_PUNCTUATION = /[.'"]/gu;
 const SEPARATORS = /[,!?‐‑‒–—―−-]/gu;
 
 /**
- * Normalize text for comparison: Unicode NFKC, curly quotes treated like
- * straight ones, `. ' "` removed, hyphens, dashes and `, ! ?` turned into
- * spaces, then trim, collapse inner whitespace to one space, lowercase.
+ * Normalize text for comparison: invisible characters removed, Unicode NFKC,
+ * curly quotes treated like straight ones, `. ' "` removed, hyphens, dashes
+ * and `, ! ?` turned into spaces, then trim, collapse inner whitespace to one
+ * space, lowercase.
  *
  * NFKC makes visually identical input compare equal (full-width letters,
  * non-breaking spaces, precomposed vs. combining accents). Accents themselves
@@ -33,6 +42,7 @@ const SEPARATORS = /[,!?‐‑‒–—―−-]/gu;
  */
 export function normalizeGuess(text: string): string {
   return text
+    .replace(INVISIBLE, "")
     .replace(APOSTROPHES, "'")
     .replace(QUOTES, '"')
     .normalize("NFKC")

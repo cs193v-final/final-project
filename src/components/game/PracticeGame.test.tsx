@@ -6,7 +6,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { START_GRACE_SECONDS } from "@/game/round";
 import { scoreAt } from "@/game/scoring";
-import { act, getGame, MemoryGameStore, puzzleSourceFrom, startGame, type GameOwner } from "@/game/server-game";
+import {
+  act,
+  getGame,
+  MAX_WRONG_GUESSES_PER_ROUND,
+  MemoryGameStore,
+  puzzleSourceFrom,
+  startGame,
+  type GameOwner,
+} from "@/game/server-game";
 import type { GameAction, Pack, Puzzle, TimedScoringConfig } from "@/game/types";
 import { PracticeGame } from "./PracticeGame";
 
@@ -228,11 +236,13 @@ describe("PracticeGame timed rounds (#255)", () => {
     await screen.findByRole("textbox", { name: "What is it?" });
     expect(screen.getByText(/now ·/)).toHaveTextContent(/^Worth (10,000|9,9\d\d) points now · 30 s left$/);
 
-    // (The fake clock also moves with real time, so allow a few points of drift.)
+    // The view's clock starts at -0.5 s (the server's grace), so 12.5 s later it reads 12 s,
+    // the time the server would score a guess sent now. (The fake clock also moves with
+    // real time, so allow a few points of drift.)
     await reactAct(async () => vi.advanceTimersByTime(12_500));
     const shown = Number(/Worth ([\d,]+)/.exec(screen.getByText(/now ·/).textContent ?? "")![1]!.replace(",", ""));
-    expect(shown).toBeLessThanOrEqual(scoreAt(12.5, CONFIG));
-    expect(shown).toBeGreaterThan(scoreAt(12.7, CONFIG));
+    expect(shown).toBeLessThanOrEqual(scoreAt(12, CONFIG));
+    expect(shown).toBeGreaterThan(scoreAt(12.2, CONFIG));
     expect(screen.getByText(/now ·/)).toHaveTextContent("18 s left");
     expect(server.get).not.toHaveBeenCalled();
 
@@ -365,6 +375,31 @@ describe("PracticeGame when a limit is hit (#85)", () => {
 
     await user.click(screen.getByRole("button", { name: "Start round" }));
     expect(await screen.findByRole("img")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("at the wrong-guess safety cap, says no more guesses this image, and the round still times out (#209)", async () => {
+    const user = userEvent.setup();
+    const server = backend();
+    let initial = await server.start();
+    if (!initial.ok) throw new Error("start failed");
+    initial = await server.act(initial.view.gameId, { type: "start" }, initial.view.revision);
+    for (let i = 0; i < MAX_WRONG_GUESSES_PER_ROUND; i++) {
+      if (!initial.ok) throw new Error("move failed");
+      initial = await server.act(initial.view.gameId, { type: "guess", guess: "bay bridge" }, initial.view.revision);
+    }
+    render(<PracticeGame initial={initial} start={server.start} act={server.act} get={server.get} />);
+
+    // Even the right answer is refused at the cap, and the round stays as it was.
+    await user.type(screen.getByRole("textbox", { name: "What is it?" }), "golden gate{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "That's the most guesses one image allows. This image ends when its time runs out.",
+    );
+    expect(screen.getByText(`${MAX_WRONG_GUESSES_PER_ROUND} wrong guesses`)).toBeInTheDocument();
+
+    server.clock.advance(40);
+    await user.type(screen.getByRole("textbox", { name: "What is it?" }), "golden gate{Enter}");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Time's up. It was Golden Gate Bridge."));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

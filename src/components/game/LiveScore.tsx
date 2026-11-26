@@ -52,7 +52,8 @@ export function RoundValue({
       </p>
     );
   }
-  const left = Math.max(0, Math.ceil(scoring.limitSeconds - seconds));
+  // `seconds` starts a little below 0 (the server's network grace, #255): no more than the limit is left.
+  const left = Math.min(scoring.limitSeconds, Math.max(0, Math.ceil(scoring.limitSeconds - seconds)));
   return (
     <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
       Worth <strong className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{pts(scoreAt(seconds, scoring))}</strong> now ·{" "}

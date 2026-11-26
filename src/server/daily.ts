@@ -7,12 +7,13 @@ import { getDb } from "@/db";
 import { getDailyIntro, getDailyPack } from "@/db/daily";
 import { getDailyStats, type DailyStats } from "@/db/daily-stats";
 import { scoringFromStored } from "@/db/scoring";
-import { dailyDateFor, DEFAULT_DAILY_RESET } from "@/game/daily-date";
+import { assertDailyDate, dailyDateFor, DEFAULT_DAILY_RESET } from "@/game/daily-date";
 import type { DailyIntro } from "@/game/daily";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { GameNotFoundError, resumeDaily, startOrResumeDaily } from "@/game/server-game";
 
-import { deps } from "./games";
+import { deps, requestIpHash } from "./games";
+import { checkStartLimits } from "./limits";
 import { currentOrNewOwner, currentOwner } from "./owner";
 
 /** The day `now` is in: one rule, `DEFAULT_DAILY_RESET` (#63, decided in #58). */
@@ -55,7 +56,12 @@ export type DailyStartResult = GameResult | { ok: false; error: "day-over" | "no
  * still be today, so a player who opened the page before the reset doesn't
  * silently get the next day's game ("day-over"). The pack is always the one
  * the server schedules for today; the browser only says which day it saw.
- * Creates the anonymous owner cookie on first play, like practice.
+ * Creates the anonymous owner cookie on first play, like practice, and counts
+ * toward the same start limits, per owner and per IP (#85, #210): a client
+ * without a cookie is a new owner each time, so only the IP limit stops it
+ * creating games. Resuming today's game doesn't count: Start (and reloading
+ * /daily, through `loadTodaysDailyGame`) gets a player back to the daily they
+ * already started, even at the limit, and writes nothing.
  */
 export async function startTodaysDaily(date: unknown, now = new Date()): Promise<DailyStartResult> {
   const today = dailyDateAt(now);
@@ -72,6 +78,9 @@ export async function startTodaysDaily(date: unknown, now = new Date()): Promise
   const daily = pack;
   return runGameCall(async () => {
     const owner = await currentOrNewOwner();
+    const started = await resumeDaily(deps(db), owner, today);
+    if (started !== null) return started;
+    await checkStartLimits(db, owner, await requestIpHash(), now);
     // The pack's own scoring (#64) when it has one, checked like any stored
     // override: an invalid one (hand-written SQL, or one with the old
     // zoom-out fields from before #255) is logged and the default used.
@@ -107,7 +116,14 @@ export async function loadTodaysDailyGame(now = new Date()): Promise<GameResult 
  * and a date only ever finds this owner's game. Aggregates only.
  */
 export async function loadDailyStats(date: unknown): Promise<DailyStats | null> {
-  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(date)) return null;
+  if (typeof date !== "string") return null;
+  // A real calendar date only: "2026-02-30" matches YYYY-MM-DD, but Postgres
+  // can't cast it to a date and the query would throw.
+  try {
+    assertDailyDate(date);
+  } catch {
+    return null;
+  }
   const owner = await currentOwner();
   if (owner === null) return null;
   const db = getDb();

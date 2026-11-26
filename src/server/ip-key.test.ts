@@ -24,6 +24,31 @@ describe("hashIp", () => {
     expect(hashIp("::FFFF:203.0.113.7", key)).toBe(hashIp("203.0.113.7", key));
   });
 
+  it("counts two IPv6 addresses in one /64 together, however they are written (#167)", () => {
+    const a = hashIp("2001:db8:aaaa:1::1", key);
+    expect(hashIp("2001:db8:aaaa:1:ffff:ffff:ffff:ffff", key)).toBe(a);
+    expect(hashIp("2001:0DB8:AAAA:0001:0:0:0:abcd", key)).toBe(a);
+    expect(hashIp("[2001:db8:aaaa:1::2]", key)).toBe(a);
+    expect(hashIp("2001:db8:aaaa:1::3%eth0", key)).toBe(a);
+  });
+
+  it("counts IPv6 addresses in different /64s separately (#167)", () => {
+    const a = hashIp("2001:db8:aaaa:1::1", key);
+    expect(hashIp("2001:db8:aaaa:2::1", key)).not.toBe(a);
+    expect(hashIp("2001:db8:bbbb:1::1", key)).not.toBe(a);
+  });
+
+  it("hashes IPv4 and ::ffff: addresses exactly as before #167", () => {
+    // hashIp before #167, so IPv4 counters carry on unchanged.
+    const before = (ip: string) =>
+      createHmac("sha256", key)
+        .update(ip.trim().toLowerCase().replace(/^::ffff:/, ""), "utf8")
+        .digest("hex");
+    for (const ip of ["203.0.113.7", " 198.51.100.1 ", "10.0.0.1", "::ffff:203.0.113.7", "::FFFF:192.0.2.55"]) {
+      expect(hashIp(ip, key), ip).toBe(before(ip));
+    }
+  });
+
   it("puts requests without an address in one shared bucket", () => {
     expect(hashIp(null, key)).toBe("unknown");
     expect(hashIp("  ", key)).toBe("unknown");

@@ -155,7 +155,9 @@ describe("start (#255)", () => {
     clock.advance(42); // time on the ready screen doesn't count
     const started = await play(deps, ready, { type: "start" });
     expect(started.revision).toBe(1);
-    expect(started.round).toMatchObject({ state: "playing", elapsedSeconds: 0, imageSrc: puzzles[0]!.imageUrl });
+    // The view's clock starts at minus the grace (not clamped), so a browser counting on from it
+    // shows the time the server will score (review of #262).
+    expect(started.round).toMatchObject({ state: "playing", elapsedSeconds: -START_GRACE_SECONDS, imageSrc: puzzles[0]!.imageUrl });
     expect(JSON.parse(store.raw(started.gameId)!).state.round.startedAt).toBe(clock.now());
   });
 

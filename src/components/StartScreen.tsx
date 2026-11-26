@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import type { ScoringConfig } from "@/game/types";
 import { GAME_NAME } from "@/site";
@@ -25,9 +27,10 @@ export const HOW_TO_PLAY = howToPlay();
 
 /**
  * Start screen (#18), now the home screen (#50): the game name, the modes to
- * choose from (only Practice is playable so far), and how to play.
+ * choose from, and how to play. `streak` is the logged-in player's daily
+ * streak (#63), which the page streams in; nothing when logged out.
  */
-export function StartScreen() {
+export function StartScreen({ streak }: { streak?: ReactNode } = {}) {
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-12 text-center">
       <div className="flex flex-col items-center gap-3">
@@ -36,6 +39,7 @@ export function StartScreen() {
         <p className="max-w-md text-lg text-zinc-600 dark:text-zinc-400">Guess the picture. The less you see, the more you score.</p>
       </div>
 
+      {streak}
       <ModePicker />
       {/* Not a mode, so not a card (#62). The header links to it too. */}
       <p className="-mt-4 text-sm text-zinc-600 dark:text-zinc-400">

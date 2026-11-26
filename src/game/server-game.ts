@@ -17,7 +17,7 @@
 // the time limit passes the round is over with 0 points; with no timers on the
 // server, the next request for the game (an action or a load) ends it.
 
-import { createGame, elapsedSeconds, step, timeOut, type Game, type Round, type RoundClock } from "./round.ts";
+import { clockSeconds, createGame, step, timeOut, type Game, type Round, type RoundClock } from "./round.ts";
 import { scoreGame, validateTimedScoringConfig } from "./scoring.ts";
 import type {
   GameAction,
@@ -252,12 +252,42 @@ export class InvalidGameActionError extends Error {
   }
 }
 
+/**
+ * A guess in a round that already has `MAX_WRONG_GUESSES_PER_ROUND` wrong
+ * guesses (#209). An `InvalidGameActionError`, so it's still a 400, but
+ * `runGameCall` gives it its own code so the player is told to zoom out or skip.
+ */
+export class GuessLimitError extends InvalidGameActionError {
+  constructor() {
+    super(`at most ${MAX_WRONG_GUESSES_PER_ROUND} wrong guesses per round; zoom out or skip`);
+    this.name = "GuessLimitError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Untrusted input
 // ---------------------------------------------------------------------------
 
 /** Longest guess accepted from a client. Far longer than any answer. */
 export const MAX_GUESS_LENGTH = 200;
+
+/**
+ * Safety cap on wrong guesses in one round (#209, #85), not a gameplay rule:
+ * no real player gets near it. Each wrong guess adds an event to the game's
+ * stored (encrypted) state, so without a cap one game could grow without
+ * limit. With it, a round stores at most this many wrong guesses, plus one
+ * event per zoom level and one for the answer or skip, so a game's state is
+ * bounded by its number of rounds.
+ *
+ * Once a round has this many, every further guess in it is refused with
+ * `GuessLimitError`, a correct one too (simpler, and nothing to probe), and
+ * nothing is saved. Zoom out and skip still work, so the player can always
+ * move on. Points are unaffected: they already stop at `minPoints`.
+ *
+ * Whether to have a real guess limit is still open (#21); if one is chosen,
+ * it can lower this.
+ */
+export const MAX_WRONG_GUESSES_PER_ROUND = 50;
 
 /**
  * Check untrusted input (e.g. a parsed request body) and return it as a
@@ -340,11 +370,12 @@ export function toGameView(
     if (puzzle === undefined) throw new Error(`toGameView: game ${game.id} has no puzzle at ${state.index}`);
     const r = state.round;
     const over = r.state === "correct" || r.state === "timedOut";
-    // A round that's over shows its scored time; one in play, the time so far (never past the limit).
+    // A round that's over shows its scored time; one in play, the time so far on the clock the
+    // server scores with (from -START_GRACE_SECONDS right at the start, never past the limit).
     const elapsed = over
       ? (rounds[state.index]?.seconds ?? null)
       : r.state === "playing"
-        ? Math.min(elapsedSeconds(r, now) ?? 0, state.scoring.limitSeconds)
+        ? Math.min(clockSeconds(r, now) ?? 0, state.scoring.limitSeconds)
         : null;
     const imageSrc = roundPhoto(puzzle, r, levelSrcs);
     round = {
@@ -562,6 +593,7 @@ export async function act(
     throw new InvalidGameActionError("revision must be a non-negative integer");
   }
   if (expectedRevision !== game.revision) throw new GameConflictError(game.id);
+  const { state } = game;
 
   // One reading of the clock for the whole action, so the time-out and the guess agree.
   const now = nowOf(deps);
@@ -569,6 +601,14 @@ export async function act(
   const expired = timeOut(gameOf(game, puzzles), clock);
   const current = expired?.game ?? gameOf(game, puzzles);
   const events = expired?.events ?? [];
+
+  // The wrong-guess safety cap (#209): checked before `step`, so a refused
+  // guess changes nothing, like any rejected action. Not once the time is up:
+  // then the round times out (saved below) and the guess is refused that way.
+  const playing = !state.finished && state.round.state === "playing";
+  if (parsed.type === "guess" && playing && expired === null && state.round.wrongGuesses >= MAX_WRONG_GUESSES_PER_ROUND) {
+    throw new GuessLimitError();
+  }
 
   const result = step(current, parsed, clock);
   if (result.ok) {

@@ -154,6 +154,18 @@ describe("combineContent", () => {
     );
   });
 
+  it("accepts one Stanford pack, unscheduled, but not two in one seed: Stanford mode plays one fixed pack (#65)", () => {
+    const first = parsePack(pack({ id: "pk-s1", kind: "stanford" }));
+    expect(combineContent(one({ packs: [first], puzzles: PUZZLES })).packs).toEqual([first]);
+
+    const second = parsePack(pack({ id: "pk-s2", kind: "stanford" }));
+    const twoFiles = [...one({ packs: [first], puzzles: PUZZLES }), ...one({ packs: [second] }, "b.json")];
+    expect(errorOf(() => combineContent(twoFiles))).toEqual({
+      path: "pack pk-s2: kind",
+      message: 'pack pk-s2: kind: only one stanford pack can be seeded at a time (also "pk-s1")',
+    });
+  });
+
   it("rejects a schedule entry for a pack that doesn't exist", () => {
     expect(errorOf(() => combineContent(one({ schedule: [{ date: "2026-11-20", packId: "pk-9" }] }))).path).toBe(
       "a.json: schedule[0].packId",

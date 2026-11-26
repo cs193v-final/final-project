@@ -168,7 +168,11 @@ export type PublicRound = {
    * The round's time on the server's clock when this view was made: null
    * while `ready`; while `playing`, the time so far (the browser counts on
    * from it with its own clock, so a wrong device clock doesn't matter); once
-   * the round is over, its final time (as in its `RoundResult`).
+   * the round is over, its final time (as in its `RoundResult`). While
+   * playing it already has the network grace taken off and is NOT clamped:
+   * it starts at -0.5 (`-START_GRACE_SECONDS`) right after `start`, so the
+   * browser's count matches the time the server will score. Show it, and
+   * score it with `scoreAt`, as max(0, t).
    */
   elapsedSeconds: number | null;
   /** The full photo, only once the round has started (never while `ready`). The browser draws `effect` over it. */
