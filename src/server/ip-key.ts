@@ -15,6 +15,8 @@ import "server-only";
 
 import { createHmac, randomBytes } from "node:crypto";
 
+import { rateLimitAddress } from "@/auth/rate-limit-address";
+
 export const IP_KEY_ENV = "RATE_LIMIT_HMAC_KEY";
 export const MIN_KEY_LENGTH = 32;
 
@@ -39,13 +41,17 @@ export function ipHmacKey(env: Readonly<Record<string, string | undefined>> = pr
 }
 
 /**
- * HMAC-SHA-256 of a client IP address, as hex, or `"unknown"` when the request
- * had none (every such request then shares one bucket). Trimmed, lowercased
- * and with an IPv4-mapped prefix removed first, so `2001:DB8::1` and
- * `2001:db8::1`, or `::ffff:203.0.113.7` and `203.0.113.7`, count together.
+ * HMAC-SHA-256 of the address a client IP counts as, as hex, or `"unknown"`
+ * when the request had none (every such request then shares one bucket).
+ * The address goes through `rateLimitAddress` first (#167), so an IPv6 address
+ * counts by its /64 however it was written (`2001:DB8::1` and `2001:db8::abcd`
+ * together), and `::ffff:203.0.113.7` counts with `203.0.113.7`. IPv4 and
+ * `::ffff:` addresses hash exactly as they did before #167. Anything that isn't
+ * an IP address is still trimmed, lowercased and stripped of `::ffff:`.
  */
 export function hashIp(ip: string | null, key: Buffer): string {
-  const normalized = ip?.trim().toLowerCase().replace(/^::ffff:/, "");
-  if (!normalized) return "unknown";
-  return createHmac("sha256", key).update(normalized, "utf8").digest("hex");
+  const trimmed = ip?.trim().toLowerCase();
+  if (!trimmed) return "unknown";
+  const address = rateLimitAddress(trimmed).replace(/^::ffff:/, "");
+  return createHmac("sha256", key).update(address, "utf8").digest("hex");
 }
