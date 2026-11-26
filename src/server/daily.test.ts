@@ -20,23 +20,31 @@ import type { GameView, Pack, Puzzle } from "@/game/types";
 
 import { cutPuzzleImages } from "../../scripts/seed-images.ts";
 
-const state = vi.hoisted(() => ({ db: undefined as unknown, jar: new Map<string, string>() }));
+const state = vi.hoisted(() => ({
+  db: undefined as unknown,
+  jar: new Map<string, string>(),
+  /** Request headers besides x-forwarded-proto, e.g. x-forwarded-for. */
+  headers: {} as Record<string, string>,
+}));
 
 // Daily games are stored encrypted (#84), so the store needs a key, as in games.test.ts.
 vi.stubEnv("DATA_ENCRYPTION_KEY", Buffer.alloc(32, 5).toString("base64"));
 
 vi.mock("@/db", () => ({ getDb: () => state.db }));
 vi.mock("next/cache", () => ({ cacheLife: () => {} }));
+// Request time, as in a real request (games.ts awaits it before its rate limits, #169).
+vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (state.jar.has(name) ? { name, value: state.jar.get(name)! } : undefined),
     set: (name: string, value: string) => state.jar.set(name, value),
   }),
-  headers: async () => new Headers({ "x-forwarded-proto": "https" }),
+  headers: async () => new Headers({ "x-forwarded-proto": "https", ...state.headers }),
 }));
 
 const { startTodaysDaily, loadTodaysDailyGame, loadDailyIntro, loadDailyStats } = await import("./daily");
-const { actOnGame } = await import("./games");
+const { actOnGame, startPracticeGame } = await import("./games");
+const { GAME_LIMITS } = await import("./limits");
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 let pg: PGlite;
@@ -98,6 +106,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   state.jar = new Map(); // a new player for each test
+  state.headers = {};
 });
 
 describe("the daily on the server", () => {
@@ -192,4 +201,68 @@ describe("the daily on the server", () => {
     for (const date of [null, 42, "", "tomorrow", "2026-11-1"]) expect(await loadDailyStats(date)).toBeNull();
     expect(await loadDailyStats(NOV1)).toBeNull(); // a new player
   });
+
+  it("gives no stats, without a database error, for a date that matches YYYY-MM-DD but doesn't exist", async () => {
+    // A player with a cookie, so the date reaches the query. Postgres can't
+    // cast these to a date and throws; the action would log it as a failure.
+    ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
+    for (const date of ["2026-02-30", "2026-13-01", "2026-11-00", "0000-01-01"]) {
+      await expect(loadDailyStats(date)).resolves.toBeNull();
+    }
+  }, 60_000);
+});
+
+// Starting the daily counts toward the same start limits as practice (#85,
+// #210). Runs after the tests above, which cut the daily's images.
+describe("rate limits on starting the daily", () => {
+  beforeEach(async () => {
+    await pg.exec("DELETE FROM rate_limits;");
+  });
+
+  // Starts are counted per player across packs, so practice starts use up the
+  // limit here (on the daily's clock, so both share one window).
+  const useUpStarts = async (n: number) => {
+    for (let i = 0; i < n; i++) ok(await startPracticeGame());
+    expect(await startPracticeGame()).toEqual({ ok: false, error: "rate-limited" });
+  };
+
+  it("returns `rate-limited` for a new daily over the owner limit, without creating a game", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: BEFORE_MIDNIGHT });
+    try {
+      await useUpStarts(GAME_LIMITS.startsPerOwner.max);
+      const games = await gameCount();
+      expect(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).toEqual({ ok: false, error: "rate-limited" });
+      expect(await gameCount()).toBe(games);
+      expect(await loadTodaysDailyGame(BEFORE_MIDNIGHT)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 60_000);
+
+  it("still resumes today's game at the limit: pressing Start again doesn't count", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: BEFORE_MIDNIGHT });
+    try {
+      const view = ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
+      await useUpStarts(GAME_LIMITS.startsPerOwner.max - 1);
+      for (let i = 0; i < 3; i++) expect(ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).gameId).toBe(view.gameId);
+      expect(ok(await loadTodaysDailyGame(BEFORE_MIDNIGHT)).gameId).toBe(view.gameId);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 60_000);
+
+  it("stops a client that drops its cookie each time at the per-IP limit, without creating a game", async () => {
+    state.headers = { "x-forwarded-for": "203.0.113.7" };
+    for (let i = 0; i < GAME_LIMITS.startsPerIp.max; i++) {
+      state.jar = new Map(); // a new anonymous player each time
+      ok(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT));
+    }
+    const games = await gameCount();
+    state.jar = new Map();
+    expect(await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).toEqual({ ok: false, error: "rate-limited" });
+    expect(await gameCount()).toBe(games);
+    // Another address is counted on its own.
+    state.headers = { "x-forwarded-for": "198.51.100.20" };
+    expect((await startTodaysDaily(NOV1, BEFORE_MIDNIGHT)).ok).toBe(true);
+  }, 120_000);
 });

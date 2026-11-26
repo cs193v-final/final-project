@@ -6,10 +6,12 @@ import { DailyIntroScreen } from "@/components/daily/DailyIntroScreen";
 import { DailyPlay } from "@/components/daily/DailyPlay";
 import { ButtonLink, TextLink } from "@/components/ui/controls";
 import { actAction, getGameAction } from "@/app/play/actions";
-import { loadDailyIntro, loadTodaysDailyGame } from "@/server/daily";
+import { dailyDateAt, loadDailyIntro, loadTodaysDailyGame } from "@/server/daily";
+import { loadStreakAfterDaily } from "@/server/streaks";
 
 import { dailyStatsAction, startDailyAction } from "./actions";
 import { GAME_NAME } from "@/site";
+import { errorSummary } from "@/server/error-summary";
 
 export const metadata: Metadata = {
   title: `Daily challenge · ${GAME_NAME}`,
@@ -42,9 +44,9 @@ export default function DailyPage() {
 async function Today() {
   await connection();
   // One clock reading per request, so the intro and the player's game are for
-  // the same day even at the reset. Both loads at once (no extra round trip).
+  // the same day even at the reset. All loads at once (no extra round trip).
   const now = new Date();
-  const [intro, initial] = await Promise.all([
+  const [intro, initial, streak] = await Promise.all([
     loadDailyIntro(now).catch((error: unknown) => {
       console.error("Couldn't load today's daily challenge", error);
       return null;
@@ -52,6 +54,12 @@ async function Today() {
     loadTodaysDailyGame(now).catch((error: unknown) => {
       console.error("Couldn't load this player's daily game", error);
       return null;
+    }),
+    // For the result screen (#63): the streak once today's daily is finished.
+    // `undefined` if it can't be loaded, so the result just leaves it out.
+    loadStreakAfterDaily(dailyDateAt(now)).catch((error: unknown) => {
+      console.error(`Couldn't load this player's streak: ${errorSummary(error)}`);
+      return undefined;
     }),
   ]);
   if (intro !== null && !intro.broken) {
@@ -64,6 +72,7 @@ async function Today() {
         act={actAction}
         get={getGameAction}
         loadStats={dailyStatsAction}
+        streak={streak}
       />
     );
   }

@@ -25,7 +25,21 @@ export type Puzzle = {
   };
   credit: { source: string; license: string; url?: string }; // image source + usage permission
   aiSolvedLevel: RevealLevel | null; // first reveal level the AI solved it at (#56); null = never, or not run yet
+  /**
+   * Timed-reveal redesign (PROPOSAL): how this photo is hidden while the
+   * round's clock runs, chosen per puzzle to suit the photo. Zoom, spotlight
+   * and swirl centre on `reveal.focus`. Missing = not chosen yet.
+   */
+  effect?: PuzzleEffect;
 };
+
+/**
+ * Owner: Joseph. PROPOSAL (timed-reveal redesign). The ways a photo can be
+ * hidden at the start of a round; each clears up as the clock runs. The
+ * effects themselves are drawn by the round screen. `EFFECTS` in
+ * `puzzles.ts` lists them for the parser and the database check.
+ */
+export type PuzzleEffect = "pixelate" | "spotlight" | "thermal" | "swirl" | "zoom" | "tiles";
 
 /**
  * Owner: Darian. An integer from 0 (tightest crop) to
@@ -65,6 +79,22 @@ export type ScoringConfig = {
   wrongGuessPenalty: number; // per wrong guess
   minPoints: number; // floor for a correct answer
   skipPoints: number;
+};
+
+/**
+ * Owner: Ethan. PROPOSAL (timed-reveal redesign, #254/#256). Point values for
+ * a timed round: the score starts at `maxPoints` and drains to `minPoints`
+ * along a curve until the photo is clear at `revealSeconds`, stays at
+ * `minPoints` until `limitSeconds`, then the round ends with 0. Will replace
+ * `ScoringConfig` once the server (#255) and the round screen use it.
+ * The values in use live in `scoring-config.ts`.
+ */
+export type TimedScoringConfig = {
+  maxPoints: number; // a correct guess at 0 s
+  minPoints: number; // a correct guess once the photo is clear
+  revealSeconds: number; // when the photo is fully clear
+  limitSeconds: number; // when the round ends with 0
+  curve: number; // exponent: 1 drains evenly, higher drains faster early on
 };
 
 /** Owner: Ethan. The score for one finished round. Unchanged from the brief's proposal. */
@@ -164,7 +194,17 @@ export type GameView = {
    * the daily the next visit) can name the images (#58).
    */
   answers?: string[];
+  /** Darian (Beat the AI, #66): once the whole game is finished, how many images the player beat the AI on. */
+  beatAi?: BeatAiSummary;
 };
+
+/**
+ * Owner: Darian. PROPOSAL (#66). A finished game against the AI: images the
+ * player got right at an earlier view than the AI did, of the images the AI
+ * has a result for (`aiSolvedLevel` not null). The rule is `aiVerdict` in
+ * `beat-ai.ts`.
+ */
+export type BeatAiSummary = { beaten: number; played: number };
 
 /** Owner: Ethan. PROPOSAL (#53). What other code and the browser may know about a user. */
 export type PublicUser = { id: string; username: string };

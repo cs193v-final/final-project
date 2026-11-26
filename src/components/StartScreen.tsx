@@ -1,8 +1,10 @@
+import type { ReactNode } from "react";
+
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import type { ScoringConfig } from "@/game/types";
 import { GAME_NAME } from "@/site";
 import { ModePicker } from "./ModePicker";
-import { PrototypeNotice, SectionHeading } from "./ui/controls";
+import { PrototypeNotice, SectionHeading, TextLink } from "./ui/controls";
 
 const pts = (n: number) => `${n} ${n === 1 ? "point" : "points"}`;
 
@@ -25,13 +27,14 @@ export const HOW_TO_PLAY = howToPlay();
 
 /**
  * Start screen (#18), now the home screen (#50): the game name, the modes to
- * choose from (only Practice is playable so far), and how to play.
+ * choose from, and how to play. `streak` is the logged-in player's daily
+ * streak (#63), which the page streams in; nothing when logged out.
  *
  * `scoring` is the config "How to play" explains: the practice pack's, with
  * its stored override if it has one (#204), so the numbers match the game.
  * The page reads it on the server; this component doesn't.
  */
-export function StartScreen({ scoring = SCORING_CONFIG }: { scoring?: ScoringConfig } = {}) {
+export function StartScreen({ scoring = SCORING_CONFIG, streak }: { scoring?: ScoringConfig; streak?: ReactNode } = {}) {
   const steps = howToPlay(scoring);
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-12 text-center">
@@ -41,9 +44,12 @@ export function StartScreen({ scoring = SCORING_CONFIG }: { scoring?: ScoringCon
         <p className="max-w-md text-lg text-zinc-600 dark:text-zinc-400">Guess the picture. The less you see, the more you score.</p>
       </div>
 
+      {streak}
       <ModePicker />
-      {/* Not a mode, so not a card. TODO(#62): a real link, e.g. in the header. */}
-      <p className="-mt-4 text-sm text-zinc-600 dark:text-zinc-400">Coming soon: a daily leaderboard.</p>
+      {/* Not a mode, so not a card (#62). The header links to it too. */}
+      <p className="-mt-4 text-sm text-zinc-600 dark:text-zinc-400">
+        <TextLink href="/leaderboard">See today&apos;s leaderboard</TextLink>
+      </p>
 
       <section aria-labelledby="how-to-play" className="w-full max-w-md text-left">
         <SectionHeading id="how-to-play">How to play</SectionHeading>

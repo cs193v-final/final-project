@@ -139,8 +139,8 @@ describe("validateScoringConfig", () => {
       /basePoints must be a whole number from 0 to 1000000/,
     );
     expect(MAX_SCORING_VALUE).toBe(1_000_000);
-    // At the cap, a long game still fits.
-    expect(MAX_SCORING_VALUE * 1_000).toBeLessThan(INTEGER_MAX);
+    // At the cap, a 2,147-round game still fits (as the doc comment says).
+    expect(MAX_SCORING_VALUE * 2_147).toBeLessThan(INTEGER_MAX);
     for (const key of Object.keys(CONFIG) as (keyof typeof CONFIG)[]) {
       expect(() => validateScoringConfig({ ...CONFIG, [key]: MAX_SCORING_VALUE + 1 }), key).toThrow(
         new RegExp(key),

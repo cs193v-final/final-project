@@ -8,7 +8,9 @@ import {
   act,
   GameConflictError,
   GameNotFoundError,
+  GameUnreadableError,
   getGame,
+  GuessLimitError,
   InvalidGameActionError,
   MemoryGameStore,
   puzzleSourceFrom,
@@ -58,6 +60,12 @@ describe("runGameCall", () => {
     expect(log).not.toHaveBeenCalled();
   });
 
+  it("maps the wrong-guess safety cap to its own code, so the player is told to zoom out or skip (#209)", async () => {
+    const log = vi.fn();
+    expect(await runGameCall(() => Promise.reject(new GuessLimitError()), log)).toEqual({ ok: false, error: "guess-limit" });
+    expect(log).not.toHaveBeenCalled();
+  });
+
   it("maps a rate limit to `rate-limited`, without logging it as an error", async () => {
     const log = vi.fn();
     expect(await runGameCall(() => Promise.reject(new RateLimitedError("startsPerIp")), log)).toEqual({
@@ -65,6 +73,13 @@ describe("runGameCall", () => {
       error: "rate-limited",
     });
     expect(log).not.toHaveBeenCalled();
+  });
+
+  it("maps the player's own game that can't be decrypted to `unreadable`, and still logs it (#164)", async () => {
+    const log = vi.fn<(error: LoggedError) => void>();
+    const error = new GameUnreadableError("g1", { anonId: "a" });
+    expect(await runGameCall(() => Promise.reject(error), log)).toEqual({ ok: false, error: "unreadable" });
+    expect(log).toHaveBeenCalledWith(errorForLog(error));
   });
 
   it("reports a conflict without running the call again", async () => {

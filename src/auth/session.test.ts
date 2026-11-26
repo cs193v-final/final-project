@@ -25,6 +25,7 @@ vi.mock("@/db/accounts", () => ({ deleteSession, findSessionUser }));
 // itself is what's under test, so it passes the row straight through.
 vi.mock("@/crypto/vault", () => ({ getVault: () => ({}) }));
 vi.mock("./accounts", () => ({
+  DEVICE_TOKEN_DAYS: 365,
   sessionUser: (db: unknown, _vault: unknown, hash: string, now: Date) => findSessionUser(db, hash, now),
 }));
 
