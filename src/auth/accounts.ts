@@ -20,9 +20,9 @@ import {
   insertSession,
   insertUser,
   type PgDb,
+  replacePasswordHash,
   trimSessions,
   type StoredUser,
-  updatePasswordHash,
 } from "@/db/accounts";
 import { DecryptionError, getVault, resolveVault, type Vault, type VaultSource } from "@/crypto/vault";
 import type { PublicUser } from "@/game/types";
@@ -213,11 +213,19 @@ type Started = { ok: true; user: PublicUser; session: { token: string; expiresAt
  * bound to. `device` is the browser's token if `login` trusted it (kept, see
  * above); otherwise a new one is made.
  */
-async function startSession(db: PgDb, vault: Vault, user: PublicUser, passwordHash: string, now: Date, device?: string): Promise<Started> {
+async function startSession(
+  db: PgDb,
+  vault: Vault,
+  user: PublicUser,
+  passwordHash: string,
+  now: Date,
+  device?: string,
+): Promise<Started | null> {
   const token = newToken();
   const expiresAt = new Date(now.getTime() + SESSION_DAYS * DAY_MS);
   const tokenHash = sha256Hex(token);
-  await insertSession(db, tokenHash, user.id, expiresAt);
+  // Null if the password changed since `passwordHash` was read (see insertSession).
+  if (!(await insertSession(db, tokenHash, user.id, expiresAt, passwordHash))) return null;
   // After the insert, so each login's trim sees every session inserted before
   // it (its own included) and never deletes its own; logins at the same
   // moment can't leave more than the cap once both have finished.
@@ -255,7 +263,8 @@ export async function register(
   const row = newUserRow(vault, username.value, await hashPassword(password.value));
   const user: PublicUser = { id: row.id, username: username.value };
   if (!(await insertUser(db, row))) return { ok: false, reason: "taken", errors: { username: "That username is taken." } };
-  return startSession(db, vault, user, row.passwordHash, req.now);
+  // Null only if the new account's password changed in between, which nothing can do yet.
+  return (await startSession(db, vault, user, row.passwordHash, req.now)) ?? { ok: false, reason: "wrong-credentials", message: WRONG_CREDENTIALS };
 }
 
 export async function login(
@@ -320,7 +329,9 @@ export async function login(
   // mustn't clear the username's: while someone else is guessing, that would
   // hand them a fresh set of attempts every time the owner logs in.
   await clearRateLimit(db, limitKey);
-  return startSession(db, vault, user, row.passwordHash, req.now, trusted ? (req.device as string) : undefined);
+  // The password changed while this one was being checked: it's no longer right.
+  const started = await startSession(db, vault, user, row.passwordHash, req.now, trusted ? (req.device as string) : undefined);
+  return started ?? { ok: false, reason: "wrong-credentials", message: WRONG_CREDENTIALS };
 }
 
 // Changing the password and deleting the account (#234). Both need the
@@ -396,13 +407,18 @@ export async function changePassword(
   if (!checked.ok) return checked;
 
   const passwordHash = await hashPassword(password.value);
-  // Only if nobody changed it since it was checked (two changes at once).
-  if (!(await updatePasswordHash(db, userId, checked.passwordHash, passwordHash))) {
+  // Only if nobody changed it since it was checked (two changes at once). The
+  // same statement ends every session.
+  if (!(await replacePasswordHash(db, userId, checked.passwordHash, passwordHash))) {
     return { ok: false, reason: "wrong-credentials", message: WRONG_PASSWORD };
   }
+  // A login holding the old hash's lock when the change ran inserted its
+  // session after that statement's snapshot, so it survived it; the change
+  // waited for that insert to commit, so this sees it (see insertSession).
   await deleteUserSessions(db, userId);
   await clearRateLimit(db, accountUserKey(vault, userId));
-  return startSession(db, vault, checked.user, passwordHash, req.now);
+  const started = await startSession(db, vault, checked.user, passwordHash, req.now);
+  return started ?? { ok: false, reason: "wrong-credentials", message: WRONG_PASSWORD };
 }
 
 /**

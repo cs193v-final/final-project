@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DecryptionError, Vault } from "@/crypto/vault";
 import { deleteExpiredRateLimits, deleteExpiredSessions, deleteSession, findLoginRow, hitRateLimit, type PgDb } from "@/db/accounts";
@@ -636,6 +636,41 @@ describe("changing the password (#234)", () => {
   it("says the account is gone if it was deleted meanwhile", async () => {
     await pg.exec("DELETE FROM users");
     expect(await change(PASSWORD, NEW_PASSWORD)).toMatchObject({ ok: false, reason: "gone" });
+  });
+
+  describe("never leaves an old session valid after the password changed (review of #251)", () => {
+    afterEach(async () => {
+      await pg.exec(`
+        DROP TRIGGER IF EXISTS test_fail ON sessions;
+        DROP TRIGGER IF EXISTS test_race ON rate_limits;
+        DROP FUNCTION IF EXISTS test_fail();
+        DROP FUNCTION IF EXISTS test_race();`);
+    });
+
+    it("keeps the old password if ending the sessions fails", async () => {
+      await pg.exec(`
+        CREATE FUNCTION test_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'delete failed'; END $$;
+        CREATE TRIGGER test_fail BEFORE DELETE ON sessions FOR EACH ROW EXECUTE FUNCTION test_fail();`);
+      await expect(change(PASSWORD, NEW_PASSWORD)).rejects.toThrow();
+      await pg.exec("DROP TRIGGER test_fail ON sessions");
+      expect(await findSessionUser(db, sha256Hex(session), T0)).toEqual(user);
+      expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req())); // unchanged, so it can be retried
+    });
+
+    it("refuses a login whose password was changed while it was being checked", async () => {
+      // Change the password the moment login clears its count, after it read
+      // and checked the old hash but before it starts its session.
+      await pg.exec(`
+        CREATE FUNCTION test_race() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN UPDATE users SET password_hash = 'changed elsewhere'; RETURN OLD; END $$;
+        CREATE TRIGGER test_race AFTER DELETE ON rate_limits FOR EACH ROW EXECUTE FUNCTION test_race();`);
+      const before = await rows("SELECT token_hash FROM sessions");
+      expect(await login(db, { username: "Ethan", password: PASSWORD }, req("198.51.100.4"))).toMatchObject({
+        ok: false,
+        reason: "wrong-credentials",
+      });
+      expect(await rows("SELECT token_hash FROM sessions")).toEqual(before);
+    });
   });
 });
 
