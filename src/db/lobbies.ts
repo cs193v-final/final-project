@@ -36,7 +36,6 @@ import {
   imageFiles,
   lobbies,
   lobbyPuzzles,
-  lobbyReports,
   lobbyUploads,
   packPuzzles,
   packs,
