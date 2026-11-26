@@ -6,7 +6,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { pointsIfCorrect } from "@/game/scoring";
 import { SCORING_CONFIG } from "@/game/scoring-config";
-import { act, getGame, MemoryGameStore, puzzleSourceFrom, startGame, type GameOwner } from "@/game/server-game";
+import {
+  act,
+  getGame,
+  MAX_WRONG_GUESSES_PER_ROUND,
+  MemoryGameStore,
+  puzzleSourceFrom,
+  startGame,
+  type GameOwner,
+} from "@/game/server-game";
 import type { GameAction, Pack, Puzzle } from "@/game/types";
 import { PracticeGame } from "./PracticeGame";
 
@@ -311,6 +319,28 @@ describe("PracticeGame when a limit is hit (#85)", () => {
 
     await user.click(zoom);
     expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("at the wrong-guess safety cap, says to zoom out or skip, and Skip still works (#209)", async () => {
+    const user = userEvent.setup();
+    const server = backend();
+    let initial = await server.start();
+    for (let i = 0; i < MAX_WRONG_GUESSES_PER_ROUND; i++) {
+      if (!initial.ok) throw new Error("move failed");
+      initial = await server.act(initial.view.gameId, { type: "guess", guess: "bay bridge" }, initial.view.revision);
+    }
+    render(<PracticeGame initial={initial} start={server.start} act={server.act} get={server.get} />);
+
+    // Even the right answer is refused at the cap, and the round stays as it was.
+    await user.type(screen.getByRole("textbox", { name: "What is it?" }), "golden gate{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "That's the most guesses one image allows. Zoom out or skip it to keep playing.",
+    );
+    expect(screen.getByText(`${MAX_WRONG_GUESSES_PER_ROUND} wrong guesses`)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Skip this image" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Skipped. It was Golden Gate Bridge."));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
