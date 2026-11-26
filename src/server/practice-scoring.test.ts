@@ -71,7 +71,8 @@ describe("loadPracticeScoring", () => {
     state.db = undefined;
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(loadPracticeScoring()).resolves.toEqual(SCORING_CONFIG);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("practice pack"), expect.any(Error));
+    // One line, through errorSummary (#60): the cause, but not the raw error object.
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/practice pack.*DATABASE_URL is not set/));
   });
 
   it("gives the default when a query fails", async () => {

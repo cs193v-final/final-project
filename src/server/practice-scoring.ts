@@ -9,6 +9,8 @@ import { resolveScoringConfig } from "@/game/scoring-override";
 import type { ScoringConfig } from "@/game/types";
 import { PRACTICE_PACK } from "@/puzzles";
 
+import { errorSummary } from "./error-summary";
+
 /**
  * The scoring config practice games start with: the practice pack's stored
  * override (#64), or the default. "How to play" on the home page describes
@@ -30,7 +32,7 @@ export async function loadPracticeScoring(): Promise<ScoringConfig> {
   try {
     return await getScoringConfig(PRACTICE_PACK.id);
   } catch (error) {
-    console.error("[scoring] couldn't read the practice pack's scoring, showing the default", error);
+    console.error(`[scoring] couldn't read the practice pack's scoring, showing the default: ${errorSummary(error)}`);
     return resolveScoringConfig(null); // a fresh copy of the default
   }
 }
