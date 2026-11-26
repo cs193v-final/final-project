@@ -26,7 +26,6 @@ import type {
   Pack,
   PublicRound,
   PuzzleEffect,
-  PuzzleEffect,
   Puzzle,
   ScoringEvent,
   TimedScoringConfig,

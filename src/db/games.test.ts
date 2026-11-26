@@ -101,7 +101,7 @@ async function columns(id: string): Promise<GameColumns> {
   return rows[0]!;
 }
 
-type RoundRow = { position: number; puzzle_id: string; outcome: string; points: number };
+type RoundRow = { position: number; puzzle_id: string; outcome: string; seconds: number | null; points: number };
 
 async function roundRows(id: string) {
   const { rows } = await pg.query<RoundRow>(

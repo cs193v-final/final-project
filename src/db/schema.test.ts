@@ -307,7 +307,7 @@ describe("packs and puzzles", () => {
   });
 
   it("round-trip a pack and puzzle through the typed schema", async () => {
-    const scoring = { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 };
+    const scoring = { maxPoints: 10_000, minPoints: 100, revealSeconds: 25, limitSeconds: 30, curve: 2 };
     const [pack] = await db
       .insert(schema.packs)
       .values({ id: "pack-typed", kind: "stanford", title: "Campus", theme: "Stanford", scoring })
