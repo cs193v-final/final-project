@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { RoundResult } from "@/game/types";
-import { actionsText, breakdownText, FinalScore } from "./FinalScore";
+import { actionsText, beatAiText, breakdownText, FinalScore } from "./FinalScore";
 
 function result(overrides: Partial<RoundResult> = {}): RoundResult {
   return {
@@ -69,10 +69,40 @@ describe("FinalScore", () => {
     expect(items[1]).toHaveTextContent("2. Strawberry skipped");
   });
 
+  it("takes another mode's heading, e.g. Stanford's (#65), and still focuses it", () => {
+    render(<FinalScore puzzles={puzzles} score={score} title="Stanford complete" />);
+    expect(screen.getByRole("heading", { name: "Stanford complete" })).toHaveFocus();
+    expect(screen.queryByText("Practice complete")).not.toBeInTheDocument();
+  });
+
   it("calls onPlayAgain", async () => {
     const onPlayAgain = vi.fn();
     render(<FinalScore puzzles={puzzles} score={score} onPlayAgain={onPlayAgain} />);
     await userEvent.setup().click(screen.getByRole("button", { name: "Play again" }));
     expect(onPlayAgain).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Beat the AI on the final screen (#66)", () => {
+  const rounds = [result({ puzzleId: "p1" }), result({ puzzleId: "p2" })];
+  const puzzles = [{ id: "p1", answer: "Fig" }, { id: "p2", answer: "Kiwi" }];
+
+  it("says how many images you beat the AI on", () => {
+    render(<FinalScore puzzles={puzzles} score={{ rounds, total: 200 }} beatAi={{ beaten: 1, played: 2 }} />);
+    expect(screen.getByText("You beat the AI on 1 of 2.")).toBeInTheDocument();
+  });
+
+  it("counts only the images the AI played, and says so", () => {
+    expect(beatAiText({ beaten: 1, played: 1 }, 2)).toBe("You beat the AI on 1 of the 1 images it played.");
+    expect(beatAiText({ beaten: 0, played: 5 }, 5)).toBe("You beat the AI on 0 of 5.");
+  });
+
+  it("says nothing about the AI when it has no results, or none were sent", () => {
+    expect(beatAiText({ beaten: 0, played: 0 }, 2)).toBeNull();
+    const { unmount } = render(<FinalScore puzzles={puzzles} score={{ rounds, total: 200 }} beatAi={{ beaten: 0, played: 0 }} />);
+    expect(screen.queryByText(/the AI/)).not.toBeInTheDocument();
+    unmount();
+    render(<FinalScore puzzles={puzzles} score={{ rounds, total: 200 }} />);
+    expect(screen.queryByText(/the AI/)).not.toBeInTheDocument();
   });
 });

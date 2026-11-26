@@ -1,0 +1,13 @@
+{
+  "name": "zoom-out-clip",
+  "private": true,
+  "type": "module",
+  "description": "CLIP's own install for src/images/clip (#56): the image picker and the Beat the AI solver. Scripts only, kept out of the app's install: npm run clip:install",
+  "engines": {
+    "node": ">=24.7 <25"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.3.2",
+    "sharp": "0.35.5"
+  }
+}
