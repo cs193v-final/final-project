@@ -1,146 +1,121 @@
 import { describe, expect, it } from "vitest";
-import { createGame, step, type GameAction } from "./round.ts";
-import { MAX_SCORING_VALUE, pointsIfCorrect, scoreGame, scoreRound, validateScoringConfig } from "./scoring.ts";
+import { createGame, START_GRACE_SECONDS, step, timeOut, type Game, type GameAction, type RoundClock } from "./round.ts";
+import { MAX_SCORING_VALUE, scoreAt, scoreGame, scoreRound, validateScoringConfig } from "./scoring.ts";
 import { SCORING_CONFIG } from "./scoring-config.ts";
-import type { Puzzle, ScoringConfig, ScoringEvent } from "./types.ts";
+import type { Puzzle, ScoringConfig, ScoringEvent, TimedScoringConfig } from "./types.ts";
 
-// Fixed numbers so these tests don't change when playtesting tweaks SCORING_CONFIG.
-const CONFIG: ScoringConfig = {
-  basePoints: 100,
-  revealPenalty: 20,
-  wrongGuessPenalty: 10,
-  minPoints: 10,
-  skipPoints: 0,
-};
+// Fixed numbers so these tests don't change when playtesting tweaks TIMED_SCORING_CONFIG.
+const TIMED: TimedScoringConfig = { maxPoints: 10_000, minPoints: 100, revealSeconds: 25, limitSeconds: 30, curve: 2 };
 
-const reveal = (puzzleId: string, revealLevel: number): ScoringEvent => ({ type: "reveal", puzzleId, revealLevel });
 const wrong = (puzzleId: string): ScoringEvent => ({ type: "wrongGuess", puzzleId });
-const correct = (puzzleId: string, revealLevel: number): ScoringEvent => ({ type: "correct", puzzleId, revealLevel });
-const skip = (puzzleId: string): ScoringEvent => ({ type: "skip", puzzleId });
+const correct = (puzzleId: string, seconds: number): ScoringEvent => ({ type: "correct", puzzleId, seconds });
+const timedOut = (puzzleId: string): ScoringEvent => ({ type: "timeOut", puzzleId });
 
-describe("scoreRound: correct answers", () => {
-  it("gives full base points with no zoom-outs or misses", () => {
-    expect(scoreRound([correct("p1", 0)], CONFIG)).toEqual({
+describe("scoreRound: timed rounds (#255)", () => {
+  it("scores a correct guess by its time with scoreAt", () => {
+    expect(scoreRound([correct("p1", 0)], TIMED)).toEqual({
       puzzleId: "p1",
       outcome: "correct",
-      revealLevelReached: 0,
+      seconds: 0,
       wrongGuesses: 0,
-      points: 100,
-      breakdown: { base: 100, revealPenalty: 0, wrongGuessPenalty: 0 },
+      points: 10_000,
     });
+    expect(scoreRound([correct("p1", 12.5)], TIMED).points).toBe(2_575);
+    expect(scoreRound([correct("p1", 6.2)], TIMED).points).toBe(scoreAt(6.2, TIMED));
   });
 
-  it("subtracts a penalty per zoom-out and per wrong guess", () => {
-    const result = scoreRound([reveal("p1", 1), wrong("p1"), reveal("p1", 2), correct("p1", 2)], CONFIG);
-    expect(result.revealLevelReached).toBe(2);
-    expect(result.wrongGuesses).toBe(1);
-    expect(result.breakdown).toEqual({ base: 100, revealPenalty: 40, wrongGuessPenalty: 10 });
-    expect(result.points).toBe(50);
+  it("gives the floor of minPoints between the clear time and the limit", () => {
+    expect(scoreRound([correct("p1", 25)], TIMED).points).toBe(100);
+    expect(scoreRound([correct("p1", 29.9)], TIMED).points).toBe(100);
   });
 
-  it("never goes below minPoints", () => {
-    const misses = Array.from({ length: 9 }, () => wrong("p1"));
-    const result = scoreRound([reveal("p1", 1), reveal("p1", 2), reveal("p1", 3), ...misses, correct("p1", 3)], CONFIG);
-    expect(result.breakdown).toEqual({ base: 100, revealPenalty: 60, wrongGuessPenalty: 90 });
-    expect(result.points).toBe(10);
+  it("counts wrong guesses, but they cost nothing", () => {
+    const result = scoreRound([wrong("p1"), wrong("p1"), correct("p1", 5)], TIMED);
+    expect(result).toMatchObject({ wrongGuesses: 2, points: scoreAt(5, TIMED) });
   });
 
-  it("uses the correct event's reveal level even without reveal events", () => {
-    expect(scoreRound([correct("p1", 2)], CONFIG).points).toBe(60);
-  });
-});
-
-describe("scoreRound: skips", () => {
-  it("earns skipPoints and no penalties, but still records what happened", () => {
-    expect(scoreRound([reveal("p1", 1), wrong("p1"), skip("p1")], { ...CONFIG, skipPoints: 5 })).toEqual({
+  it("gives 0 for a time-out, at the limit's time", () => {
+    expect(scoreRound([wrong("p1"), timedOut("p1")], TIMED)).toEqual({
       puzzleId: "p1",
-      outcome: "skipped",
-      revealLevelReached: 1,
+      outcome: "timedOut",
+      seconds: 30,
       wrongGuesses: 1,
-      points: 5,
-      breakdown: { base: 5, revealPenalty: 0, wrongGuessPenalty: 0 },
+      points: 0,
     });
   });
 });
 
 describe("scoreRound: bad input", () => {
   it("rejects no events", () => {
-    expect(() => scoreRound([], CONFIG)).toThrow(/no events/);
+    expect(() => scoreRound([], TIMED)).toThrow(/no events/);
   });
   it("rejects a round that hasn't ended", () => {
-    expect(() => scoreRound([reveal("p1", 1), wrong("p1")], CONFIG)).toThrow(/hasn't ended/);
+    expect(() => scoreRound([wrong("p1")], TIMED)).toThrow(/hasn't ended/);
   });
   it("rejects events from more than one puzzle", () => {
-    expect(() => scoreRound([wrong("p1"), correct("p2", 0)], CONFIG)).toThrow(/mix puzzles/);
+    expect(() => scoreRound([wrong("p1"), correct("p2", 1)], TIMED)).toThrow(/mix puzzles/);
   });
   it("rejects events after the round ended", () => {
-    expect(() => scoreRound([skip("p1"), wrong("p1")], CONFIG)).toThrow(/after the round ended/);
+    expect(() => scoreRound([correct("p1", 1), wrong("p1")], TIMED)).toThrow(/after the round ended/);
+    expect(() => scoreRound([timedOut("p1"), correct("p1", 1)], TIMED)).toThrow(/after the round ended/);
+  });
+  it("checks the config first", () => {
+    expect(() => scoreRound([correct("p1", 1)], { ...TIMED, curve: 0 })).toThrow(/curve/);
   });
 });
 
 describe("scoreGame", () => {
   it("scores each round and keeps a running total", () => {
-    const score = scoreGame(
-      [correct("p1", 0), reveal("p2", 1), wrong("p2"), correct("p2", 1), reveal("p3", 1), skip("p3")],
-      CONFIG,
+    const { rounds, total } = scoreGame(
+      [correct("p1", 0), wrong("p2"), timedOut("p2"), correct("p3", 12.5)],
+      TIMED,
     );
-    expect(score.rounds.map((r) => [r.puzzleId, r.outcome, r.points])).toEqual([
-      ["p1", "correct", 100],
-      ["p2", "correct", 70],
-      ["p3", "skipped", 0],
+    expect(rounds.map((r) => [r.outcome, r.points])).toEqual([
+      ["correct", 10_000],
+      ["timedOut", 0],
+      ["correct", 2_575],
     ]);
-    expect(score.total).toBe(170);
+    expect(total).toBe(12_575);
   });
 
   it("starts at zero with no events", () => {
-    expect(scoreGame([], CONFIG)).toEqual({ rounds: [], total: 0 });
+    expect(scoreGame([], TIMED)).toEqual({ rounds: [], total: 0 });
   });
 
   it("leaves a round that hasn't ended out of the total", () => {
-    const score = scoreGame([correct("p1", 0), reveal("p2", 1), wrong("p2")], CONFIG);
-    expect(score.rounds.map((r) => r.puzzleId)).toEqual(["p1"]);
-    expect(score.total).toBe(100);
+    const { rounds, total } = scoreGame([correct("p1", 0), wrong("p2")], TIMED);
+    expect(rounds).toHaveLength(1);
+    expect(total).toBe(10_000);
   });
 
   it("rejects a new puzzle's events before the previous round ended", () => {
-    expect(() => scoreGame([wrong("p1"), wrong("p2")], CONFIG)).toThrow(/didn't end/);
+    expect(() => scoreGame([wrong("p1"), correct("p2", 1)], TIMED)).toThrow(/didn't end/);
   });
 });
 
-describe("pointsIfCorrect", () => {
-  it("matches the scoring rule, with the floor", () => {
-    expect(pointsIfCorrect(0, 0, CONFIG)).toBe(100);
-    expect(pointsIfCorrect(3, 0, CONFIG)).toBe(40);
-    expect(pointsIfCorrect(3, 20, CONFIG)).toBe(10);
-  });
-});
+// The old zoom-out shape, still used by per-pack overrides (#64) until they move to the timed fields (#256).
+const OLD: ScoringConfig = { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 };
 
-describe("validateScoringConfig", () => {
-  it("accepts the game's current config", () => {
+describe("validateScoringConfig (per-pack overrides, old shape)", () => {
+  it("accepts the default config", () => {
     expect(() => validateScoringConfig(SCORING_CONFIG)).not.toThrow();
   });
   it("rejects negative or non-numeric values", () => {
-    expect(() => validateScoringConfig({ ...CONFIG, revealPenalty: -5 })).toThrow(/revealPenalty/);
-    expect(() => validateScoringConfig({ ...CONFIG, basePoints: Number.NaN })).toThrow(/basePoints/);
+    expect(() => validateScoringConfig({ ...OLD, revealPenalty: -5 })).toThrow(/revealPenalty/);
+    expect(() => validateScoringConfig({ ...OLD, basePoints: Number.NaN })).toThrow(/basePoints/);
   });
   it("rejects fractions and values too big for the integer columns (#76 review)", () => {
-    expect(() => validateScoringConfig({ ...CONFIG, revealPenalty: 12.5 })).toThrow(/revealPenalty.*whole number/);
-    expect(() => validateScoringConfig({ ...CONFIG, basePoints: 1e300 })).toThrow(/basePoints/);
-    expect(() => validateScoringConfig({ ...CONFIG, basePoints: Number.POSITIVE_INFINITY })).toThrow(/basePoints/);
-    expect(() =>
-      validateScoringConfig({ ...CONFIG, basePoints: MAX_SCORING_VALUE + 1 }),
-    ).toThrow(/basePoints/);
-    expect(() => validateScoringConfig({ ...CONFIG, basePoints: MAX_SCORING_VALUE })).not.toThrow();
+    expect(() => validateScoringConfig({ ...OLD, revealPenalty: 12.5 })).toThrow(/revealPenalty.*whole number/);
+    expect(() => validateScoringConfig({ ...OLD, basePoints: 1e300 })).toThrow(/basePoints/);
+    expect(() => validateScoringConfig({ ...OLD, basePoints: MAX_SCORING_VALUE + 1 })).toThrow(/basePoints/);
+    expect(() => validateScoringConfig({ ...OLD, basePoints: MAX_SCORING_VALUE })).not.toThrow();
   });
   it("rejects a floor above the base", () => {
-    expect(() => validateScoringConfig({ ...CONFIG, minPoints: 200 })).toThrow(/minPoints/);
+    expect(() => validateScoringConfig({ ...OLD, minPoints: 200 })).toThrow(/minPoints/);
   });
   it("rejects a skip worth more than the worst correct answer", () => {
-    expect(() => validateScoringConfig({ ...CONFIG, skipPoints: 50 })).toThrow(/skipPoints/);
-    expect(() => validateScoringConfig({ ...CONFIG, skipPoints: 10 })).not.toThrow();
-  });
-  it("is checked before scoring", () => {
-    expect(() => scoreRound([correct("p1", 0)], { ...CONFIG, minPoints: 200 })).toThrow(/minPoints/);
+    expect(() => validateScoringConfig({ ...OLD, skipPoints: 50 })).toThrow(/skipPoints/);
+    expect(() => validateScoringConfig({ ...OLD, skipPoints: 10 })).not.toThrow();
   });
 });
 
@@ -154,32 +129,43 @@ describe("with the real round logic", () => {
     credit: { source: "test", license: "CC0" },
     aiSolvedLevel: null,
   });
+  const T0 = Date.UTC(2030, 0, 1);
+  const clock = (ms: number): RoundClock => ({ now: T0 + ms, scoring: TIMED });
 
-  it("scores the events step() emits for a full three-image game", () => {
-    let game = createGame([puzzle("p1", "Eiffel Tower"), puzzle("p2", "Big Ben"), puzzle("p3", "Colosseum")]);
+  it("scores the events step() and timeOut() emit for a full three-image game", () => {
+    let game: Game = createGame([puzzle("p1", "Eiffel Tower"), puzzle("p2", "Big Ben"), puzzle("p3", "Colosseum")]);
     const events: ScoringEvent[] = [];
-    const actions: GameAction[] = [
-      { type: "guess", guess: "eiffel tower" },
-      { type: "next" },
-      { type: "reveal" },
-      { type: "reveal" },
-      { type: "guess", guess: "london eye" },
-      { type: "guess", guess: "Big Ben" },
-      { type: "next" },
-      { type: "reveal" },
-      { type: "skip" },
-      { type: "next" },
-    ];
-    for (const action of actions) {
-      const result = step(game, action);
-      expect(result.ok).toBe(true);
+    let now = 0;
+    const run = (action: GameAction, ms = 0) => {
+      now += ms;
+      const result = step(game, action, clock(now));
+      if (!result.ok) throw new Error(`${action.type}: ${result.reason}`);
       game = result.game;
       events.push(...result.events);
-    }
-    expect(game.finished).toBe(true);
+    };
+    const grace = START_GRACE_SECONDS * 1000;
+    // Round 1: right at 2 s.
+    run({ type: "start" });
+    run({ type: "guess", guess: "eiffel tower" }, 2000 + grace);
+    run({ type: "next" });
+    // Round 2: a wrong guess, then the time runs out.
+    run({ type: "start" });
+    run({ type: "guess", guess: "zebra" }, 1000);
+    now += 40_000;
+    const expired = timeOut(game, clock(now))!;
+    game = expired.game;
+    events.push(...expired.events);
+    run({ type: "next" });
+    // Round 3: right at 26 s (after the clear time: the floor).
+    run({ type: "start" });
+    run({ type: "guess", guess: "colosseum" }, 26_000 + grace);
 
-    const score = scoreGame(events, CONFIG);
-    expect(score.rounds.map((r) => r.points)).toEqual([100, 50, 0]);
-    expect(score.total).toBe(150);
+    const { rounds, total } = scoreGame(events, TIMED);
+    expect(rounds).toEqual([
+      { puzzleId: "p1", outcome: "correct", seconds: 2, wrongGuesses: 0, points: scoreAt(2, TIMED) },
+      { puzzleId: "p2", outcome: "timedOut", seconds: 30, wrongGuesses: 1, points: 0 },
+      { puzzleId: "p3", outcome: "correct", seconds: 26, wrongGuesses: 0, points: 100 },
+    ]);
+    expect(total).toBe(scoreAt(2, TIMED) + 100);
   });
 });
