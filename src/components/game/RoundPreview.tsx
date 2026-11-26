@@ -1,9 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { formatPoints } from "@/game/round-clock";
 import { scoreAt } from "@/game/scoring";
 import type { Puzzle, TimedScoringConfig } from "@/game/types";
+import { TimedFinalScore, type TimedRoundSummary } from "./TimedFinalScore";
 import { TimedRound, type TimedRoundPhase } from "./TimedRound";
 
 /** What the preview may know about a photo before the round ends: no answer. */
@@ -47,7 +47,7 @@ export function RoundPreview({
 }) {
   const [index, setIndex] = useState(0);
   const [round, setRound] = useState<RoundRecord>(fresh);
-  const [totals, setTotals] = useState<number[]>([]);
+  const [done, setDone] = useState<TimedRoundSummary[]>([]);
   const [pending, setPending] = useState(false);
   // The round as of the latest update, for async results (state may be stale in their closures).
   const latest = useRef(round);
@@ -59,7 +59,7 @@ export function RoundPreview({
   async function end(phase: "correct" | "timedOut", seconds: number, points: number) {
     const name = await answer(index);
     setRound({ ...latest.current, phase, elapsed: seconds, points, seconds, answer: name });
-    setTotals((t) => [...t, points]);
+    setDone((d) => [...d, { answer: name, outcome: phase, seconds, points }]);
   }
 
   const onStart = () => setRound({ ...fresh(), phase: "playing", startedAt: Date.now() });
@@ -95,23 +95,16 @@ export function RoundPreview({
   };
 
   if (!photo) {
-    const total = totals.reduce((a, b) => a + b, 0);
     return (
-      <div className="flex flex-col items-center gap-3">
-        <p className="text-lg">
-          Total: <strong className="tabular-nums">{formatPoints(total)}</strong>
-        </p>
-        <button
-          className="underline"
-          onClick={() => {
-            setIndex(0);
-            setTotals([]);
-            setRound(fresh());
-          }}
-        >
-          Play again
-        </button>
-      </div>
+      <TimedFinalScore
+        rounds={done}
+        scoring={scoring}
+        onPlayAgain={() => {
+          setIndex(0);
+          setDone([]);
+          setRound(fresh());
+        }}
+      />
     );
   }
 
