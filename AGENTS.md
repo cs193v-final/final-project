@@ -15,7 +15,7 @@ Rules for any coding agent working in this repo. Keep this file short. Project c
 ## Layout
 - `src/game/`: framework-independent game logic (types, guess checking, round state). No React or Next imports here, so it stays unit-testable. Tests sit next to the code as `*.test.ts`.
 - `src/components/`: React components (`src/components/game/` for game UI). Mark files that use state or events with `"use client"`.
-- `src/images/`: cutting puzzle images into one image per zoom level (`sharp`, #57). Scripts only: never import it from app code. The app serves already-cut levels from `/img/<id>.webp`.
+- `src/images/`: cutting puzzle images into one image per zoom level (`sharp`, #57), and CLIP for the image picker and Beat the AI (`src/images/clip/`, #56). Scripts only: never import it from app code. The app serves already-cut levels from `/img/<id>.webp`. CLIP's dependencies install separately into `tools/clip/` (`npm run clip:install`), so the app's install stays small.
 - `public/`: static files. Only the practice pack's images go here; daily and Stanford images never do (the repo is public).
 - **Tests:** logic tests run in Node. Component tests start with `// @vitest-environment jsdom` and use React Testing Library, with jest-dom matchers from `src/test/setup.ts`. Query by role and label, like a user would.
 - **End-to-end tests:** Playwright specs in `e2e/` play the real app in headless Chromium, on a desktop and a phone viewport (`playwright.config.ts`). Take answers and points from the puzzle data and `SCORING_CONFIG`, not hard-coded values. Don't run `playwright install` in the course container.
