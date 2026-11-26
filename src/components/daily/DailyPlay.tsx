@@ -110,6 +110,9 @@ export function DailyPlay({ initial, start, act, get, intro, loadStats, streak }
       get={get}
       gameHref={() => "/daily"}
       replay={false}
+      // One daily per player per day, so a lost one can't be restarted (#164).
+      // TODO(Joseph, #58): or let the server replace the unreadable row.
+      lostGameMessage="Today's game can't be loaded anymore. That's a problem on our side, not yours. A new daily starts tomorrow; meanwhile you can play practice."
       afterFinish={(view) => <DailyResult intro={intro} view={view} loadStats={loadStats} streak={streak} />}
     />
   );

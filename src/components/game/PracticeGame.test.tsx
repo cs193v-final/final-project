@@ -30,8 +30,8 @@ const OWNER: GameOwner = { anonId: "test-owner" };
  * on an in-memory store, so these tests play the same rules as the server.
  * Every result the component receives is recorded.
  */
-function backend() {
-  const deps = { games: new MemoryGameStore(), puzzles: puzzleSourceFrom(PUZZLES) };
+function backend(puzzles: readonly Puzzle[] = PUZZLES) {
+  const deps = { games: new MemoryGameStore(), puzzles: puzzleSourceFrom(puzzles) };
   const received: GameResult[] = [];
   const record = async (result: Promise<GameResult>) => {
     const r = await result;
@@ -53,9 +53,9 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
-async function setup() {
+async function setup(puzzles: readonly Puzzle[] = PUZZLES) {
   const user = userEvent.setup();
-  const server = backend();
+  const server = backend(puzzles);
   render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
   const input = () => screen.getByRole("textbox", { name: "What is it?" });
   const status = () => screen.getByRole("status");
@@ -126,6 +126,16 @@ describe("PracticeGame start and resume (#54)", () => {
     const server = backend();
     render(<PracticeGame initial={{ ok: false, error: "not-found" }} start={server.start} act={server.act} get={server.get} />);
     expect(screen.getByRole("alert")).toHaveTextContent("We couldn't find that game.");
+    await user.click(screen.getByRole("button", { name: "Start a new game" }));
+    expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
+  });
+
+  it("says a game that can't be loaded anymore is lost, instead of blaming the connection, and offers a new one (#164)", async () => {
+    const user = userEvent.setup();
+    const server = backend();
+    render(<PracticeGame initial={{ ok: false, error: "unreadable" }} start={server.start} act={server.act} get={server.get} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("This game can't be loaded anymore");
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/connection/i);
     await user.click(screen.getByRole("button", { name: "Start a new game" }));
     expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
   });
@@ -445,5 +455,43 @@ describe("PracticeGame score (#16), worked out on the server", () => {
 
     await user.click(screen.getByRole("button", { name: "Play again" }));
     await waitFor(() => expect(score()).toHaveTextContent("Score 0"));
+  });
+});
+
+describe("PracticeGame against the AI (#66)", () => {
+  // The AI got image 1 at level 1 (zoom level 2 of 3); it has no result for image 2.
+  const withAi = [{ ...PUZZLES[0]!, aiSolvedLevel: 1 }, PUZZLES[1]!];
+
+  it("shows the AI's zoom level as a target, how you did once the round is over, and the count at the end", async () => {
+    const { user, input } = await setup(withAi);
+    expect(screen.getByText("The AI got this at zoom level 2 of 3. Can you beat it?")).toBeInTheDocument();
+
+    await user.type(input(), "golden gate bridge{Enter}");
+    expect(await screen.findByText("You beat the AI! It needed zoom level 2.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next image" }));
+
+    expect(await screen.findByText("Image 2 of 2")).toBeInTheDocument();
+    expect(screen.queryByText(/the AI/)).not.toBeInTheDocument(); // no AI result for this image
+    await user.click(screen.getByRole("button", { name: "Skip this image" }));
+    await user.click(await screen.findByRole("button", { name: "See results" }));
+    expect(await screen.findByText("You beat the AI on 1 of the 1 images it played.")).toBeInTheDocument();
+  });
+
+  it("says when the AI got there first", async () => {
+    const { user, input } = await setup([{ ...PUZZLES[0]!, aiSolvedLevel: 0 }, PUZZLES[1]!]);
+    await user.click(screen.getByRole("button", { name: /Zoom out/ }));
+    await user.type(input(), "golden gate bridge{Enter}");
+    expect(await screen.findByText("The AI got this one first, at zoom level 1.")).toBeInTheDocument();
+  });
+
+  it("shows nothing about the AI when it has no results", async () => {
+    const { user } = await setup();
+    expect(screen.queryByText(/the AI/)).not.toBeInTheDocument();
+    for (let i = 0; i < 2; i++) {
+      await user.click(screen.getByRole("button", { name: "Skip this image" }));
+      await user.click(await screen.findByRole("button", { name: i === 0 ? "Next image" : "See results" }));
+    }
+    expect(await screen.findByRole("heading", { name: "Practice complete" })).toBeInTheDocument();
+    expect(screen.queryByText(/the AI/)).not.toBeInTheDocument();
   });
 });

@@ -60,11 +60,12 @@ describe("StartScreen", () => {
     expect(picker).toBeLessThan(html.indexOf("How to play"));
   });
 
-  it("mentions the leaderboard as coming soon, after the mode picker and not as a link", () => {
-    const note = html.indexOf("Coming soon: a daily leaderboard.");
-    expect(note).toBeGreaterThan(html.indexOf("Choose a mode"));
-    expect(note).toBeLessThan(html.indexOf("How to play"));
-    expect(html).not.toMatch(/<a[^>]*>[^<]*leaderboard/iu);
+  it("links to today's leaderboard after the mode picker, not as a mode card (#62)", () => {
+    const link = html.indexOf("See today&#x27;s leaderboard");
+    expect(link).toBeGreaterThan(html.indexOf("Choose a mode"));
+    expect(link).toBeLessThan(html.indexOf("How to play"));
+    expect(html).toMatch(/<a[^>]*href="\/leaderboard"[^>]*>See today&#x27;s leaderboard<\/a>/u);
+    expect(html).not.toContain("Coming soon: a daily leaderboard");
   });
 
   it("shows the daily streak (#63) between the tagline and the mode picker, when given one", () => {

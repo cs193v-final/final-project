@@ -4,7 +4,7 @@ import { SCORING_CONFIG } from "@/game/scoring-config";
 import type { ScoringConfig } from "@/game/types";
 import { GAME_NAME } from "@/site";
 import { ModePicker } from "./ModePicker";
-import { PrototypeNotice, SectionHeading } from "./ui/controls";
+import { PrototypeNotice, SectionHeading, TextLink } from "./ui/controls";
 
 const pts = (n: number) => `${n} ${n === 1 ? "point" : "points"}`;
 
@@ -41,8 +41,10 @@ export function StartScreen({ streak }: { streak?: ReactNode } = {}) {
 
       {streak}
       <ModePicker />
-      {/* Not a mode, so not a card. TODO(#62): a real link, e.g. in the header. */}
-      <p className="-mt-4 text-sm text-zinc-600 dark:text-zinc-400">Coming soon: a daily leaderboard.</p>
+      {/* Not a mode, so not a card (#62). The header links to it too. */}
+      <p className="-mt-4 text-sm text-zinc-600 dark:text-zinc-400">
+        <TextLink href="/leaderboard">See today&apos;s leaderboard</TextLink>
+      </p>
 
       <section aria-labelledby="how-to-play" className="w-full max-w-md text-left">
         <SectionHeading id="how-to-play">How to play</SectionHeading>

@@ -158,7 +158,17 @@ export type GameView = {
    * the daily the next visit) can name the images (#58).
    */
   answers?: string[];
+  /** Darian (Beat the AI, #66): once the whole game is finished, how many images the player beat the AI on. */
+  beatAi?: BeatAiSummary;
 };
+
+/**
+ * Owner: Darian. PROPOSAL (#66). A finished game against the AI: images the
+ * player got right at an earlier view than the AI did, of the images the AI
+ * has a result for (`aiSolvedLevel` not null). The rule is `aiVerdict` in
+ * `beat-ai.ts`.
+ */
+export type BeatAiSummary = { beaten: number; played: number };
 
 /** Owner: Ethan. PROPOSAL (#53). What other code and the browser may know about a user. */
 export type PublicUser = { id: string; username: string };
