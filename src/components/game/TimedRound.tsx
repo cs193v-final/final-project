@@ -3,11 +3,11 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { formatPoints, formatSeconds, readClock, secondsNow, type ClockReading } from "@/game/round-clock";
 import type { Puzzle, TimedScoringConfig } from "@/game/types";
+import { Button, TextInput } from "../ui/controls";
+import { SHAKE, SHAKE_TIMING, useAnimateOn, usePrefersReducedMotion } from "./motion";
 
 /** `PuzzleEffect` from #258 (PR #259) once it merges; a string until then. */
 type EffectName = string;
-import { Button, TextInput } from "../ui/controls";
-import { SHAKE, SHAKE_TIMING, useAnimateOn, usePrefersReducedMotion } from "./motion";
 
 /**
  * Where the round is, as the server last said (#255):
@@ -40,7 +40,12 @@ export type TimedRoundProps = {
   onStart: () => void;
   onGuess: (guess: string) => void;
   onNext: () => void;
-  /** The local clock hit the limit. The server decides; ask it (e.g. `get`) so the round ends. Called once. */
+  /**
+   * The local clock hit the limit. The server decides; ask it (e.g. `get`) so
+   * the round ends. Called once per server reading that reaches the limit: if
+   * the server says the round is still on (its clock can trail the local one),
+   * it's called again when the new reading runs out.
+   */
   onTimeUp: () => void;
 };
 
@@ -97,11 +102,17 @@ export function TimedRound({
   onTimeUp,
 }: TimedRoundProps) {
   const clock = useRoundClock(phase === "playing", elapsedSeconds, scoring);
-  // The local clock ran out before the server said so: stop guessing, and ask once.
+  // The local clock ran out before the server said so: stop guessing, and ask
+  // once. A new reading from the server that isn't over re-arms the ask, so a
+  // server a little behind can't leave the round stuck on "Time's up."
   const localTimeUp = phase === "playing" && clock.phase === "timeUp";
   const askedAboutTimeUp = useRef(false);
   useEffect(() => {
-    if (!localTimeUp || askedAboutTimeUp.current) return;
+    if (!localTimeUp) {
+      askedAboutTimeUp.current = false;
+      return;
+    }
+    if (askedAboutTimeUp.current) return;
     askedAboutTimeUp.current = true;
     onTimeUp();
   }, [localTimeUp, onTimeUp]);

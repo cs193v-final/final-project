@@ -230,6 +230,23 @@ describe("time's up", () => {
     expect(onTimeUp).toHaveBeenCalledOnce();
   });
 
+  it("asks again if the server, a little behind, says the round is still on (review of #262)", () => {
+    const onTimeUp = vi.fn();
+    const { rerender } = render(<TimedRound {...props({ onTimeUp })} />);
+    advance(SCORING.limitSeconds * 1000 + 100);
+    expect(onTimeUp).toHaveBeenCalledOnce();
+
+    const behind = SCORING.limitSeconds - 0.3;
+    rerender(<TimedRound {...props({ onTimeUp, elapsedSeconds: behind })} />);
+    advance(100);
+    expect(screen.getByRole("textbox", { name: "What is it?" })).toBeEnabled();
+    expect(onTimeUp).toHaveBeenCalledOnce();
+
+    advance(400);
+    expect(onTimeUp).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("textbox", { name: "What is it?" })).toBeDisabled();
+  });
+
   it("shows the answer and 0 points once the server says the round timed out", () => {
     render(
       <TimedRound
