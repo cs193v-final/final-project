@@ -1,7 +1,20 @@
 // Spec for lobby photo uploads (#67): only photo formats, size limits, and
 // every upload re-encoded with no metadata, especially no GPS location.
+import { readFileSync } from "node:fs";
+
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
+
+describe("uploaded images and answers are never committed", () => {
+  // They go only to the database (encrypted). No lobby code can write a file,
+  // so nothing a player uploads or types can end up in the working tree.
+  it("no lobby module imports the file system", () => {
+    for (const file of ["src/server/lobbies.ts", "src/server/lobby-images.ts", "src/db/lobbies.ts", "src/game/lobby.ts", "src/app/lobby/actions.ts", "src/app/api/lobby-uploads/route.ts"]) {
+      const source = readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
+      expect(source, file).not.toMatch(/from\s+["'](node:)?fs(\/promises)?["']|require\(["'](node:)?fs/u);
+    }
+  });
+});
 
 import { LOBBY_ZOOM_LEVELS } from "@/game/lobby";
 

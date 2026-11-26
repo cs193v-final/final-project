@@ -100,7 +100,7 @@ function uploadRequest(body: Uint8Array, headers: Record<string, string> = {}) {
   return new Request("http://localhost/api/lobby-uploads", {
     method: "POST",
     headers: { origin: "http://localhost", host: "localhost", "content-type": "image/jpeg", ...headers },
-    body,
+    body: new Uint8Array(body),
   });
 }
 
