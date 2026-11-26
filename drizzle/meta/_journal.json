@@ -57,6 +57,13 @@
       "when": 1795665107206,
       "tag": "0007_puzzle_effect",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795683436776,
+      "tag": "0008_leaderboard_index",
+      "breakpoints": true
     }
   ]
 }

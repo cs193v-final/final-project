@@ -345,6 +345,12 @@ export const games = pgTable(
     index("games_finished_pack_id_total_idx")
       .on(t.packId, t.total)
       .where(sql`${t.finishedAt} IS NOT NULL`),
+    // Daily leaderboard (#62, #206): a day's finished games by logged-in
+    // players, best score first. Serves the top list and the rank count in
+    // src/db/leaderboard.ts.
+    index("games_daily_date_total_idx")
+      .on(t.dailyDate, t.total.desc().nullsFirst())
+      .where(sql`${t.finishedAt} IS NOT NULL AND ${t.userId} IS NOT NULL`),
     check("games_single_owner", sql`${t.userId} IS NULL OR ${t.anonOwnerHash} IS NULL`),
     // Exactly one copy of the state: plain (written before #84) or encrypted.
     check("games_one_state", sql`(${t.state} IS NULL) <> (${t.stateEncrypted} IS NULL)`),
