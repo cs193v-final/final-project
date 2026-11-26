@@ -30,6 +30,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Claude Code agent worktrees: full copies of the repo on other branches
+    ".claude/**",
     // Playwright output
     "test-results/**",
     "playwright-report/**",

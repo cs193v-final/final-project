@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_DAILY_RESET, dailyDateFor } from "./daily-date.ts";
-import { currentStreak, longestStreak } from "./streak.ts";
+import { currentStreak, longestStreak, summarizeStreak } from "./streak.ts";
 
 const LA = DEFAULT_DAILY_RESET;
 const at = (iso: string) => new Date(iso);
@@ -109,5 +109,67 @@ describe("longestStreak", () => {
 
   it("rejects invalid dates", () => {
     expect(() => longestStreak(["2026-11-01", "2026-11-31"])).toThrow(RangeError);
+  });
+});
+
+describe("currentStreak across the reset time (midnight Los Angeles)", () => {
+  // Nov 16 and 17, 2026 are PST (UTC-8): the reset is at 08:00 UTC.
+  const played = ["2026-11-14", "2026-11-15"];
+
+  it("keeps the streak until the reset after a missed day, then breaks it", () => {
+    // 11:59:59 pm on Nov 16: today is still Nov 16, so yesterday's game keeps it alive.
+    expect(currentStreak(played, dailyDateFor(at("2026-11-17T07:59:59Z"), LA))).toBe(2);
+    // Midnight: Nov 17 has started and Nov 16 was missed.
+    expect(currentStreak(played, dailyDateFor(at("2026-11-17T08:00:00Z"), LA))).toBe(0);
+  });
+
+  it("counts a game for the day it was started, not the UTC date", () => {
+    // 5 pm on Nov 16 is already Nov 17 in UTC, but it's the Nov 16 daily.
+    const day = dailyDateFor(at("2026-11-17T01:00:00Z"), LA);
+    expect(day).toBe("2026-11-16");
+    expect(currentStreak([...played, day], day)).toBe(3);
+  });
+
+  it("follows a different reset hour when one is configured", () => {
+    const sixAm = { timeZone: "America/Los_Angeles", resetHour: 6 };
+    // 5:59 am Nov 17 local is still the Nov 16 challenge with a 6 am reset.
+    expect(dailyDateFor(at("2026-11-17T13:59:00Z"), sixAm)).toBe("2026-11-16");
+    expect(currentStreak(played, dailyDateFor(at("2026-11-17T13:59:00Z"), sixAm))).toBe(2);
+    expect(currentStreak(played, dailyDateFor(at("2026-11-17T14:00:00Z"), sixAm))).toBe(0);
+  });
+});
+
+describe("summarizeStreak", () => {
+  it("is all zero with nothing played", () => {
+    expect(summarizeStreak([], "2026-11-16")).toEqual({ current: 0, longest: 0, playedToday: false });
+  });
+
+  it("says whether today is played, and keeps yesterday's streak alive until the reset", () => {
+    expect(summarizeStreak(["2026-11-15", "2026-11-16"], "2026-11-16")).toEqual({ current: 2, longest: 2, playedToday: true });
+    expect(summarizeStreak(["2026-11-14", "2026-11-15"], "2026-11-16")).toEqual({ current: 2, longest: 2, playedToday: false });
+  });
+
+  it("keeps the best run after a missed day", () => {
+    const played = ["2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-15", "2026-11-16"];
+    expect(summarizeStreak(played, "2026-11-16")).toEqual({ current: 2, longest: 4, playedToday: true });
+    expect(summarizeStreak(played, "2026-11-18")).toEqual({ current: 0, longest: 4, playedToday: false });
+  });
+
+  it("ignores days after today, also for the best run", () => {
+    expect(summarizeStreak(["2026-11-16", "2026-11-17", "2026-11-18"], "2026-11-16")).toEqual({
+      current: 1,
+      longest: 1,
+      playedToday: true,
+    });
+  });
+
+  it("counts across both daylight-saving changes", () => {
+    expect(summarizeStreak(["2026-03-07", "2026-03-08", "2026-03-09"], "2026-03-09").current).toBe(3);
+    expect(summarizeStreak(["2026-10-31", "2026-11-01", "2026-11-02"], "2026-11-02").current).toBe(3);
+  });
+
+  it("rejects invalid dates", () => {
+    expect(() => summarizeStreak(["2026-02-30"], "2026-11-16")).toThrow(RangeError);
+    expect(() => summarizeStreak([], "16/11/2026")).toThrow(RangeError);
   });
 });
