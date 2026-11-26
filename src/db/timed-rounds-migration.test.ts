@@ -1,8 +1,8 @@
-// Migration 0009 (timed rounds, #255) on a database that already has rows:
-// it applies the migrations up to 0008, writes games and rounds the way the
-// old code did, then applies 0009 and checks the old values are kept, new
-// timed rounds fit, and old unfinished non-daily games are ended. PGlite, no
-// network.
+// Migration 0010 (timed rounds, #255) on a database that already has rows:
+// it applies the migrations up to 0009, writes games, rounds and pack scoring
+// overrides the way the old code did, then applies 0010 and checks the old
+// values are kept, new timed rounds fit, old unfinished non-daily games are
+// ended and old-shape scoring overrides are dropped. PGlite, no network.
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,15 +20,15 @@ const migrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url)
 type Journal = { entries: { idx: number; tag: string }[] };
 
 let pg: PGlite;
-let before: string; // a copy of drizzle/ that stops at 0008
+let before: string; // a copy of drizzle/ that stops at 0009
 let ids: { practiceUnfinished: string; practiceFinished: string; dailyUnfinished: string; finishedAt: Date };
 
 beforeAll(async () => {
-  before = mkdtempSync(join(tmpdir(), "migrations-0008-"));
+  before = mkdtempSync(join(tmpdir(), "migrations-0009-"));
   cpSync(migrationsFolder, before, { recursive: true });
   const journal = JSON.parse(readFileSync(join(before, "meta/_journal.json"), "utf8")) as Journal;
-  expect(journal.entries.find((e) => e.idx === 9)?.tag).toBe("0009_timed_rounds");
-  journal.entries = journal.entries.filter((e) => e.idx < 9);
+  expect(journal.entries.find((e) => e.idx === 10)?.tag).toBe("0010_timed_rounds");
+  journal.entries = journal.entries.filter((e) => e.idx < 10);
   writeFileSync(join(before, "meta/_journal.json"), JSON.stringify(journal));
 
   pg = new PGlite();
@@ -37,6 +37,12 @@ beforeAll(async () => {
 
   // Rows as the old code wrote them.
   await pg.query("INSERT INTO packs (id, kind, title, theme) VALUES ('pk-p', 'practice', 'P', 'Mixed'), ('pk-d', 'daily', 'D', 'Fruit')");
+  // Scoring overrides (#64): one in the old (zoom-out) shape, one already timed.
+  await pg.query(
+    `INSERT INTO packs (id, kind, title, theme, scoring) VALUES
+       ('pk-old', 'practice', 'Old', 'Mixed', '{"basePoints": 100, "revealPenalty": 20}'),
+       ('pk-timed', 'practice', 'Timed', 'Mixed', '{"curve": 3}')`,
+  );
   await pg.query(
     `INSERT INTO puzzles (id, answer, image_url, focus_x, focus_y, zoom_levels, credit_source, credit_license)
      VALUES ('pz-1', 'Apple', 'a.jpg', 0.5, 0.5, '{4,2,1}', 'S', 'L')`,
@@ -62,7 +68,7 @@ beforeAll(async () => {
     finishedAt: practiceFinished.finished_at,
   };
 
-  // Now the rest, 0009 included.
+  // Now the rest, 0010 included.
   await migrate(db, { migrationsFolder });
 }, 60_000);
 
@@ -73,7 +79,7 @@ afterAll(async () => {
 
 const rows = async <T>(sql: string, params: unknown[] = []) => (await pg.query<T>(sql, params)).rows;
 
-describe("migration 0009 on tables that already have rows (#255)", () => {
+describe("migration 0010 on tables that already have rows (#255)", () => {
   it("keeps old finished rounds as they were, with no time", async () => {
     expect(
       await rows(
@@ -124,5 +130,12 @@ describe("migration 0009 on tables that already have rows (#255)", () => {
     expect(await finishedAt(ids.practiceFinished)).toEqual(ids.finishedAt);
     expect(await finishedAt(ids.dailyUnfinished)).toBeNull();
     expect((await rows<{ total: number }>("SELECT total FROM games WHERE id = $1", [ids.practiceFinished]))[0]!.total).toBe(80);
+  });
+
+  it("drops old-shape pack scoring overrides (they'd be logged as invalid on every start) and keeps timed ones", async () => {
+    expect(await rows("SELECT id, scoring FROM packs WHERE id IN ('pk-old', 'pk-timed') ORDER BY id")).toEqual([
+      { id: "pk-old", scoring: null },
+      { id: "pk-timed", scoring: { curve: 3 } },
+    ]);
   });
 });

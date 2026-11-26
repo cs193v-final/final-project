@@ -77,6 +77,21 @@ describe("parsePuzzle", () => {
     expect(fn).toThrow("must be one of: pixelate, spotlight, thermal, swirl, zoom, tiles");
   });
 
+  // Beat the AI by solve time (#257): when the AI solver first got it.
+  it.each([undefined, null])("leaves aiSolvedSeconds out when the data has %j (never got it, or not run yet)", (value) => {
+    expect(parsePuzzle(withField("aiSolvedSeconds", value))).not.toHaveProperty("aiSolvedSeconds");
+  });
+
+  it.each([0, 6.5, 25])("accepts aiSolvedSeconds %j", (seconds) => {
+    expect(parsePuzzle(withField("aiSolvedSeconds", seconds)).aiSolvedSeconds).toBe(seconds);
+  });
+
+  it.each([-0.5, Number.NaN, Number.POSITIVE_INFINITY, "6.5", true])("rejects aiSolvedSeconds %s", (seconds) => {
+    const fn = () => parsePuzzle(withField("aiSolvedSeconds", seconds));
+    expect(errorPath(fn)).toBe("puzzle.aiSolvedSeconds");
+    expect(fn).toThrow("must be null or a number of seconds, 0 or more");
+  });
+
   it.each(["pz-7c1e9a40", "pk_3f9c2a7e51d84b06", "a1"])("accepts the opaque id %j", (value) => {
     expect(parsePuzzle(withField("id", value)).id).toBe(value);
   });

@@ -7,8 +7,7 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
 import type { Puzzle } from "../../game/types.ts";
-import { cutLevels } from "../cut.ts";
-import { clipInput, createClassifier, createRejectCheck, solveLevels } from "./analyze.ts";
+import { clipInput, createClassifier, createRejectCheck, solveTimed } from "./analyze.ts";
 import { REJECT_THRESHOLD } from "./decide.ts";
 import { buildLabels } from "./labels.ts";
 import { loadClip, splitRows, unit } from "./model.ts";
@@ -56,12 +55,11 @@ describe.runIf(process.env.CLIP_SMOKE === "1")("CLIP on the practice photos", ()
     }
   });
 
-  it("solves each one at some view, playing on the game's own cut levels", { timeout: 300_000 }, async () => {
+  it("solves each one while its effect plays, before the round's clock runs out (#257)", { timeout: 300_000 }, async () => {
     const classifier = await createClassifier(await clip(), labels);
     for (const p of practice) {
-      const levels = await cutLevels(original(p), p.reveal);
-      const { aiSolvedLevel } = await solveLevels(classifier, levels.map((l) => l.bytes), p);
-      expect(aiSolvedLevel).not.toBeNull();
+      const { aiSolvedSeconds } = await solveTimed(classifier, original(p), p);
+      expect(aiSolvedSeconds, p.id).not.toBeNull();
     }
   });
 });

@@ -168,6 +168,10 @@ export const puzzles = pgTable(
     // How the photo is hidden while the round's clock runs (timed-reveal
     // redesign). NULL = not chosen yet.
     effect: puzzleEffect("effect"),
+    // Beat the AI by solve time (#257): seconds into the round when the AI
+    // first got it, watching the effect. NULL = it never did, or the solver
+    // hasn't run yet.
+    aiSolvedSeconds: doublePrecision("ai_solved_seconds"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -189,6 +193,13 @@ export const puzzles = pgTable(
     check(
       "puzzles_ai_solved_level_range",
       sql`${t.aiSolvedLevel} IS NULL OR (${t.aiSolvedLevel} >= 0 AND ${t.aiSolvedLevel} < cardinality(${t.zoomLevels}))`,
+    ),
+    // The loader's rule (`aiSolvedSeconds` in src/game/puzzles.ts): a finite
+    // number, 0 or more. `< 'Infinity'` also rejects NaN, which Postgres sorts
+    // above every number.
+    check(
+      "puzzles_ai_solved_seconds_range",
+      sql`${t.aiSolvedSeconds} IS NULL OR (${t.aiSolvedSeconds} >= 0 AND ${t.aiSolvedSeconds} < 'Infinity'::double precision)`,
     ),
   ],
 );

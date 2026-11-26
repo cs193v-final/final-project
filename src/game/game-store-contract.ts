@@ -118,6 +118,10 @@ export function describeGameStoreContract(name: string, setup: () => Promise<Gam
       const { store, alice, packId, missingId } = await setup();
       const ghost: StoredGame = { id: missingId, owner: alice, packId, revision: 0, state: state(packId) };
       await expect(store.save(ghost)).rejects.toBeInstanceOf(GameNotFoundError);
+      // Ids come from URLs: a malformed one is a missing game too, not a database error.
+      for (const id of ["not-a-game", ""]) {
+        await expect(store.save({ ...ghost, id })).rejects.toBeInstanceOf(GameNotFoundError);
+      }
     });
 
     it("returns copies: changing a returned record doesn't change the store", async () => {

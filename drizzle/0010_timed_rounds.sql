@@ -11,4 +11,8 @@ ALTER TABLE "game_rounds" ADD CONSTRAINT "game_rounds_timed_or_old" CHECK (("gam
 -- so they don't count toward the unfinished-games cap (#85) or get resumed.
 -- Their state stays as it is. Unfinished daily games are left alone: setting
 -- finished_at would put a part-played game on that day's leaderboard.
-UPDATE "games" SET "finished_at" = now(), "updated_at" = now() WHERE "finished_at" IS NULL AND "daily_date" IS NULL;
+UPDATE "games" SET "finished_at" = now(), "updated_at" = now() WHERE "finished_at" IS NULL AND "daily_date" IS NULL;--> statement-breakpoint
+-- A pack scoring override written for the old rules (it has `basePoints`)
+-- doesn't fit timed scoring and would be logged as invalid on every start.
+-- Drop it, so the pack uses the default timed scoring.
+UPDATE "packs" SET "scoring" = NULL WHERE "scoring" ? 'basePoints';

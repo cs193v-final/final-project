@@ -7,7 +7,9 @@
 // - Starting points: of a grid of focus points, the top 3 where CLIP fails at
 //   the first (tightest) view but gets it by the middle one.
 // - Beat the AI: the first view where CLIP's top guess is the answer is
-//   `aiSolvedLevel`, or `null` if it never is.
+//   `aiSolvedLevel`, or `null` if it never is. With timed rounds (#257) the
+//   views are the effect's frames at `solveTimes`, and the first one CLIP
+//   gets is `aiSolvedSeconds`.
 //
 // "CLIP's guess is the answer" (isAnswer) compares the label with the answer
 // and its alternates the way the game normalizes guesses (case, punctuation),
@@ -97,6 +99,28 @@ export function answerProbability(answer: Answer, ranking: Ranking): number {
 export function firstSolvedLevel(answer: Answer, levels: readonly Ranking[]): RevealLevel | null {
   const level = levels.findIndex((ranking) => solves(answer, ranking));
   return level === -1 ? null : level;
+}
+
+/** How often the solver looks while a puzzle's effect plays (#257): every half second of the round's clock. */
+export const SOLVE_STEP_SECONDS = 0.5;
+
+/**
+ * The times the Beat the AI solver looks at, in seconds after the round's
+ * clock starts: every `step` from 0 up to `revealSeconds`, when the photo is
+ * clear. `revealSeconds` is always the last one, even when `step` doesn't
+ * divide it.
+ */
+export function solveTimes(revealSeconds: number, step = SOLVE_STEP_SECONDS): number[] {
+  if (!Number.isFinite(revealSeconds) || revealSeconds <= 0) {
+    throw new RangeError(`solveTimes: revealSeconds must be more than 0, got ${revealSeconds}`);
+  }
+  if (!Number.isFinite(step) || step <= 0) throw new RangeError(`solveTimes: step must be more than 0, got ${step}`);
+  // Rounded to the microsecond, so a step like 0.1 gives 0.3, not 0.30000000000000004.
+  const at = (i: number) => Math.round(i * step * 1e6) / 1e6;
+  const times: number[] = [];
+  for (let i = 0; at(i) < revealSeconds; i++) times.push(at(i));
+  times.push(revealSeconds);
+  return times;
 }
 
 /** At full view, the answer is CLIP's top guess. Otherwise the photo is rejected. */

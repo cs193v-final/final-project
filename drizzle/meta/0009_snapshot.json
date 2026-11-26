@@ -1,5 +1,5 @@
 {
-  "id": "f7e445cb-74d3-486b-a295-7731293d5981",
+  "id": "64fe0d47-b9d6-4318-b0ee-d74f3d041172",
   "prevId": "8bb01062-dae7-4d9a-bfba-aa7831265a77",
   "version": "7",
   "dialect": "postgresql",
@@ -95,11 +95,11 @@
           "primaryKey": false,
           "notNull": true
         },
-        "seconds": {
-          "name": "seconds",
-          "type": "double precision",
+        "reveal_level_reached": {
+          "name": "reveal_level_reached",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "wrong_guesses": {
           "name": "wrong_guesses",
@@ -113,29 +113,23 @@
           "primaryKey": false,
           "notNull": true
         },
-        "reveal_level_reached": {
-          "name": "reveal_level_reached",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "base_points": {
           "name": "base_points",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "reveal_penalty": {
           "name": "reveal_penalty",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "wrong_guess_penalty": {
           "name": "wrong_guess_penalty",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "finished_at": {
           "name": "finished_at",
@@ -213,14 +207,6 @@
         "game_rounds_wrong_guesses_min": {
           "name": "game_rounds_wrong_guesses_min",
           "value": "\"game_rounds\".\"wrong_guesses\" >= 0"
-        },
-        "game_rounds_seconds_min": {
-          "name": "game_rounds_seconds_min",
-          "value": "\"game_rounds\".\"seconds\" >= 0"
-        },
-        "game_rounds_timed_or_old": {
-          "name": "game_rounds_timed_or_old",
-          "value": "(\"game_rounds\".\"seconds\" IS NOT NULL AND \"game_rounds\".\"reveal_level_reached\" IS NULL AND \"game_rounds\".\"base_points\" IS NULL AND \"game_rounds\".\"reveal_penalty\" IS NULL AND \"game_rounds\".\"wrong_guess_penalty\" IS NULL) OR (\"game_rounds\".\"seconds\" IS NULL AND \"game_rounds\".\"reveal_level_reached\" IS NOT NULL AND \"game_rounds\".\"base_points\" IS NOT NULL AND \"game_rounds\".\"reveal_penalty\" IS NOT NULL AND \"game_rounds\".\"wrong_guess_penalty\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
@@ -868,6 +854,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "ai_solved_seconds": {
+          "name": "ai_solved_seconds",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -897,6 +889,10 @@
         "puzzles_ai_solved_level_range": {
           "name": "puzzles_ai_solved_level_range",
           "value": "\"puzzles\".\"ai_solved_level\" IS NULL OR (\"puzzles\".\"ai_solved_level\" >= 0 AND \"puzzles\".\"ai_solved_level\" < cardinality(\"puzzles\".\"zoom_levels\"))"
+        },
+        "puzzles_ai_solved_seconds_range": {
+          "name": "puzzles_ai_solved_seconds_range",
+          "value": "\"puzzles\".\"ai_solved_seconds\" IS NULL OR (\"puzzles\".\"ai_solved_seconds\" >= 0 AND \"puzzles\".\"ai_solved_seconds\" < 'Infinity'::double precision)"
         }
       },
       "isRLSEnabled": false
@@ -1126,8 +1122,7 @@
       "schema": "public",
       "values": [
         "correct",
-        "skipped",
-        "timedOut"
+        "skipped"
       ]
     }
   },

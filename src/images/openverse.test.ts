@@ -1,7 +1,7 @@
 // Spec for the image picker's first step (#179): which Openverse results are
 // kept, how they're credited and named, and how the downloader behaves.
 // All HTTP is mocked; no test touches the network.
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,6 +12,7 @@ import {
   creditFor,
   fetchWithBackoff,
   findCandidates,
+  fingerprintDistance,
   licenseLabel,
   newPuzzleId,
   readCandidates,
@@ -120,6 +121,14 @@ describe("credits", () => {
   });
 });
 
+describe("fingerprintDistance", () => {
+  it("counts the bits that differ", () => {
+    expect(fingerprintDistance("0000000000000000", "0000000000000000")).toBe(0);
+    expect(fingerprintDistance("0000000000000000", "000000000000000f")).toBe(4);
+    expect(fingerprintDistance("ffffffffffffffff", "0000000000000000")).toBe(64);
+  });
+});
+
 describe("names", () => {
   it("names files with random pz- ids, like the content's", () => {
     const ids = new Set(Array.from({ length: 50 }, newPuzzleId));
@@ -177,8 +186,11 @@ describe("findCandidates", () => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  const jpeg = (width: number, height: number) =>
-    sharp({ create: { width, height, channels: 3, background: { r: 200, g: 40, b: 40 } } }).jpeg().toBuffer();
+  /** A photo with its own random blocky pattern, so no two calls look alike (the duplicate check). */
+  const jpeg = (width: number, height: number) => {
+    const small = Buffer.from(Array.from({ length: 16 * 10 * 3 }, () => Math.floor(Math.random() * 256)));
+    return sharp(small, { raw: { width: 16, height: 10, channels: 3 } }).resize(width, height, { kernel: "nearest" }).jpeg().toBuffer();
+  };
 
   /** A fake Openverse: search pages by answer, and image bytes by URL. */
   function fakeOpenverse(pages: Record<string, OpenverseImage[][]>, images: Record<string, Buffer>) {
@@ -216,7 +228,7 @@ describe("findCandidates", () => {
           [photo({ id: "b", url: "https://img.example/b.jpg", license: "cc0", license_version: "1.0" })],
         ],
       },
-      { "https://img.example/a.jpg": big, "https://img.example/b.jpg": big },
+      { "https://img.example/a.jpg": big, "https://img.example/b.jpg": await jpeg(3200, 2000) },
     );
     const opts = options(fetchFn);
     const { saved, skipped } = await findCandidates(opts);
@@ -257,7 +269,7 @@ describe("findCandidates", () => {
   it("adds to an earlier run without saving the same photo twice", async () => {
     const big = await jpeg(3200, 2000);
     const results = [[photo({ id: "a", url: "https://img.example/a.jpg" }), photo({ id: "b", url: "https://img.example/b.jpg" })]];
-    const { fetchFn } = fakeOpenverse({ "red thing": results }, { "https://img.example/a.jpg": big, "https://img.example/b.jpg": big });
+    const { fetchFn } = fakeOpenverse({ "red thing": results }, { "https://img.example/a.jpg": big, "https://img.example/b.jpg": await jpeg(3200, 2000) });
     const opts = options(fetchFn, { perAnswer: 1 });
     await findCandidates(opts);
     await findCandidates(opts);
@@ -270,6 +282,60 @@ describe("findCandidates", () => {
     await findCandidates(options(fetchFn, { sleep, pauseMs: 1500, maxPages: 3 }));
     expect(calls).toHaveLength(3);
     expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([1500, 1500]);
+  });
+
+  it("skips a copy of a photo already saved under another file, even resized or recompressed", async () => {
+    const original = await jpeg(4000, 2500);
+    const resized = await sharp(original).resize(3200, 2000).jpeg({ quality: 60 }).toBuffer();
+    const other = await jpeg(3200, 2000);
+    const { fetchFn } = fakeOpenverse(
+      {
+        "red thing": [
+          [
+            photo({ id: "orig", url: "https://img.example/orig.jpg" }),
+            photo({ id: "copy", url: "https://img.example/copy.jpg" }),
+            photo({ id: "other", url: "https://img.example/other.jpg" }),
+          ],
+        ],
+      },
+      { "https://img.example/orig.jpg": original, "https://img.example/copy.jpg": resized, "https://img.example/other.jpg": other },
+    );
+    const lines: string[] = [];
+    const opts = options(fetchFn, { perAnswer: 3, log: (line) => lines.push(line) });
+    const { saved, skipped } = await findCandidates(opts);
+    expect(saved.map((c) => c.openverseId)).toEqual(["orig", "other"]);
+    expect(skipped).toBe(1);
+    expect(lines.some((l) => /the same photo as pz-[0-9a-f]{8}\.jpg/u.test(l))).toBe(true);
+    expect(readdirSync(opts.outDir).filter((f) => f.endsWith(".jpg"))).toHaveLength(2);
+  });
+
+  it("keeps a different crop of the same photo", async () => {
+    const original = await jpeg(4000, 2500);
+    const crop = await sharp(original).extract({ left: 0, top: 0, width: 3200, height: 2000 }).resize(3200, 2000).jpeg().toBuffer();
+    const { fetchFn } = fakeOpenverse(
+      { "red thing": [[photo({ id: "orig", url: "https://img.example/orig.jpg" }), photo({ id: "crop", url: "https://img.example/crop.jpg" })]] },
+      { "https://img.example/orig.jpg": original, "https://img.example/crop.jpg": crop },
+    );
+    expect((await findCandidates(options(fetchFn))).saved.map((c) => c.openverseId)).toEqual(["orig", "crop"]);
+  });
+
+  it("also skips copies of photos saved by an older run without fingerprints", async () => {
+    const original = await jpeg(3200, 2000);
+    const first = fakeOpenverse({ "red thing": [[photo({ id: "orig", url: "https://img.example/orig.jpg" })]] }, { "https://img.example/orig.jpg": original });
+    const opts = options(first.fetchFn, { perAnswer: 1 });
+    await findCandidates(opts);
+    // Pretend an older version saved it: drop the fingerprint from the list.
+    const file = join(opts.outDir, "candidates.json");
+    const list = JSON.parse(readFileSync(file, "utf8"));
+    delete list[0].fingerprint;
+    writeFileSync(file, JSON.stringify(list));
+    const again = fakeOpenverse(
+      { "red thing": [[photo({ id: "reupload", url: "https://img.example/reupload.jpg" })]] },
+      { "https://img.example/reupload.jpg": await sharp(original).jpeg({ quality: 70 }).toBuffer() },
+    );
+    const { saved } = await findCandidates({ ...opts, fetch: again.fetchFn });
+    expect(saved).toEqual([]);
+    expect(readCandidates(opts.outDir)[0]!.fingerprint).toMatch(/^[0-9a-f]{16}$/u);
   });
 
   it("keeps the credits list valid JSON after every photo", async () => {

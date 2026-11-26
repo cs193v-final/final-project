@@ -5,10 +5,14 @@
 // A view is what a player sees at one level: the same pixels the game cuts
 // (levelCrop in src/game/levels.ts), fitted whole into CLIP's 224 × 224 square
 // with grey bars, the way the game's frame fits it, so CLIP sees all of it.
+// With timed rounds (#257), Beat the AI's views are the frames of the puzzle's
+// effect instead (src/game/effects), fitted the same way.
 
 import sharp from "sharp";
 
+import { createEffect, type EffectName } from "../../game/effects/index.ts";
 import { levelCrop, type ImageSize, type PixelRect } from "../../game/levels.ts";
+import { TIMED_SCORING_CONFIG } from "../../game/scoring-config.ts";
 import type { Puzzle, RevealLevel } from "../../game/types.ts";
 import { MAX_INPUT_PIXELS } from "../cut.ts";
 import {
@@ -20,7 +24,9 @@ import {
   rank,
   rejectProbability,
   rejectReasons,
+  SOLVE_STEP_SECONDS,
   solves,
+  solveTimes,
   suggestStartingPoints,
   type Answer,
   type Focus,
@@ -222,18 +228,83 @@ export async function analyzePhoto(
 }
 
 /**
- * Beat the AI (#66): CLIP plays a puzzle on its stored level images (what
- * players see), tightest first. `aiSolvedLevel` is the first view its top
- * guess is the answer, or `null` if it never is.
+ * The longer side, in pixels, of the frames the solver draws. The effects were
+ * tuned at this size in the team's prototype (#254); the round screen should
+ * draw at it too, so CLIP and players see the same frames.
  */
-export async function solveLevels(
+export const SOLVER_FRAME_SIZE = 600;
+
+/** The effect the game plays while a puzzle has none chosen (the game's `DEFAULT_EFFECT`, #255). */
+export const SOLVER_DEFAULT_EFFECT: EffectName = "pixelate";
+
+/** What CLIP made of one frame of a puzzle's effect. */
+export type StepResult = {
+  /** Seconds after the round's clock started. */
+  seconds: number;
+  /** Its five most likely labels. */
+  top: Guess[];
+  /** How likely it thinks the answer is. */
+  answerProbability: number;
+  /** Its top guess is the answer. */
+  solved: boolean;
+};
+
+export type SolveOptions = {
+  /** When the photo is clear: the frame at `t` is the effect at `t / revealSeconds`. Default: the game's (`TIMED_SCORING_CONFIG`). */
+  revealSeconds?: number;
+  /** Seconds between frames. Default `SOLVE_STEP_SECONDS` (0.5). */
+  step?: number;
+  /** Frames per call to CLIP. It stops after the first batch it solves. Default 10. */
+  batch?: number;
+};
+
+/** The puzzle fields the solver needs: what counts as right, and how its effect plays. */
+export type SolvablePuzzle = Answer & Pick<Puzzle, "id" | "reveal" | "effect">;
+
+/**
+ * Beat the AI by solve time (#257): CLIP watches `puzzle`'s effect clear up on
+ * `image` (what players see: a file path or encoded bytes), one frame every
+ * `step` seconds of the round's clock, drawn by the same code as the round
+ * screen. `aiSolvedSeconds` is the first time its top guess is the answer, or
+ * `null` if it never is, even once the photo is clear. `steps` has each frame
+ * CLIP looked at, up to the end of the batch that solved it.
+ */
+export async function solveTimed(
   classifier: Classifier,
-  levelImages: readonly (string | Uint8Array)[],
-  answer: Answer,
-): Promise<{ aiSolvedLevel: Puzzle["aiSolvedLevel"]; levels: LevelResult[] }> {
-  const rankings = await classifier.classify(await Promise.all(levelImages.map(clipInput)));
-  return {
-    aiSolvedLevel: firstSolvedLevel(answer, rankings),
-    levels: rankings.map((ranking, level) => levelResult(answer, level, ranking)),
-  };
+  image: string | Uint8Array,
+  puzzle: SolvablePuzzle,
+  { revealSeconds = TIMED_SCORING_CONFIG.revealSeconds, step = SOLVE_STEP_SECONDS, batch = 10 }: SolveOptions = {},
+): Promise<{ aiSolvedSeconds: number | null; steps: StepResult[] }> {
+  if (!Number.isInteger(batch) || batch < 1) throw new RangeError(`solveTimed: batch must be a whole number of at least 1, got ${batch}`);
+  const times = solveTimes(revealSeconds, step);
+  const { data, info } = await sharp(image, { limitInputPixels: MAX_INPUT_PIXELS })
+    .autoOrient()
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const scale = SOLVER_FRAME_SIZE / Math.max(info.width, info.height);
+  const raw = { width: Math.max(1, Math.round(info.width * scale)), height: Math.max(1, Math.round(info.height * scale)), channels: 4 as const };
+  const draw = createEffect(
+    puzzle.effect ?? SOLVER_DEFAULT_EFFECT,
+    { data, width: info.width, height: info.height },
+    { focus: puzzle.reveal.focus, seed: puzzle.id, size: { width: raw.width, height: raw.height } },
+  );
+
+  const steps: StepResult[] = [];
+  for (let start = 0; start < times.length; start += batch) {
+    const chunk = times.slice(start, start + batch);
+    const views = await Promise.all(chunk.map((seconds) => fit(sharp(draw(seconds / revealSeconds), { raw }))));
+    const rankings = await classifier.classify(views);
+    rankings.forEach((ranking, i) => {
+      steps.push({
+        seconds: chunk[i]!,
+        top: ranking.slice(0, 5),
+        answerProbability: answerProbability(puzzle, ranking),
+        solved: solves(puzzle, ranking),
+      });
+    });
+    const solved = steps.find((s) => s.solved);
+    if (solved !== undefined) return { aiSolvedSeconds: solved.seconds, steps };
+  }
+  return { aiSolvedSeconds: null, steps };
 }

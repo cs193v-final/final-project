@@ -31,6 +31,14 @@ export type Puzzle = {
    * and swirl centre on `reveal.focus`. Missing = not chosen yet.
    */
   effect?: PuzzleEffect;
+  /**
+   * Beat the AI by solve time (#257, PROPOSAL, added by Darian): seconds after
+   * the round's clock starts when the AI solver's top guess was first the
+   * answer, watching this puzzle's effect (`npm run db:solve-ai`). Missing =
+   * it never got it, or the solver hasn't run yet. Replaces `aiSolvedLevel`
+   * once rounds no longer have levels.
+   */
+  aiSolvedSeconds?: number;
 };
 
 /**
@@ -182,7 +190,7 @@ export type PublicRound = {
   seed: string;
   focus: { x: number; y: number }; // `Puzzle.reveal.focus`: where zoom, spotlight and swirl centre
   wrongGuesses: number; // counted, but they cost nothing
-  aiSolvedLevel: RevealLevel | null; // Darian (Beat the AI, #56); becomes a solve time in #257
+  aiSolvedLevel: RevealLevel | null; // Darian (Beat the AI, #56); TODO(#257): switch to `Puzzle.aiSolvedSeconds` (merged in #194)
   answer?: string; // only once the round is over (correct or timedOut)
   credit?: Puzzle["credit"]; // only once the round is over
 };

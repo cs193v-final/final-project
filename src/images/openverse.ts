@@ -73,7 +73,43 @@ export type Candidate = {
   credit: Credit;
   openverseId: string;
   title: string; // for the reviewer only; never used in a file name or shown to players
+  fingerprint?: string; // what the photo looks like (see `fingerprint`), to skip copies; older lists may lack it
 };
+
+/**
+ * Commons often has the same photo several times (re-uploads, other sizes, a
+ * lightly edited copy), under different files. Two photos whose fingerprints
+ * differ in at most this many of 64 bits count as the same photo. Measured on
+ * real candidates (Nov 26): an exact copy is 0, a different shot of the same
+ * subject by the same photographer, cropped and zoomed, is 26.
+ */
+export const DUPLICATE_DISTANCE = 8;
+
+/**
+ * A 64-bit "difference hash" of the photo as 16 hex digits: shrink it to 9×8
+ * grey pixels and record, for each row, whether each pixel is brighter than
+ * the next. Resizing, recompression and small colour edits barely change it;
+ * a different crop or shot changes it a lot.
+ */
+export async function fingerprint(input: Buffer | string): Promise<string> {
+  const px = await sharp(input).rotate().greyscale().resize(9, 8, { fit: "fill" }).raw().toBuffer();
+  let bits = 0n;
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) bits = (bits << 1n) | (px[y * 9 + x]! > px[y * 9 + x + 1]! ? 1n : 0n);
+  }
+  return bits.toString(16).padStart(16, "0");
+}
+
+/** How many of the 64 bits differ between two fingerprints. */
+export function fingerprintDistance(a: string, b: string): number {
+  let diff = BigInt(`0x${a}`) ^ BigInt(`0x${b}`);
+  let count = 0;
+  while (diff > 0n) {
+    count += Number(diff & 1n);
+    diff >>= 1n;
+  }
+  return count;
+}
 
 const isText = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
 
@@ -219,13 +255,23 @@ function writeCandidates(dir: string, list: Candidate[]) {
 /**
  * Searches each answer and saves up to `perAnswer` new photos per answer into
  * `outDir`, with their credits in `candidates.json` (added to what's already
- * there; a photo saved before is skipped). One request at a time.
+ * there). A photo saved before is skipped, and so is a copy of one under
+ * another file (`DUPLICATE_DISTANCE`). One request at a time.
  */
 export async function findCandidates(options: FindOptions): Promise<FindSummary> {
   const { outDir, perAnswer, minWidth, maxPages, sleep, pauseMs, log } = options;
   mkdirSync(outDir, { recursive: true });
   const list = readCandidates(outDir);
   const seen = new Set(list.map((c) => c.openverseId));
+  // Fingerprint photos saved by an older version of this script, once.
+  let added = false;
+  for (const c of list) {
+    if (c.fingerprint === undefined && existsSync(join(outDir, c.file))) {
+      c.fingerprint = await fingerprint(join(outDir, c.file));
+      added = true;
+    }
+  }
+  if (added) writeCandidates(outDir, list);
   const saved: Candidate[] = [];
   let skipped = 0;
   let first = true;
@@ -253,7 +299,7 @@ export async function findCandidates(options: FindOptions): Promise<FindSummary>
           skipped++;
           continue;
         }
-        const candidate = await download(image, answer, get, options);
+        const candidate = await download(image, answer, get, options, list);
         if (candidate === null) {
           skipped++;
           continue;
@@ -278,6 +324,7 @@ async function download(
   answer: string,
   get: (url: string) => Promise<Response>,
   { outDir, minWidth, log }: FindOptions,
+  saved: readonly Candidate[],
 ): Promise<Candidate | null> {
   const response = await get(image.url as string);
   if (!response.ok) {
@@ -312,6 +359,12 @@ async function download(
     log(`  skipped a photo: really ${width} px wide, under ${minWidth}`);
     return null;
   }
+  const print = await fingerprint(bytes);
+  const copyOf = saved.find((c) => c.fingerprint !== undefined && fingerprintDistance(c.fingerprint, print) <= DUPLICATE_DISTANCE);
+  if (copyOf !== undefined) {
+    log(`  skipped a photo: the same photo as ${copyOf.file}, already saved`);
+    return null;
+  }
   let id = newPuzzleId();
   while (existsSync(join(outDir, `${id}.${ext}`))) id = newPuzzleId();
   const file = `${id}.${ext}`;
@@ -325,5 +378,6 @@ async function download(
     credit: creditFor(image)!,
     openverseId: image.id as string,
     title: isText(image.title) ? image.title : "",
+    fingerprint: print,
   };
 }

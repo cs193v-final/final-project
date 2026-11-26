@@ -12,8 +12,10 @@ export const MAX_SCORING_VALUE = 1_000_000;
 
 /**
  * Throws if an old-style (zoom-out) config can't produce sensible scores.
- * Games no longer use this shape (#255 scores by time); per-pack overrides
- * (#64) use the timed fields too, so it's kept only for the How to play text.
+ * Games no longer use this shape (#255 scores by time), and neither do
+ * per-pack overrides (#64) or the How to play text: only `scoring.test.ts`
+ * still calls it. It goes, with `ScoringConfig` and `SCORING_CONFIG`, once
+ * nothing uses the old shape (`ScoringConfig` is Ethan's shared type).
  */
 export function validateScoringConfig(config: ScoringConfig): void {
   for (const [key, value] of Object.entries(config)) {

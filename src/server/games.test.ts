@@ -390,6 +390,107 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
   });
 });
 
+describe("untrusted requests (#54)", () => {
+  it("answers a malformed action the same for your game, someone else's and a missing one, and changes nothing", async () => {
+    const theirs = await started();
+    const theirJar = new Map(state.jar);
+    state.jar.clear();
+    const mine = await started();
+    const bad = { type: "score", points: 1000 };
+
+    const replies = [
+      await actOnGame(mine.gameId, bad, mine.revision),
+      await actOnGame(theirs.gameId, bad, theirs.revision),
+      await actOnGame("00000000-0000-4000-8000-000000000000", bad, 0),
+    ];
+    // Whatever the code is, it can't tell a prober whether a game id exists or whose it is.
+    expect(replies[1]).toEqual(replies[0]);
+    expect(replies[2]).toEqual(replies[0]);
+    expect(replies[0]).toMatchObject({ ok: false });
+
+    expect(await loadGame(mine.gameId)).toEqual({ ok: true, view: mine });
+    state.jar = theirJar;
+    expect(await loadGame(theirs.gameId)).toEqual({ ok: true, view: theirs });
+  });
+
+  it("without an owner cookie: `not-found`, no cookie is set, and nothing is written to the database", async () => {
+    const view = await started();
+    await pg.exec("DELETE FROM rate_limits;");
+    const games = async () => (await pg.query<{ n: number }>("SELECT count(*)::int AS n FROM games")).rows[0]!.n;
+    const before = await games();
+    state.jar.clear();
+
+    for (const id of [view.gameId, 42, null, { id: view.gameId }]) {
+      expect(await actOnGame(id, { type: "start" }, view.revision)).toEqual({ ok: false, error: "not-found" });
+      expect(await loadGame(id)).toEqual({ ok: false, error: "not-found" });
+    }
+    // Only starting a game hands out an owner cookie; moves and loads never do.
+    expect(state.jar.size).toBe(0);
+    expect((await pg.query("SELECT key FROM rate_limits")).rows).toEqual([]);
+    expect(await games()).toBe(before);
+  });
+
+  it("with an owner cookie, a game id that isn't a string is `not-found` for moves too", async () => {
+    const view = await started();
+    for (const id of [42, null, undefined, { id: view.gameId }, [view.gameId]]) {
+      expect(await actOnGame(id, { type: "start" }, view.revision)).toEqual({ ok: false, error: "not-found" });
+    }
+    expect(await loadGame(view.gameId)).toEqual({ ok: true, view });
+  });
+
+  it("applies a retried wrong guess (same revision, e.g. after a lost response) once, and answers the retry with `conflict`", async () => {
+    // The server's clock stands still, so the reload shows the same elapsed time.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-17T12:00:00Z") });
+    try {
+      const ready = await started();
+      const start = await actOnGame(ready.gameId, { type: "start" }, ready.revision);
+      if (!start.ok) throw new Error(start.error);
+      const view = start.view;
+      const guess = { type: "guess", guess: "zzz definitely wrong" };
+      const first = await actOnGame(view.gameId, guess, view.revision);
+      expect(first).toMatchObject({ ok: true, view: { round: { wrongGuesses: 1 } } });
+      expect(await actOnGame(view.gameId, guess, view.revision)).toEqual({ ok: false, error: "conflict" });
+      expect(await loadGame(view.gameId)).toEqual(first);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("what a finished practice game stores", () => {
+  it("keeps total and finished_at in step with the game, and writes no game_rounds rows (practice puzzles may not be seeded)", async () => {
+    const { SAMPLE_PUZZLES } = await import("@/puzzles");
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-17T12:00:00Z") });
+    let view = await started();
+    try {
+      const rounds = view.round!.puzzleCount;
+      for (let i = 0; i < rounds; i++) {
+        const puzzleId = PRACTICE_PACK.puzzleIds[i]!;
+        const answer = SAMPLE_PUZZLES.find((p) => p.id === puzzleId)!.answer;
+        await actNow(view.gameId, { type: "start" });
+        // Answer the first round and let the rest time out, so the total isn't just 0.
+        if (i === 0) await actNow(view.gameId, { type: "guess", guess: answer });
+        else vi.setSystemTime(Date.now() + (TIMED_SCORING_CONFIG.limitSeconds + 1) * 1000);
+        const next = await actNow(view.gameId, { type: "next" });
+        if (!next.ok) throw new Error(next.error);
+        view = next.view;
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(view.finished).toBe(true);
+    expect(view.results.map((r) => r.outcome)).toEqual(["correct", ...view.results.slice(1).map(() => "timedOut")]);
+    expect(view.total).toBeGreaterThan(0);
+
+    const { rows } = await pg.query<{ total: number; finished_at: Date | null }>(
+      "SELECT total, finished_at FROM games WHERE id = $1",
+      [view.gameId],
+    );
+    expect(rows).toEqual([{ total: view.total, finished_at: expect.any(Date) }]);
+    expect((await pg.query("SELECT 1 FROM game_rounds WHERE game_id = $1", [view.gameId])).rows).toEqual([]);
+  });
+});
+
 describe("rate limits through the game server functions (#85)", () => {
   const T0 = new Date("2026-11-17T12:00:00Z");
 
