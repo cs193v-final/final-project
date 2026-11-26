@@ -11,10 +11,15 @@ import {
   createRejectCheck,
   openPhoto,
   REJECT_PROMPTS,
-  solveLevels,
+  SOLVER_DEFAULT_EFFECT,
+  solveTimed,
+  type Classifier,
   type RejectCheck,
 } from "./analyze.ts";
+import { solveTimes } from "./decide.ts";
 import { CLIP_INPUT_SIZE, unit, type ClipModel, type RgbImage } from "./model.ts";
+import { TIMED_SCORING_CONFIG } from "../../game/scoring-config.ts";
+import type { PuzzleEffect } from "../../game/types.ts";
 
 // Dimensions of the fake embeddings: red, green, blue, nothing in particular, a person.
 const [R, G, B, N, P] = [0, 1, 2, 3, 4];
@@ -223,18 +228,93 @@ describe("analyzePhoto", () => {
   });
 });
 
-describe("solveLevels (Beat the AI)", () => {
-  it("gives the first stored level CLIP gets right as aiSolvedLevel", async () => {
-    const classifier = await createClassifier(fakeModel(), labels);
-    const levels = await Promise.all([GREEN, GREEN, RED, RED].map((colour) => plain(80, 60, colour, "webp")));
-    const { aiSolvedLevel, levels: results } = await solveLevels(classifier, levels, strawberry);
-    expect(aiSolvedLevel).toBe(2);
-    expect(results.map((r) => r.solved)).toEqual([false, false, true, true]);
+describe("solveTimed (Beat the AI by solve time, #257)", () => {
+  // "plain" is what a hidden frame (grey tiles, darkness) looks like to the fake.
+  const solveLabels = ["plain", "Strawberry", "grass"];
+  const solvable = (effect?: PuzzleEffect, id = "pz-berry") => ({
+    ...strawberry,
+    id,
+    reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [8, 4, 2, 1] },
+    ...(effect === undefined ? {} : { effect }),
+  });
+  /** A classifier that keeps every frame it's shown. */
+  async function recording() {
+    const inner = await createClassifier(fakeModel(), solveLabels);
+    const seen: RgbImage[] = [];
+    const calls: number[] = [];
+    const classifier: Classifier = {
+      labels: inner.labels,
+      classify: async (images) => {
+        seen.push(...images);
+        calls.push(images.length);
+        return inner.classify(images);
+      },
+    };
+    return { classifier, seen, calls };
+  }
+
+  it("watches the effect clear and gives the first half second CLIP gets it as aiSolvedSeconds", async () => {
+    const { classifier } = await recording();
+    const { aiSolvedSeconds, steps } = await solveTimed(classifier, await plain(400, 300, RED), solvable("tiles"));
+    expect(aiSolvedSeconds).toBeGreaterThan(0); // every tile is shut at the start
+    expect(aiSolvedSeconds).toBeLessThan(TIMED_SCORING_CONFIG.revealSeconds);
+    expect(steps.map((s) => s.seconds)).toEqual(solveTimes(TIMED_SCORING_CONFIG.revealSeconds).slice(0, steps.length));
+    const first = steps.findIndex((s) => s.solved);
+    expect(steps[first]!.seconds).toBe(aiSolvedSeconds);
+    expect(steps.slice(0, first).map((s) => s.top[0]!.label)).toEqual(Array(first).fill("plain"));
+    expect(steps[0]!.answerProbability).toBeLessThan(steps[first]!.answerProbability);
   });
 
-  it("gives null when CLIP never gets it", async () => {
-    const classifier = await createClassifier(fakeModel(), labels);
-    const levels = await Promise.all([GREEN, GREEN, BLUE].map((colour) => plain(80, 60, colour, "webp")));
-    expect((await solveLevels(classifier, levels, strawberry)).aiSolvedLevel).toBeNull();
+  it("is null when CLIP never gets it, after looking every half second up to the clear photo", async () => {
+    const { classifier, calls } = await recording();
+    const { aiSolvedSeconds, steps } = await solveTimed(classifier, await plain(400, 300, GREEN), solvable("spotlight"));
+    expect(aiSolvedSeconds).toBeNull();
+    expect(steps.map((s) => s.seconds)).toEqual(solveTimes(25));
+    expect(steps.at(-1)!.top[0]!.label).toBe("grass"); // the clear photo
+    expect(calls).toEqual([10, 10, 10, 10, 10, 1]);
+  });
+
+  it("stops after the batch that solves it", async () => {
+    const { classifier, calls } = await recording();
+    // Pixelated red is still red: solved on the first frame.
+    const { aiSolvedSeconds, steps } = await solveTimed(classifier, await plain(400, 300, RED), solvable("pixelate"), { batch: 4 });
+    expect(aiSolvedSeconds).toBe(0);
+    expect(steps.map((s) => s.seconds)).toEqual([0, 0.5, 1, 1.5]);
+    expect(calls).toEqual([4]);
+  });
+
+  it("plays pixelate, the game's default, when the puzzle has no effect yet", async () => {
+    const photo = await strawberryOnGrass();
+    const frames = async (effect?: PuzzleEffect) => {
+      const { classifier, seen } = await recording();
+      await solveTimed(classifier, photo, solvable(effect), { revealSeconds: 2, step: 1, batch: 1 });
+      return seen.map((v) => v.data);
+    };
+    expect(SOLVER_DEFAULT_EFFECT).toBe("pixelate");
+    const none = await frames();
+    expect(none).toEqual(await frames("pixelate"));
+    expect(none).not.toEqual(await frames("tiles"));
+  });
+
+  it("seeds the effect with the puzzle's id, so the AI sees the same reveal as every player", async () => {
+    const photo = await strawberryOnGrass();
+    const frameAt1s = async (id: string) => {
+      const { classifier, seen } = await recording();
+      await solveTimed(classifier, photo, solvable("tiles", id), { revealSeconds: 2, step: 1, batch: 3 });
+      return seen[1]!.data;
+    };
+    expect(await frameAt1s("pz-berry")).toEqual(await frameAt1s("pz-berry"));
+    expect(await frameAt1s("pz-berry")).not.toEqual(await frameAt1s("pz-other"));
+  });
+
+  it("fits each frame into CLIP's square, like any view", async () => {
+    const { classifier, seen } = await recording();
+    await solveTimed(classifier, await plain(80, 60, GREEN), solvable("zoom"), { revealSeconds: 1, step: 1 });
+    expect(seen.map(({ width, height }) => [width, height])).toEqual([[CLIP_INPUT_SIZE, CLIP_INPUT_SIZE], [CLIP_INPUT_SIZE, CLIP_INPUT_SIZE]]);
+  });
+
+  it.each([0, 1.5, -1])("refuses a batch of %j", async (batch) => {
+    const { classifier } = await recording();
+    await expect(solveTimed(classifier, await plain(40, 30, RED), solvable("tiles"), { batch })).rejects.toThrow(RangeError);
   });
 });

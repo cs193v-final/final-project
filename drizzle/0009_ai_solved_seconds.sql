@@ -1,0 +1,2 @@
+ALTER TABLE "puzzles" ADD COLUMN "ai_solved_seconds" double precision;--> statement-breakpoint
+ALTER TABLE "puzzles" ADD CONSTRAINT "puzzles_ai_solved_seconds_range" CHECK ("puzzles"."ai_solved_seconds" IS NULL OR ("puzzles"."ai_solved_seconds" >= 0 AND "puzzles"."ai_solved_seconds" < 'Infinity'::double precision));
