@@ -29,6 +29,21 @@ describe("normalizeGuess", () => {
     expect(normalizeGuess("café")).not.toBe("cafe");
   });
 
+  it("removes invisible characters, so a guess that looks right is right", () => {
+    // Zero-width space, soft hyphen, zero-width (non-)joiner, word joiner,
+    // left-to-right and right-to-left marks: NFKC keeps them all.
+    for (const invisible of ["\u200B", "\u00AD", "\u200C", "\u200D", "\u2060", "\u200E", "\u200F"]) {
+      expect(normalizeGuess(`Ov${invisible}al`)).toBe("oval");
+      expect(normalizeGuess(`${invisible}Oval${invisible}`)).toBe("oval");
+      expect(checkGuess({ answer: "Oval", acceptedAnswers: [] }, `Ov${invisible}al`)).toEqual({
+        kind: "correct",
+        matched: "Oval",
+      });
+    }
+    expect(normalizeGuess("Big\u200B Ben")).toBe("big ben");
+    expect(normalizeGuess("\u200B")).toBe("");
+  });
+
   it("returns an empty string for blank input", () => {
     expect(normalizeGuess("   \t\n ")).toBe("");
   });

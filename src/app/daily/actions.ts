@@ -8,6 +8,7 @@
 
 import type { DailyStats } from "@/game/daily-result";
 import { loadDailyStats, startTodaysDaily, type DailyStartResult } from "@/server/daily";
+import { errorSummary } from "@/server/error-summary";
 
 /** Start the daily for `date` (the day the intro showed), or resume the player's game for it. */
 export async function startDailyAction(date: unknown): Promise<DailyStartResult> {
@@ -23,7 +24,8 @@ export async function dailyStatsAction(date: unknown): Promise<DailyStats | null
   try {
     return await loadDailyStats(date);
   } catch (error) {
-    console.error("Couldn't load the daily stats", error);
+    // One line without the query's parameters (the owner's id or hash, #60).
+    console.error(`Couldn't load the daily stats: ${errorSummary(error)}`);
     return null;
   }
 }

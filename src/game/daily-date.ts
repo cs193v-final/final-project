@@ -10,18 +10,16 @@
  * there is no time zone or daylight-saving change involved.
  *
  * How to use these:
- * - The daily challenge (#58) should call dailyDateFor(new Date()) to pick
- *   today's pack.
- * - Streaks (the rest of #63), PLANNED: the played day should be the
- *   challenge's date, stored on the game when it starts, not recomputed from
- *   timestamps. Then a game started at 23:59 and finished at 00:01 counts for
+ * - The daily challenge (#58) calls dailyDateFor (through `dailyDateAt` in
+ *   src/server/daily.ts) to pick today's pack, and stores that date on the
+ *   game when it starts (`games.daily_date`, migration 0005).
+ * - Streaks (#63) count those stored dates, not dates recomputed from
+ *   timestamps. So a game started at 23:59 and finished at 00:01 counts for
  *   the challenge actually played, and changing the reset time later doesn't
- *   rewrite past days or break existing streaks. That needs a
- *   `games.daily_date` column with a unique index per owner (follow-up B in
- *   the #74 review, planned with #58); `games` has no such column yet. Until
- *   it exists, don't derive played days by joining games.pack_id to
- *   daily_schedule.pack_id: a pack scheduled on more than one day would
- *   inflate streaks.
+ *   rewrite past days or break existing streaks. Played days are never
+ *   derived by joining games.pack_id to daily_schedule.pack_id: a pack
+ *   scheduled on more than one day would inflate streaks. See
+ *   src/db/streaks.ts and ./streak.ts.
  */
 
 export type DailyResetConfig = {
@@ -34,7 +32,7 @@ export type DailyResetConfig = {
 /**
  * When a new daily challenge starts: midnight in Los Angeles (decided in #58,
  * "Daily reset time" in PROJECT_BRIEF.md). This is the one place to change it:
- * it's dailyDateFor's default, and the daily (#58) uses it; streaks (#63) and
+ * it's dailyDateFor's default, and the daily (#58) and streaks (#63) use it;
  * the leaderboard (#62) should too. Frozen, so no caller can change it for the others.
  */
 export const DEFAULT_DAILY_RESET: Readonly<DailyResetConfig> = Object.freeze({

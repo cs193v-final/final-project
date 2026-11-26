@@ -95,12 +95,7 @@ export async function requestIpHash(): Promise<string | null> {
 
 /**
  * Start a practice game for the current owner, creating the owner cookie if
- * needed. Rate-limited per owner and per IP (#85). Reuses a game instead of
- * creating a row when the owner has one nobody has played yet (a refresh of
- * /play, a second "Start practice"), or already has
- * `MAX_UNFINISHED_GAMES_PER_PACK` unfinished practice games (then the latest
- * one that can be read is resumed). The cap is per pack, so other packs' games never block
- * practice, and at the cap there is always a game of this pack to resume.
+ * needed. Rate-limited per owner and per IP (#85); see `startOrReuseGame`.
  */
 export async function startPracticeGame(): Promise<GameResult> {
   await connection(); // request time before `new Date()`; see loadGame (#169)
@@ -109,24 +104,27 @@ export async function startPracticeGame(): Promise<GameResult> {
     const db = getDb();
     await checkStartLimits(db, owner, await requestIpHash(), new Date());
     await ensurePracticePack(db);
-    // The pack's stored scoring (#64), read only if a new game is started and
-    // kept in the game's state, so changing it only affects games started afterwards.
-    return startOrResumePack(db, owner, PRACTICE_PACK, () => getScoringConfig(PRACTICE_PACK.id));
+    // The pack's stored scoring (#64), read once here and kept in the game's
+    // state, so changing it only affects games started afterwards.
+    return startOrReuseGame(db, owner, PRACTICE_PACK, () => getScoringConfig(PRACTICE_PACK.id));
   });
 }
 
 /**
- * Start a game of `pack` for `owner`, or reuse one (#85): the owner's
- * untouched game of this pack if there is one, or at
- * `MAX_UNFINISHED_GAMES_PER_PACK` their most recently played one that can be
- * read. Practice and lobbies (#67) both start this way. Rate limits are the
- * caller's job.
+ * Start a game of `pack` for `owner`, after the start limits were checked.
+ * Reuses a game instead of creating a row when the owner has one of this pack
+ * nobody has played yet (a refresh, a second "Start"), or already has
+ * `MAX_UNFINISHED_GAMES_PER_PACK` unfinished games of it (then the latest one
+ * that can be read is resumed). The cap is per pack, so other packs' games never block this
+ * one, and at the cap there is always a game of this pack to resume.
+ * `scoring` is only read when a new game is created. Used by practice,
+ * Stanford mode (#65) and lobbies (#67); the daily has its own one-game-per-day rule.
  */
-export async function startOrResumePack(
+export async function startOrReuseGame(
   db: Db,
   owner: GameOwner,
   pack: Pack,
-  scoring: () => Promise<ScoringConfig>,
+  scoring: () => Promise<ScoringConfig> | ScoringConfig,
 ): Promise<GameView> {
   const unfinished = await findUnfinishedGames(db, owner, pack.id, MAX_UNFINISHED_GAMES_PER_PACK);
   const atCap = unfinished.count >= MAX_UNFINISHED_GAMES_PER_PACK;

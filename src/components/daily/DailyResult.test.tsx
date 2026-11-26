@@ -157,3 +157,29 @@ describe("DailyResult", () => {
     setInterval.mockRestore();
   });
 });
+
+describe("DailyResult streak (#63)", () => {
+  it("shows the player's streak with today counted, before the buttons", async () => {
+    setup({ streak: { current: 3, longest: 5, playedToday: true } });
+    const note = screen.getByRole("region", { name: "Daily streak" });
+    expect(note).toHaveTextContent("Daily streak: 3 days. Come back tomorrow to make it 4. Your best is 5 days.");
+    // Above Share, so it's seen without scrolling past the stats.
+    const share = screen.getByRole("button", { name: "Share result" });
+    expect(note.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await screen.findByText(/Overall you did better than/u);
+  });
+
+  it("asks a logged-out player to log in for a streak", async () => {
+    setup({ streak: null });
+    expect(screen.queryByRole("region", { name: "Daily streak" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/login?next=%2Fdaily");
+    await screen.findByText(/Overall you did better than/u);
+  });
+
+  it("leaves the streak out when it couldn't be loaded", async () => {
+    setup();
+    expect(screen.queryByRole("region", { name: "Daily streak" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/daily streak/iu)).not.toBeInTheDocument();
+    await screen.findByText(/Overall you did better than/u);
+  });
+});

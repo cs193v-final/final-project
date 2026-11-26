@@ -45,6 +45,7 @@ export function FinalScore({
   beatAi,
   onPlayAgain,
   after,
+  title = "Practice complete",
   config = SCORING_CONFIG,
 }: {
   puzzles: readonly Pick<Puzzle, "id" | "answer">[];
@@ -54,6 +55,8 @@ export function FinalScore({
   /** Omit for a game you can't replay (the daily, #58); show `after` instead. */
   onPlayAgain?: () => void;
   after?: ReactNode;
+  /** The heading, e.g. "Stanford complete" (#65). */
+  title?: string;
   config?: ScoringConfig;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -71,7 +74,7 @@ export function FinalScore({
     <section aria-labelledby="final-score" className="flex w-full max-w-md flex-col items-center gap-6 text-center">
       <div className="flex flex-col items-center gap-1">
         <h2 id="final-score" ref={heading} tabIndex={-1} className="text-2xl font-semibold outline-none">
-          Practice complete
+          {title}
         </h2>
         <p className="text-lg">
           You scored <strong className="text-3xl font-semibold">{score.total}</strong> out of {max}

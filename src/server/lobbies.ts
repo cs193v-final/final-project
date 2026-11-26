@@ -53,7 +53,7 @@ import {
 import { errorForLog } from "@/game/log-safe";
 import { GameNotFoundError } from "@/game/server-game";
 
-import { requestIpHash, startOrResumePack } from "./games";
+import { requestIpHash, startOrReuseGame } from "./games";
 import { checkLobbyLimits, checkStartLimits, LOBBY_CAPS, ownerKey } from "./limits";
 import { cutLobbyLevels, MAX_UPLOAD_BYTES, reencodeUpload, UploadRefusedError } from "./lobby-images";
 import { currentOrNewOwner, currentOwner } from "./owner";
@@ -249,7 +249,7 @@ export async function startLobbyGame(code: unknown, now = new Date()): Promise<G
       throw error;
     }
     await checkStartLimits(db, owner, await requestIpHash(), now);
-    return startOrResumePack(db, owner, lobbyPack(lobby), () => getScoringConfig(lobby.packId));
+    return startOrReuseGame(db, owner, lobbyPack(lobby), () => getScoringConfig(lobby.packId));
   });
 }
 
