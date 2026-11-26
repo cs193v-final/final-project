@@ -25,7 +25,21 @@ export type Puzzle = {
   };
   credit: { source: string; license: string; url?: string }; // image source + usage permission
   aiSolvedLevel: RevealLevel | null; // first reveal level the AI solved it at (#56); null = never, or not run yet
+  /**
+   * Timed-reveal redesign (PROPOSAL): how this photo is hidden while the
+   * round's clock runs, chosen per puzzle to suit the photo. Zoom, spotlight
+   * and swirl centre on `reveal.focus`. Missing = not chosen yet.
+   */
+  effect?: PuzzleEffect;
 };
+
+/**
+ * Owner: Joseph. PROPOSAL (timed-reveal redesign). The ways a photo can be
+ * hidden at the start of a round; each clears up as the clock runs. The
+ * effects themselves are drawn by the round screen. `EFFECTS` in
+ * `puzzles.ts` lists them for the parser and the database check.
+ */
+export type PuzzleEffect = "pixelate" | "spotlight" | "thermal" | "swirl" | "zoom" | "tiles";
 
 /**
  * Owner: Darian. An integer from 0 (tightest crop) to
