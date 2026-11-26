@@ -181,6 +181,12 @@ export type GameView = {
   lastOutcome?: GuessOutcome;
   results: RoundResult[]; // finished rounds so far, scored on the server
   total: number;
+  /**
+   * The scoring config this game plays with (#174): the pack's, as it was
+   * when the game started (#64). The UI shows these values, not the default
+   * `SCORING_CONFIG`. Not a secret: it holds no answers.
+   */
+  scoring: ScoringConfig;
   finished: boolean;
   /**
    * Once the whole game is finished (never while a round is played, #54): each

@@ -245,6 +245,7 @@ export function PracticeGame({
           puzzles={finalScoreLabels(view, answers)}
           score={{ rounds: view.results, total: view.total }}
           beatAi={view.beatAi}
+          config={view.scoring}
           {...(replay ? { onPlayAgain: () => void newGame() } : {})}
           {...(finishedTitle === undefined ? {} : { title: finishedTitle })}
           after={typeof afterFinish === "function" ? afterFinish(view) : afterFinish}
@@ -283,7 +284,7 @@ export function PracticeGame({
         ) : round.credit ? (
           <Credit credit={round.credit} />
         ) : null}
-        <RoundValue round={roundView} result={roundResult} pointsNow={round.pointsAvailable} />
+        <RoundValue round={roundView} result={roundResult} pointsNow={round.pointsAvailable} config={view.scoring} />
         <AiBadge round={round} result={roundResult} />
       </div>
 
