@@ -5,11 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loginAction, registerAction } from "./actions";
 
-const { redirect, setSessionCookie, discardSession, login, register } = vi.hoisted(() => ({
+const { redirect, setSessionCookie, setDeviceCookie, discardSession, login, register } = vi.hoisted(() => ({
   redirect: vi.fn((url: string) => {
     throw Object.assign(new Error("NEXT_REDIRECT"), { url });
   }),
   setSessionCookie: vi.fn<(token: string, expiresAt: Date) => Promise<void>>(async () => {}),
+  setDeviceCookie: vi.fn<(token: string, now: Date) => Promise<void>>(async () => {}),
   discardSession: vi.fn<(token: string) => Promise<void>>(async () => {}),
   login: vi.fn(),
   register: vi.fn(),
@@ -22,11 +23,13 @@ vi.mock("@/db", () => ({ getDb: () => ({}) }));
 vi.mock("@/auth/session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/auth/session")>()),
   setSessionCookie,
+  setDeviceCookie,
   discardSession,
   endSession: vi.fn(async () => {}),
   requestIp: async () => "203.0.113.7",
+  requestDeviceToken: async () => "device-from-cookie",
 }));
-vi.mock("@/auth/accounts", () => ({ login, register }));
+vi.mock("@/auth/accounts", () => ({ DEVICE_TOKEN_DAYS: 365, login, register }));
 
 const form = (username: string, password: string, next?: string) => {
   const data = new FormData();
@@ -39,6 +42,7 @@ const OK = {
   ok: true,
   user: { id: "u1", username: "ethan" },
   session: { token: "t", expiresAt: new Date("2026-12-17T00:00:00Z") },
+  device: "new-device-token",
 };
 const ACTIONS = [
   ["login", loginAction, login, "login"],
@@ -51,6 +55,8 @@ beforeEach(() => {
   redirect.mockClear();
   setSessionCookie.mockReset();
   setSessionCookie.mockImplementation(async () => {});
+  setDeviceCookie.mockReset();
+  setDeviceCookie.mockImplementation(async () => {});
   discardSession.mockClear();
   // A failed test can leave a mockResolvedValueOnce unused; don't let it leak.
   login.mockReset();
@@ -65,6 +71,21 @@ describe("after a successful sign-up or login", () => {
     await expect(action(undefined, form("ethan", "correct horse"))).rejects.toThrow("NEXT_REDIRECT");
     expect(setSessionCookie).toHaveBeenCalledWith("t", OK.session.expiresAt);
     expect(redirect).toHaveBeenCalledWith(`/?welcome=${welcome}`);
+  });
+
+  it.each(ACTIONS)("%s passes the browser's device cookie in and sets the new one (#151)", async (_name, action, run) => {
+    run.mockResolvedValueOnce(OK);
+    await expect(action(undefined, form("ethan", "correct horse"))).rejects.toThrow("NEXT_REDIRECT");
+    expect(run).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ device: "device-from-cookie" }));
+    expect(setDeviceCookie).toHaveBeenCalledWith("new-device-token", expect.any(Date));
+  });
+
+  it.each(ACTIONS)("%s still logs in when the device cookie can't be set, and logs why without the token", async (_name, action, run) => {
+    run.mockResolvedValueOnce(OK);
+    setDeviceCookie.mockRejectedValueOnce(new Error("cookies are read-only here"));
+    await expect(action(undefined, form("ethan", "correct horse"))).rejects.toThrow("NEXT_REDIRECT");
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("device cookie"));
+    expect(String(consoleError.mock.calls)).not.toContain("new-device-token");
   });
 
   it.each(ACTIONS)("%s goes back to a page on this site from ?next= (#134)", async (_name, action, run, welcome) => {

@@ -9,19 +9,16 @@ Rules for any coding agent working in this repo. Keep this file short. Project c
 
 ## Stack (decided in #9)
 - **Next.js 16** (App Router, `src/` directory, Turbopack) + **React 19** + **TypeScript 5.9** (strict, plus `noUncheckedIndexedAccess`).
-- **Tailwind CSS 4** for styling. **ESLint 9** with `eslint-config-next` (core-web-vitals + typescript).
-- **Vitest** for unit tests. Hosted on **Vercel** (`vercel.json` sets the Next.js preset; Node.js runtime, the default; don't add `runtime = 'edge'`). Database: **Neon Postgres**, see `README.md`.
-- Scaffolded with `npx create-next-app@16.4.6 --ts --eslint --tailwind --app --src-dir --import-alias "@/*" --use-npm --turbopack`, then merged by hand. TypeScript is pinned to 5.9 to match Next 16, and `typecheck` runs `next typegen` first, because route types like `LayoutProps` are generated. `next-env.d.ts` and `.next/` are git-ignored.
-- Next 16 differs from older versions (async `params`/`cookies()`, `proxy.ts` instead of `middleware.ts`, Cache Components). Read the bundled docs below before writing Next code.
+- **Tailwind CSS 4**, **ESLint 9**, **Vitest**. Hosted on **Vercel** (Node.js runtime; don't add `runtime = 'edge'`). Database: **Neon Postgres**, see `README.md`.
+- TypeScript is pinned to 5.9 to match Next 16. `typecheck` runs `next typegen` first, because route types like `LayoutProps` are generated.
 
 ## Layout
-- `src/app/`: routes (App Router). `page.tsx` is currently a **placeholder** home page.
 - `src/game/`: framework-independent game logic (types, guess checking, round state). No React or Next imports here, so it stays unit-testable. Tests sit next to the code as `*.test.ts`.
 - `src/components/`: React components (`src/components/game/` for game UI). Mark files that use state or events with `"use client"`.
 - `src/images/`: cutting puzzle images into one image per zoom level (`sharp`, #57), and CLIP for the image picker and Beat the AI (`src/images/clip/`, #56). Scripts only: never import it from app code. The app serves already-cut levels from `/img/<id>.webp`. CLIP's dependencies install separately into `tools/clip/` (`npm run clip:install`), so the app's install stays small.
 - `public/`: static files. Only the practice pack's images go here; daily and Stanford images never do (the repo is public).
-- **Tests:** Vitest. Logic tests run in Node. Component tests use React Testing Library and start with `// @vitest-environment jsdom`; jest-dom matchers (`toHaveFocus`, ...) are set up in `src/test/setup.ts`. Query by role and label, like a user would.
-- **End-to-end tests:** Playwright specs in `e2e/` play the real app in headless Chromium, on a desktop and a phone viewport (`playwright.config.ts`). Take answers and points from the puzzle data and `SCORING_CONFIG`, not hard-coded values. `@playwright/test` is pinned to the course container's `playwright --version`, whose Chromium is preinstalled, so don't run `playwright install` there. On your own computer, run `npx playwright install chromium` once.
+- **Tests:** logic tests run in Node. Component tests start with `// @vitest-environment jsdom` and use React Testing Library, with jest-dom matchers from `src/test/setup.ts`. Query by role and label, like a user would.
+- **End-to-end tests:** Playwright specs in `e2e/` play the real app in headless Chromium, on a desktop and a phone viewport (`playwright.config.ts`). Take answers and points from the puzzle data and `SCORING_CONFIG`, not hard-coded values. Don't run `playwright install` in the course container.
 - Import from `src` with the `@/` alias (`@/game/guess`).
 - **User-test notes** go in `user-tests/`, one file per feature, with no tester names (#98).
 
@@ -40,14 +37,35 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - One issue per branch and PR. Put `Closes #<n>` in the PR body.
 - Never force-push a branch someone else is working on, and never rewrite `main` history.
 - Keep changes focused. Don't reformat or refactor unrelated files.
+- Run lint, typecheck and tests before opening a PR.
 
 ## Issues, PRs and tests (TA feedback, Checkpoint 1)
 - **Every issue** has at least one **assignee** (a specific person, tagged by GitHub handle) and exactly one **`priority: high|medium|low`** label.
-- **Big PRs need an assignee** besides the author: shared interfaces, new dependencies, CI/config, database schema, or many files. Assign at least one teammate and request their review.
 - **Tests are the spec.** New logic ships with tests that describe what it should do. A PR that changes behavior updates or adds tests.
+
+## Code review
+- Review only when requested or assigned. One reviewer owns approval.
+- Review with `/review-pr <PR number> [last reviewed SHA]`; don't review by hand-written prompt.
+- Read existing reviews and threads; don't repeat resolved points.
+- Do one full review, then review only changes since the last reviewed SHA.
+- Reply in existing threads; post at most one summary per round.
+- Label findings blocking or nit. Nits never block approval or trigger re-review. Put nits in the review summary, not inline: `main` won't merge while a review thread is unresolved.
+- Approve once blockers are resolved and CI passes. Keep re-approvals brief.
+- Don't merge `main` into a branch unless GitHub reports a conflict (`mergeStateStatus` is `DIRTY`). Every push dismisses the approval, so batch fixes into one push.
+- If a third review round seems necessary, stop and ask the people involved.
+- To ask for a follow-up review, write "check changes since `<sha>`" with the commit ID of the last review.
+- **Who reviews:** the author picks the owner of the area the PR touches (see the brief), or any teammate if that's the author. Shared-interface changes go to that interface's owner.
+- **Still reviewed carefully**, line by line and on follow-ups too: security, database/schema and migrations, dependencies, CI/config, and anything that reads or writes user data.
+- **Database oversight:** Jacky (`Hombobow`), the database owner, reviews database, migration and user-data PRs (`src/db/`, `drizzle/`, `src/auth/`, `src/crypto/`, database scripts); Joseph reviews Jacky's own. A PR that adds or changes a user field also asks Ethan (`ethanyng`), who owns encryption: the one exception to "one reviewer".
+- **Merging:** through the merge queue (**Merge when ready**; `gh pr merge` fails here), which tests each PR against the latest `main`.
 
 ## Docs people write (Checkpoint 2)
 - **Never create, draft or edit `SECRETS.md`, `ENCRYPTION.md` or `COST-CONTROLS.md`.** The course requires them to be written by a person.
+
+## Shared docs
+- **Feature PRs don't edit `TECHNICAL.md` or `README.md`.** Add a "Docs to update" line to the PR description instead (e.g. "TECHNICAL.md → Tools and services: added `sharp` for cutting level images").
+- Darian collects them into one docs PR twice a week and before each deadline; it's the only PR that edits `TECHNICAL.md`.
+- Exception: a PR that changes setup steps (new env var or command) may update them in `README.md`, so teammates' setups don't break.
 
 ## Secrets
 - Real values go **only** in `.env.local` (git-ignored). Never put real values in `.env.example`, code, docs or commits.
@@ -55,11 +73,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Never bypass the hooks with `--no-verify`.
 - **Data stays server-side.** Only server code (Route Handlers, Server Actions, Server Components) talks to the database. Never give a database variable a `NEXT_PUBLIC_` prefix, and never send stored data to a client that isn't allowed to see it.
 - **The repo is public.** Never commit daily, Stanford or lobby puzzle answers or images; only the practice pack lives in the repo.
-- **User data must be encrypted at the application level (#84, not done yet).** Until #84 lands, ask Ethan before adding a user field.
+- **User data is encrypted at the application level** (see `ENCRYPTION.md`). Any new user field must be encrypted too, and its PR asks Ethan to review.
 - **Every request handler that writes to the database or costs us per call is rate-limited** per user (or anonymous owner) and per IP, with counters in Postgres; anything that grows per user is capped (#85).
 
 ## Shared interfaces
-- Every type in `src/game/types.ts` is shared between owners (see the brief): `Puzzle`, `RevealLevel`, `GuessOutcome`, `RoundState`, `ScoringEvent`, `ScoringConfig`, `RoundResult`, and the Week 9 proposals `PackKind`, `Pack`, `DailyEntry`, `GameAction`, `PublicRound`, `GameView`, `PublicUser` and `LeaderboardEntry`.
+- Every type in `src/game/types.ts` is shared. Its comments name each type's owner and say whether it's settled or a proposal.
 - Don't change one without its owner reviewing the PR. If a change is needed, say so in the PR description.
 - Don't treat items under "Open decisions" in the brief as settled. Ask, or keep them configurable.
 
@@ -68,8 +86,3 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Dev server: `npm run dev`. In this course's container, bind IPv4 so the browser can reach it: `npm run dev -- -H 127.0.0.1`.
 - Lint: `npm run lint`. Typecheck: `npm run typecheck`. Tests: `npm test` (`npm run test:watch` while working). End-to-end: `npm run test:e2e` (starts the dev server itself; `/play` needs `DATABASE_URL` and a migrated database, see README → Run the app). Build: `npm run build`.
 - Test the secret-scanning hooks: `scripts/test-hooks.sh`.
-- CI (`.github/workflows/ci.yml`) runs a secret scan, the hook tests, `shellcheck`, then `lint`, `typecheck`, `test` and `build`, and the Playwright end-to-end tests, on every PR.
-
-## Before opening a PR
-- Run lint, typecheck and tests, if they exist.
-- In the PR description, write what you verified and how: tests run, manual playthrough, browsers or devices checked.

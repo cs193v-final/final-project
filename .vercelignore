@@ -22,5 +22,8 @@ node_modules/
 # Private puzzle content for the seed script (#52). Git-ignored, but deploys upload from disk.
 content/
 
+# CLIP's downloaded model (#56), about 580 MB. Scripts only; its install is covered by node_modules/ above.
+tools/clip/.cache/
+
 # Claude Code workspace: agent worktrees (full repo copies with node_modules) and settings. Local only.
 .claude/

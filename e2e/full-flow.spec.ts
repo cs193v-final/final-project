@@ -130,6 +130,10 @@ test("a test user signs up, plays the server game to the end and again, and logs
   const actions = await watchServerActions(page);
   await page.goto("/");
   await expectLoggedInAs(page, username);
+  // A new account has no daily streak yet (#63): the home screen says so, with a way to the daily.
+  const streak = page.getByRole("region", { name: "Daily streak" });
+  await expect(streak).toHaveText("No daily streak yet. Play today's daily to start one.");
+  await expect(streak.getByRole("link", { name: "Play today's daily" })).toHaveAttribute("href", "/daily");
   await page.getByRole("link", { name: "Start practice" }).click();
   await expect(page).toHaveURL(/\/play\?game=[0-9a-f-]{36}$/);
   await expect(page.getByText(`Image 1 of ${count}`)).toBeVisible();

@@ -114,6 +114,7 @@ describe("startGame", () => {
       },
       results: [],
       total: 0,
+      scoring: CONFIG,
       finished: false,
     });
   });
@@ -182,6 +183,17 @@ describe("a full game played through", () => {
     expect(view.round?.pointsAvailable).toBe(1000);
     view = await act(deps, view.gameId, ALICE, { type: "guess", guess: OPAQUE_SAMPLES[0]!.answer }, view.revision);
     expect(view.total).toBe(1000);
+  });
+
+  it("sends the game's own scoring config with every view, so the UI can show it (#174)", async () => {
+    const { deps, pack } = setup();
+    const generous = { ...CONFIG, basePoints: 1000, skipPoints: 5 };
+    let view = await startGame(deps, pack, ALICE, generous);
+    expect(view.scoring).toEqual(generous);
+    expect(view.scoring).not.toBe(generous);
+    view = await act(deps, view.gameId, ALICE, { type: "skip" }, view.revision);
+    expect(view.scoring).toEqual(generous);
+    expect((await getGame(deps, view.gameId, ALICE)).scoring).toEqual(generous);
   });
 
   it("updates pointsAvailable and the running total as the game goes", async () => {
@@ -305,6 +317,36 @@ describe("aiSolvedLevel (#56)", () => {
     const next = await playNow(deps, view.gameId, ALICE, { type: "skip" }).then(() => playNow(deps, view.gameId, ALICE, { type: "next" }));
     expect(next.round?.aiSolvedLevel).toBeNull();
     expectNoAnswers(next, puzzles);
+  });
+});
+
+describe("beating the AI (#66)", () => {
+  // The AI got p1 at level 1 and p2 at level 0; it has no result for p3.
+  const withAi = OPAQUE_SAMPLES.map((p, i) => ({ ...p, aiSolvedLevel: [1, 0, null][i] ?? null }));
+
+  it("counts it on the server once the game is finished, and only then", async () => {
+    const { deps, pack, puzzles } = setup(withAi);
+    let view = await startGame(deps, pack, ALICE, CONFIG);
+    // p1: right at level 0, before the AI. p2: right at level 0, a tie. p3: right, but the AI has no result.
+    for (const p of puzzles) {
+      expect(view).not.toHaveProperty("beatAi");
+      view = await act(deps, view.gameId, ALICE, { type: "guess", guess: p.answer }, view.revision);
+      expect(view).not.toHaveProperty("beatAi"); // this round is over, but the game isn't
+      view = await act(deps, view.gameId, ALICE, { type: "next" }, view.revision);
+    }
+    expect(view.finished).toBe(true);
+    expect(view.beatAi).toEqual({ beaten: 1, played: 2 });
+    expect((await getGame(deps, view.gameId, ALICE)).beatAi).toEqual({ beaten: 1, played: 2 });
+  });
+
+  it("counts nothing when the AI has no result for any image", async () => {
+    const { deps, pack, puzzles } = setup(OPAQUE_SAMPLES.map((p) => ({ ...p, aiSolvedLevel: null })));
+    let view = await startGame(deps, pack, ALICE, CONFIG);
+    for (let i = 0; i < puzzles.length; i++) {
+      view = await act(deps, view.gameId, ALICE, { type: "skip" }, view.revision);
+      view = await act(deps, view.gameId, ALICE, { type: "next" }, view.revision);
+    }
+    expect(view.beatAi).toEqual({ beaten: 0, played: 0 });
   });
 });
 

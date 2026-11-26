@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SCORING_CONFIG } from "@/game/scoring-config";
 import type { GameView, PublicRound } from "@/game/types";
 import { feedbackFor, finalScoreLabels, learnAnswer, NO_FEEDBACK, type Feedback } from "./practice";
 
@@ -25,6 +26,7 @@ function view(r: PublicRound | null, extra: Partial<GameView> = {}): GameView {
     round: r,
     results: [],
     total: 0,
+    scoring: SCORING_CONFIG,
     finished: r === null,
     ...extra,
   };

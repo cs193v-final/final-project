@@ -53,9 +53,36 @@ describe("rank", () => {
 });
 
 describe("what counts as the answer", () => {
-  it("is the game's own rule: the answer, an alternate, case and small typos all count", () => {
-    for (const label of ["Giraffe", "giraffe", "giraffes", "Girafe"]) expect(isAnswer(giraffe, label)).toBe(true);
+  it("is the answer or an alternate, whatever the case or punctuation", () => {
+    for (const label of ["Giraffe", "giraffe", "GIRAFFE", "giraffes", " Giraffe. "]) expect(isAnswer(giraffe, label)).toBe(true);
+    expect(isAnswer({ answer: "St. Paul's", acceptedAnswers: [] }, "st pauls")).toBe(true);
     for (const label of ["zebra", "animal", ""]) expect(isAnswer(giraffe, label)).toBe(false);
+  });
+
+  it("isn't the player's typo rule: CLIP's labels are never misspelled, so a near spelling is a different word", () => {
+    // Generic labels one letter off a plausible answer (#192 review). A player
+    // typing them would get the point; CLIP choosing them hasn't solved it.
+    const pairs = [["Tower", "towel"], ["Horse", "house"], ["Beach", "bench"], ["Moose", "mouse"], ["Chair", "chain"], ["Baseball", "basketball"]];
+    for (const [answer, label] of pairs) expect(isAnswer({ answer: answer!, acceptedAnswers: [] }, label!)).toBe(false);
+    expect(isAnswer(giraffe, "Girafe")).toBe(false);
+  });
+
+  it("counts a regular plural or singular of the answer, as it would for a player", () => {
+    const cases = [
+      ["Peanut", "peanuts"],
+      ["Glass", "glasses"],
+      ["Strawberry", "strawberries"],
+      ["Leaf", "leaves"],
+      ["Knife", "knives"],
+      ["Green bean", "green beans"],
+      ["French fry", "french fries"],
+      ["Dumplings", "dumpling"], // the answer plural, the label singular
+    ];
+    for (const [answer, label] of cases) expect(isAnswer({ answer: answer!, acceptedAnswers: [] }, label!)).toBe(true);
+    // Only a whole ending: these aren't plurals of each other.
+    for (const [answer, label] of [["Pea", "peak"], ["Leaf", "leaves of grass"], ["Tower", "towers of london"]]) {
+      expect(isAnswer({ answer: answer!, acceptedAnswers: [] }, label!)).toBe(false);
+    }
   });
 
   it("adds up the probability of every label that counts", () => {
@@ -92,6 +119,18 @@ describe("firstSolvedLevel (Beat the AI's aiSolvedLevel)", () => {
 
   it("needs the top guess: the answer in second place doesn't count", () => {
     expect(firstSolvedLevel(giraffe, [top("zebra", ["giraffe"])])).toBeNull();
+  });
+
+  it("doesn't count a near spelling on top: 'towel' for a Tower isn't the AI solving it (#192 review)", () => {
+    const tower = { answer: "Tower", acceptedAnswers: [] };
+    expect(firstSolvedLevel(tower, [top("towel"), top("towel", ["tower"]), top("tower")])).toBe(2);
+    expect(firstSolvedLevel(tower, [top("towel"), top("towel")])).toBeNull();
+    expect(isRecognizable(tower, top("towel", ["tower"]))).toBe(false);
+    expect(answerProbability(tower, top("towel", ["tower"]))).toBeCloseTo(0.3, 10);
+  });
+
+  it("counts a plural on top: 'peanuts' for a Peanut is", () => {
+    expect(firstSolvedLevel({ answer: "Peanut", acceptedAnswers: [] }, [top("almonds"), top("peanuts")])).toBe(1);
   });
 });
 

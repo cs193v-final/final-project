@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { resetLabel } from "@/components/daily/DailyIntroScreen";
+import { StreakNote } from "@/components/daily/StreakNote";
 import { Button, ButtonLink, SectionHeading, TextLink } from "@/components/ui/controls";
 import { joinClasses, TEXT_INPUT } from "@/components/ui/styles";
 import type { DailyIntro } from "@/game/daily";
 import { DEFAULT_DAILY_RESET } from "@/game/daily-date";
 import { betterThanPercent, formatCountdown, nextChallengeAt, shareText, type DailyStats } from "@/game/daily-result";
+import type { StreakSummary } from "@/game/streak";
 import type { GameView } from "@/game/types";
 import { GAME_NAME } from "@/site";
 
@@ -16,6 +18,11 @@ export type DailyResultProps = {
   view: GameView;
   /** The Server Action that returns this player's stats for a day (or null until there are any). */
   loadStats: (date: string) => Promise<DailyStats | null>;
+  /**
+   * The player's streak counting this day (#63), from the server: `null` when
+   * logged out, left out when it couldn't be loaded (then nothing is shown).
+   */
+  streak?: StreakSummary | null;
   /** For tests: the clock and the share/copy functions. */
   now?: () => Date;
   share?: (text: string) => Promise<"shared" | "copied">;
@@ -87,10 +94,11 @@ const systemNow = () => new Date();
 
 /**
  * Under the daily's final score (#58): when the next challenge starts, a
- * spoiler-free Share button, a way home, and how the player did on each image
- * against everyone else who finished today ("better than 62% of players").
+ * spoiler-free Share button, a way home, the player's daily streak (#63), and
+ * how the player did on each image against everyone else who finished today
+ * ("better than 62% of players").
  */
-export function DailyResult({ intro, view, loadStats, now = systemNow, share = defaultShare }: DailyResultProps) {
+export function DailyResult({ intro, view, loadStats, streak, now = systemNow, share = defaultShare }: DailyResultProps) {
   const time = useNow(now);
   const [stats, setStats] = useState<DailyStats | null | "loading">("loading");
   const [shareStatus, setShareStatus] = useState<"idle" | "shared" | "copied" | "failed">("idle");
@@ -111,8 +119,9 @@ export function DailyResult({ intro, view, loadStats, now = systemNow, share = d
     theme: intro.pack?.theme ?? "",
     rounds: view.results,
     total: view.total,
-    // The game's own scoring (#64): each round's base is what it was worth at most.
-    maxTotal: view.results.reduce((sum, r) => sum + r.breakdown.base, 0),
+    // The game's own scoring (#64, #174): every image is worth basePoints at most,
+    // including a skipped one (its breakdown's base is skipPoints, not the maximum).
+    maxTotal: view.scoring.basePoints * view.results.length,
     ...(typeof window === "undefined" ? {} : { url: `${window.location.origin}/daily` }),
   });
 
@@ -147,8 +156,13 @@ export function DailyResult({ intro, view, loadStats, now = systemNow, share = d
         )}
       </p>
 
+      {streak === undefined ? null : <StreakNote streak={streak} where="result" />}
+
       <div className="flex flex-wrap justify-center gap-3">
         <Button onClick={() => void onShare()}>Share result</Button>
+        <ButtonLink href="/leaderboard" variant="secondary">
+          Leaderboard
+        </ButtonLink>
         <ButtonLink href="/" variant="secondary">
           Home
         </ButtonLink>

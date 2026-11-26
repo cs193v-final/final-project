@@ -43,8 +43,22 @@ describe("SiteHeader", () => {
 
   it("shows nothing for accounts until they exist (#53)", () => {
     render(<SiteHeader />);
-    expect(within(siteNav()).getAllByRole("link")).toHaveLength(1);
+    expect(within(siteNav()).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual(["/", "/leaderboard"]);
     expect(screen.queryByText(/log ?in|sign ?in/i)).not.toBeInTheDocument();
+  });
+
+  it("links to the leaderboard from every page, marked current there (#62)", () => {
+    pathname = "/play";
+    const { unmount } = render(<SiteHeader />);
+    const link = within(siteNav()).getByRole("link", { name: "Leaderboard" });
+    expect(link).toHaveAttribute("href", "/leaderboard");
+    expect(link).not.toHaveAttribute("aria-current");
+    unmount();
+
+    pathname = "/leaderboard";
+    render(<SiteHeader />);
+    expect(within(siteNav()).getByRole("link", { name: "Leaderboard" })).toHaveAttribute("aria-current", "page");
+    expect(homeLink()).not.toHaveAttribute("aria-current");
   });
 
   it("shows the account area it's given, for #53 to fill", () => {
