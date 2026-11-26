@@ -7,11 +7,12 @@ const baseURL = process.env.BASE_URL;
 if (!baseURL) throw new Error("Set BASE_URL to the site to smoke test, e.g. BASE_URL=https://example.vercel.app npm run test:smoke");
 
 // A preview behind Vercel Deployment Protection takes the project's automation
-// bypass secret. It comes from the shell only, never a file. Playwright prints
-// this header in the error of a request that fails on the network (and keeps it
-// in error-context.md and the trace under test-results/), so set it on the
-// command line for a preview run only, don't export it, and never paste the
-// output or traces of a run that used it (e.g. into #223).
+// bypass secret. It comes from the shell only, never a file. A trace records
+// every request's headers, so tracing is off whenever the secret is set (see
+// `trace` below). Playwright still prints this header in the error of a request
+// that fails on the network, and in error-context.md under test-results/, so
+// set it on the command line for a preview run only, don't export it, and never
+// paste the output of a run that used it (e.g. into #223).
 const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 
 export default defineConfig({
@@ -22,7 +23,8 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL,
-    trace: "retain-on-failure",
+    // Off with the bypass secret: a trace would keep it in test-results/**/trace.zip.
+    trace: bypass ? "off" : "retain-on-failure",
     extraHTTPHeaders: bypass ? { "x-vercel-protection-bypass": bypass } : undefined,
   },
   projects: [
