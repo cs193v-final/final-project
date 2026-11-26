@@ -7,6 +7,8 @@ const CI = !!process.env.CI;
 
 export default defineConfig({
   testDir: "./e2e",
+  // The smoke test of a deployed site (#223) has its own config, playwright.smoke.config.ts.
+  testIgnore: "smoke/**",
   // Removes the daily spec's test data once every project has finished.
   globalTeardown: "./e2e/global-teardown.ts",
   forbidOnly: CI,
