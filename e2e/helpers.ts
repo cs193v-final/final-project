@@ -56,6 +56,8 @@ export async function imagePosition(page: Page): Promise<number> {
  */
 export async function finishPractice(page: Page, puzzles: readonly Puzzle[] = PRACTICE_PUZZLES) {
   for (;;) {
+    // Wait for the round on screen (ready or playing), not the one a pending "Next image" is leaving.
+    await expect(startRoundButton(page).or(guessBox(page)).first()).toBeVisible();
     const position = await imagePosition(page);
     if (await startRoundButton(page).isVisible()) await startRound(page);
     await guess(page, puzzles[position - 1]!.answer);
