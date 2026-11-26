@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { MODES } from "@/components/modes";
 import { parsePuzzles } from "@/game/puzzles";
-import { pointsIfCorrect } from "@/game/scoring";
 import { contentSecurityPolicy } from "@/server/security-headers";
 // The practice pack, as in practice.spec.ts (the JSON import attribute is for Playwright's ES modules).
 import sample from "@/puzzles/sample.json" with { type: "json" };
@@ -18,7 +17,8 @@ import { cspViolations, expectSecurityHeaders, guess, guessBox, siteNav, waitFor
 // browser (the server-rendered page only). SMOKE_WRITE=1 also plays the first
 // practice image, opens Stanford in a browser (each starts an anonymous game),
 // and signs up a throwaway account with a random username and password, then
-// logs out and back in. Never daily games, so the leaderboard is untouched.
+// logs out and back in, printing its username so it can be deleted by hand
+// until the test can delete it itself (#251). Never daily games, so the leaderboard is untouched.
 //
 // Not covered, because there's no public way to see it (and we don't add
 // one): whether the daily is scheduled for the coming days, and whether Vercel
@@ -147,9 +147,15 @@ test.describe("writes (SMOKE_WRITE=1)", () => {
     await expect(page.getByText(`Image 1 of ${puzzles.length}`)).toBeVisible({ timeout: 15_000 });
     const image = page.getByRole("img", { name: /^Mystery image/ });
     await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+    // The points come from the page's own "Worth N points now", not the default
+    // config: production's practice pack may have a stored scoring override (#204).
+    const worth = page.getByText(/^Worth \d+ points? now$/);
+    await expect(worth).toBeVisible();
+    const points = Number((await worth.textContent())?.match(/\d+/)?.[0]);
+    expect(points).toBeGreaterThan(0);
     await guess(page, firstPuzzle.answer);
     await expect(page.getByRole("main").getByRole("status")).toContainText(`Correct! It's ${firstPuzzle.answer}.`);
-    await expect(page.getByText(/^Score \d+$/)).toHaveText(`Score ${pointsIfCorrect(0, 0)}`);
+    await expect(page.getByText(/^Score \d+$/)).toHaveText(`Score ${points}`);
     expect(violations).toEqual([]);
   });
 
@@ -166,6 +172,11 @@ test.describe("writes (SMOKE_WRITE=1)", () => {
     const username = `smoke-${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 8)}`.slice(0, 20);
     const password = `smoke ${crypto.randomUUID()}`;
     const site = siteNav(page);
+    // Nothing can delete this account yet (#251), so print its username for
+    // deleting it by hand. Not the password: this output may be pasted into a
+    // public comment (#223), and deleting the row doesn't need it.
+    console.log(`[smoke] ${test.info().project.name}: signing up throwaway account "${username}"`);
+    test.info().annotations.push({ type: "throwaway account", description: username });
 
     await page.goto("/register");
     await page.getByLabel("Username").fill(username);
