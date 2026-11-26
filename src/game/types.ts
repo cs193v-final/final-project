@@ -135,7 +135,7 @@ export type Pack = {
   title: string; // e.g. "Landmarks"
   theme: string; // shown before play (open decision: hide it for a bonus?)
   puzzleIds: string[]; // play order; usually 5
-  scoring?: ScoringConfig; // per-pack override (type: Ethan; storage: Jacky, #64); default when absent. Set with `npm run db:scoring`, not by the seed script.
+  scoring?: TimedScoringConfig; // per-pack override (timed fields since #255) (type: Ethan; storage: Jacky, #64); default when absent. Set with `npm run db:scoring`, not by the seed script.
 };
 
 /** Owner: Joseph. Settled (#52). Which pack is a given day's daily challenge. */
@@ -173,7 +173,9 @@ export type PublicRound = {
   elapsedSeconds: number | null;
   /** The full photo, only once the round has started (never while `ready`). The browser draws `effect` over it. */
   imageSrc?: string;
-  effect: PuzzleEffect | null; // null = not chosen yet (#258); the screen picks one
+  effect: PuzzleEffect; // the puzzle's effect, or `DEFAULT_EFFECT` (server-game.ts) while none is chosen (#258)
+  /** Opaque per-puzzle seed for effects that need one (the tiles' order, #257): the puzzle id, which is opaque (#52). */
+  seed: string;
   focus: { x: number; y: number }; // `Puzzle.reveal.focus`: where zoom, spotlight and swirl centre
   wrongGuesses: number; // counted, but they cost nothing
   aiSolvedLevel: RevealLevel | null; // Darian (Beat the AI, #56); becomes a solve time in #257

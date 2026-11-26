@@ -6,8 +6,8 @@ import { cacheLife } from "next/cache";
 import { getDb } from "@/db";
 import { getDailyIntro, getDailyPack } from "@/db/daily";
 import { getDailyStats, type DailyStats } from "@/db/daily-stats";
+import { scoringFromStored } from "@/db/scoring";
 import { dailyDateFor, DEFAULT_DAILY_RESET } from "@/game/daily-date";
-import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import type { DailyIntro } from "@/game/daily";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { GameNotFoundError, resumeDaily, startOrResumeDaily } from "@/game/server-game";
@@ -72,9 +72,10 @@ export async function startTodaysDaily(date: unknown, now = new Date()): Promise
   const daily = pack;
   return runGameCall(async () => {
     const owner = await currentOrNewOwner();
-    // Timed scoring (#255). TODO(#256): per-pack overrides (#64) still have
-    // the old zoom-out fields, so they don't apply until they move to the timed ones.
-    return startOrResumeDaily(deps(db), daily, today, owner, TIMED_SCORING_CONFIG);
+    // The pack's own scoring (#64) when it has one, checked like any stored
+    // override: an invalid one (hand-written SQL, or one with the old
+    // zoom-out fields from before #255) is logged and the default used.
+    return startOrResumeDaily(deps(db), daily, today, owner, scoringFromStored(daily.id, daily.scoring ?? null));
   });
 }
 

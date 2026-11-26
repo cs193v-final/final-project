@@ -16,8 +16,8 @@ import { getDb, type Db } from "@/db";
 import { getPuzzles } from "@/db/content";
 import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
+import { getScoringConfig } from "@/db/scoring";
 import { runGameCall, type GameResult } from "@/game/game-result";
-import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import { errorForLog } from "@/game/log-safe";
 import {
   act,
@@ -127,11 +127,10 @@ export async function startPracticeGame(): Promise<GameResult> {
     }
     // At the cap with none that loads (most likely a wrong key): report it.
     if (atCap && unreadable !== null) throw unreadable;
-    // Timed scoring (#255), kept in the game's state, so changing it only
-    // affects games started afterwards. TODO(#256): per-pack overrides (#64)
-    // still have the old zoom-out fields, so they don't apply until they move
-    // to the timed ones.
-    return startGame(deps(db), PRACTICE_PACK, owner, TIMED_SCORING_CONFIG);
+    // The pack's stored scoring (#64, timed fields since #255), read once
+    // here and kept in the game's state, so changing it only affects games
+    // started afterwards.
+    return startGame(deps(db), PRACTICE_PACK, owner, await getScoringConfig(PRACTICE_PACK.id));
   });
 }
 

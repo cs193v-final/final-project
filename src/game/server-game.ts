@@ -25,6 +25,8 @@ import type {
   GuessOutcome,
   Pack,
   PublicRound,
+  PuzzleEffect,
+  PuzzleEffect,
   Puzzle,
   ScoringEvent,
   TimedScoringConfig,
@@ -169,6 +171,14 @@ export type GameDeps = { games: GameStore; puzzles: PuzzleSource; levels?: Level
  * may be sent by their `imageUrl` when they aren't cut (#57); anything else is private.
  */
 const PUBLIC_IMAGE_PREFIX = "/puzzles/";
+
+/**
+ * The effect a round is drawn with when its puzzle has none chosen yet
+ * (`Puzzle.effect` is optional until every puzzle has one, #258), so the
+ * browser always gets one of `EFFECTS`. Pixelate: coarse, and in the smallest
+ * version of the redesign (#254).
+ */
+export const DEFAULT_EFFECT: PuzzleEffect = "pixelate";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -344,7 +354,8 @@ export function toGameView(
       state: r.state,
       elapsedSeconds: elapsed,
       ...(imageSrc === undefined ? {} : { imageSrc }),
-      effect: puzzle.effect ?? null,
+      effect: puzzle.effect ?? DEFAULT_EFFECT,
+      seed: puzzle.id, // opaque (#52), and images are served under other random ids, so it gives nothing away
       focus: { x: puzzle.reveal.focus.x, y: puzzle.reveal.focus.y },
       wrongGuesses: r.wrongGuesses,
       // Beat the AI (#56): the level the AI needed, not the answer. null = never, or not run yet.

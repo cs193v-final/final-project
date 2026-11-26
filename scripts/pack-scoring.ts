@@ -2,7 +2,7 @@
 // See TECHNICAL.md → Database → "Changing a pack's scoring".
 //
 //   npm run db:scoring -- show  <pack-id>
-//   npm run db:scoring -- set   <pack-id> '{"basePoints": 150}'
+//   npm run db:scoring -- set   <pack-id> '{"maxPoints": 12000}'
 //   npm run db:scoring -- set   <pack-id> path/to/scoring.json
 //   npm run db:scoring -- clear <pack-id>
 //

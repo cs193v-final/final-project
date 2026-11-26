@@ -3,8 +3,10 @@ import { SAMPLE_PUZZLES } from "../puzzles/index.ts";
 import { describeGameStoreContract } from "./game-store-contract.ts";
 import { START_GRACE_SECONDS } from "./round.ts";
 import { scoreAt } from "./scoring.ts";
+import { EFFECTS } from "./puzzles.ts";
 import {
   act,
+  DEFAULT_EFFECT,
   GameConflictError,
   GameFromOldRulesError,
   GameNotFoundError,
@@ -121,7 +123,8 @@ describe("startGame", () => {
         puzzleCount: 3,
         state: "ready",
         elapsedSeconds: null,
-        effect: puzzles[0]!.effect ?? null,
+        effect: puzzles[0]!.effect ?? DEFAULT_EFFECT,
+        seed: "p1",
         focus: puzzles[0]!.reveal.focus,
         wrongGuesses: 0,
         aiSolvedLevel: puzzles[0]!.aiSolvedLevel,
@@ -435,7 +438,7 @@ describe("no answers reach the browser before a round is over", () => {
 });
 
 describe("effect and focus point (#255, #258)", () => {
-  it("sends the puzzle's effect and focus point, and null when no effect is chosen", async () => {
+  it("sends the puzzle's effect, seed and focus point, and DEFAULT_EFFECT when no effect is chosen", async () => {
     const puzzles: Puzzle[] = [
       { ...OPAQUE_SAMPLES[0]!, effect: "swirl", reveal: { focus: { x: 0.25, y: 0.75 }, zoomLevels: [4, 1] } },
       { ...OPAQUE_SAMPLES[1]!, effect: undefined },
@@ -443,11 +446,12 @@ describe("effect and focus point (#255, #258)", () => {
     delete puzzles[1]!.effect;
     const { deps, pack, clock } = setup(puzzles);
     let view = await startGame(deps, pack, ALICE, CONFIG);
-    expect(view.round).toMatchObject({ effect: "swirl", focus: { x: 0.25, y: 0.75 } });
+    expect(view.round).toMatchObject({ effect: "swirl", seed: "p1", focus: { x: 0.25, y: 0.75 } });
     view = await play(deps, view, { type: "start" });
     clock.at(31);
     view = await play(deps, view, { type: "next" });
-    expect(view.round).toMatchObject({ effect: null, focus: puzzles[1]!.reveal.focus });
+    expect(view.round).toMatchObject({ effect: DEFAULT_EFFECT, seed: "p2", focus: puzzles[1]!.reveal.focus });
+    expect(EFFECTS).toContain(DEFAULT_EFFECT);
   });
 });
 

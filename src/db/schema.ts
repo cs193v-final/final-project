@@ -36,7 +36,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 // Type-only import (erased at runtime), so drizzle-kit doesn't need the "@/" alias.
-import type { ScoringConfig } from "../game/types";
+import type { TimedScoringConfig } from "../game/types";
 
 const createdAt = () =>
   timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -136,7 +136,7 @@ export const packs = pgTable("packs", {
   title: text("title").notNull(),
   theme: text("theme").notNull(),
   // Per-pack scoring override (#64). NULL = use the default config.
-  scoring: jsonb("scoring").$type<ScoringConfig>(),
+  scoring: jsonb("scoring").$type<TimedScoringConfig>(),
   createdAt: createdAt(),
 });
 
