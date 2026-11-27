@@ -6,7 +6,7 @@ import { FOCUS_RING } from "./ui/styles";
 /**
  * Pauses and resumes the drifting clouds (#183), as WCAG 2.2.2 asks for
  * motion that runs on its own for more than 5 seconds. Remembered in this
- * browser. Hidden with reduced motion, when the clouds don't move anyway.
+ * browser. Shown with reduced motion too, where the clouds drift slower.
  * Sits at the end of the page, in the flow (not floating), so it never
  * covers content or comes before the main actions in the tab order.
  */
