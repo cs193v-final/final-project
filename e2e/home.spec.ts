@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { MODES } from "@/components/modes";
 import { GAME_NAME } from "@/site";
-import { finishPractice, guessBox, homeLink, siteNav, tabToStartPractice } from "./helpers";
+import { finishPractice, guessBox, homeLink, siteNav, skipLink, tabToStartPractice, waitForAccountLinks } from "./helpers";
 
 // The home screen and navigation in a real browser (#50): the mode picker,
 // and a way home from every screen, by mouse, keyboard and the Back button.
@@ -64,7 +64,7 @@ test("the header links home from the game and the final score screen", async ({ 
 });
 
 test("the whole trip works from the keyboard alone", async ({ page }) => {
-  // Tab order: the home link, Leaderboard (#62), Log in (#53), then the playable modes (Daily, then Practice); see the helper.
+  // Tab order: Skip to content, the home link, Leaderboard (#62), Log in (#53), then the playable modes (Daily, then Practice); see the helper.
   await tabToStartPractice(page);
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(PLAY_URL);
@@ -77,6 +77,21 @@ test("the whole trip works from the keyboard alone", async ({ page }) => {
   await expect(homeLink(page)).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/$/);
+});
+
+test("Skip to content comes first, shows when focused, and jumps past the header (WCAG 2.4.1)", async ({ page }) => {
+  await page.goto("/");
+  await waitForAccountLinks(page);
+  await page.keyboard.press("Tab");
+  await expect(skipLink(page)).toBeFocused();
+  await expect(skipLink(page)).toBeInViewport();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/#content$/);
+  // The next Tab starts from the page's content, not the header: the first mode.
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Play today's" })).toBeFocused();
+  // Hidden again once focus leaves it.
+  await expect(skipLink(page)).not.toBeInViewport();
 });
 
 test("the browser's Back and Forward buttons move between home and the game", async ({ page }) => {

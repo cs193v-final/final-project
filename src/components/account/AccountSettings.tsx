@@ -7,7 +7,7 @@ import { useActionState, useId, type ComponentProps, type ReactNode } from "reac
 
 import type { DeleteFormState, PasswordFormState } from "@/app/account/actions";
 import { PASSWORD_MAX, PASSWORD_MIN } from "@/auth/rules";
-import { Button, TextInput } from "@/components/ui/controls";
+import { Button, CARD, TextInput } from "@/components/ui/controls";
 
 type PasswordAction = (state: PasswordFormState, formData: FormData) => Promise<PasswordFormState>;
 type DeleteAction = (state: DeleteFormState, formData: FormData) => Promise<DeleteFormState>;
@@ -15,6 +15,9 @@ type DeleteAction = (state: DeleteFormState, formData: FormData) => Promise<Dele
 const errorClass = "text-sm font-medium text-rose-700 dark:text-rose-400";
 const fieldErrorClass = `${errorClass} empty:hidden`;
 const hintClass = "text-sm text-zinc-600 empty:hidden dark:text-zinc-400";
+// Each section is a card (#183), titled in the display face at a section's size (PAGE_TITLE is the page's).
+const sectionClass = `${CARD} flex w-full flex-col gap-4 p-5`;
+const sectionTitle = "font-display text-2xl tracking-[-0.04em] text-balance";
 
 /** A labelled text box with its error (above the hint, like AccountForm) and an optional hint. */
 function Field({
@@ -50,8 +53,8 @@ export function ChangePasswordForm({ action }: { action: PasswordAction }) {
   const [state, formAction, pending] = useActionState(action, undefined);
   const id = useId();
   return (
-    <section aria-labelledby={`${id}-heading`} className="flex w-full flex-col gap-4">
-      <h2 id={`${id}-heading`} className="text-xl font-semibold">
+    <section aria-labelledby={`${id}-heading`} className={sectionClass}>
+      <h2 id={`${id}-heading`} className={sectionTitle}>
         Change your password
       </h2>
       {/* A new key after it worked, so the browser forgets what was typed. */}
@@ -96,8 +99,9 @@ export function DeleteAccountForm({ action, username }: { action: DeleteAction; 
   const [state, formAction, pending] = useActionState(action, undefined);
   const id = useId();
   return (
-    <section aria-labelledby={`${id}-heading`} className="flex w-full flex-col gap-4">
-      <h2 id={`${id}-heading`} className="text-xl font-semibold">
+    // Its own card with a rust edge, so it reads as the dangerous one; the button stays secondary.
+    <section aria-labelledby={`${id}-heading`} className={`${sectionClass} border-l-4 border-l-rust dark:border-l-rust`}>
+      <h2 id={`${id}-heading`} className={sectionTitle}>
         Delete your account
       </h2>
       <p id={`${id}-what`} className="text-sm">

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { buttonClass, ButtonLink, type ButtonVariant } from "./ui/controls";
+import { CropMark, MONITOR, MONITOR_EMPTY, MONITOR_FRAME } from "./game/monitor";
+import { buttonClass, ButtonLink, PAGE_TITLE, type ButtonVariant } from "./ui/controls";
 
 /** Where the error screens send players: home, and straight into practice, with the home screen's link text. */
 export const RECOVERY_LINKS = [
@@ -38,7 +39,17 @@ export function ErrorScreen({
 }) {
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-12 text-center">
-      <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
+      {/* The game's monitor with nothing in it (#183): decoration, so screen readers skip it. */}
+      <div aria-hidden="true" className={`${MONITOR} max-w-xs`}>
+        <div className={`${MONITOR_FRAME} ${MONITOR_EMPTY}`}>
+          <div className="flex flex-col items-center gap-3">
+            <CropMark className="size-14" />
+            {/* Not CAPS: its 11 px is under the 12 px floor e2e/a11y.spec.ts checks. */}
+            <p className="font-mono text-xs font-bold tracking-[0.1em] uppercase">Nothing in frame</p>
+          </div>
+        </div>
+      </div>
+      <h1 className={PAGE_TITLE}>{title}</h1>
       <p className="max-w-md text-lg text-zinc-600 dark:text-zinc-400">{message}</p>
       <div className="flex flex-wrap justify-center gap-3">
         {action}
