@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { scoreRating } from "@/game/feedback";
 import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
+import { fakeMotionSetting } from "@/test/fakeMotion";
+import { sounds } from "./sound";
 import { TimedFinalScore, timedRoundText, type TimedRoundSummary } from "./TimedFinalScore";
 
 const rounds: TimedRoundSummary[] = [
@@ -55,6 +58,50 @@ describe("TimedFinalScore", () => {
   it("shows how the player did against the AI when given", () => {
     render(<TimedFinalScore rounds={rounds} scoring={TIMED_SCORING_CONFIG} beatAi={{ beaten: 2, played: 3 }} />);
     expect(screen.getByText("You beat the AI on 2 of 3.")).toBeInTheDocument();
+  });
+
+  it("rates the score in one line (#283)", () => {
+    const max = TIMED_SCORING_CONFIG.maxPoints * rounds.length;
+    render(<TimedFinalScore rounds={rounds} scoring={TIMED_SCORING_CONFIG} />);
+    expect(screen.getByText(scoreRating(8_575, max))).toBeInTheDocument();
+  });
+
+  it("counts the total up to the exact score (#283)", () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance", "setTimeout", "clearTimeout"] });
+    try {
+      render(<TimedFinalScore rounds={rounds} scoring={TIMED_SCORING_CONFIG} />);
+      const counter = document.querySelector("[data-total-count]")!;
+      expect(counter).toHaveAttribute("aria-hidden", "true");
+      act(() => void vi.advanceTimersByTime(2_000));
+      expect(counter).toHaveTextContent("8,575");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the total at once with reduced motion (#283)", () => {
+    fakeMotionSetting(true);
+    try {
+      render(<TimedFinalScore rounds={rounds} scoring={TIMED_SCORING_CONFIG} />);
+      expect(document.querySelector("[data-total-count]")).toHaveTextContent("8,575");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("plays a tally per row and a fanfare once the total is in (#283)", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const tally = vi.spyOn(sounds, "tally");
+    const fanfare = vi.spyOn(sounds, "fanfare");
+    try {
+      render(<TimedFinalScore rounds={rounds} scoring={TIMED_SCORING_CONFIG} />);
+      act(() => void vi.advanceTimersByTime(2_000));
+      expect(tally.mock.calls.map(([row]) => row)).toEqual([0, 1, 2]);
+      expect(fanfare).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
   });
 
   it("offers Play again only when it can be replayed", () => {

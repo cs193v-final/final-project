@@ -270,6 +270,18 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
   });
 
+  it(`keeps the cap when several starts run at once one game below it: one inserts, the rest resume (#225)`, async () => {
+    for (let i = 0; i < MAX_UNFINISHED_GAMES_PER_PACK - 1; i++) {
+      await actNow((await started()).gameId, { type: "reveal" });
+    }
+    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK - 1);
+
+    const results = await Promise.all(Array.from({ length: 5 }, () => startPracticeGame()));
+
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
+  });
+
   it("logs a skipped unreadable game without its state or owner (#164)", async () => {
     const lost = await started();
     const bad = `v1.${"A".repeat(16)}.${"A".repeat(40)}`;

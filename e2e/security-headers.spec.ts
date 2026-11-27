@@ -1,30 +1,16 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 import { contentSecurityPolicy } from "@/server/security-headers";
+import { cspViolations, expectSecurityHeaders } from "./helpers";
 
 // Security headers in the real app (#105): every page sends them, and the
 // Content-Security-Policy doesn't block anything the app itself needs
 // (scripts, fonts, styles, level images, Server Actions).
 
-/** Collects the browser's CSP violation reports for a page. */
-function cspViolations(page: Page): string[] {
-  const violations: string[] = [];
-  page.on("console", (message) => {
-    if (/Content Security Policy/i.test(message.text())) violations.push(message.text());
-  });
-  return violations;
-}
-
 for (const path of ["/", "/play", "/login"]) {
   test(`${path} sends the security headers and no X-Powered-By`, async ({ request }) => {
     const response = await request.get(path);
-    const headers = response.headers();
-    expect(headers["content-security-policy"]).toContain("frame-ancestors 'none'");
-    expect(headers["x-content-type-options"]).toBe("nosniff");
-    expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
-    expect(headers["strict-transport-security"]).toMatch(/^max-age=\d+/);
-    expect(headers["x-frame-options"]).toBe("DENY");
-    expect(headers["x-powered-by"]).toBeUndefined();
+    expectSecurityHeaders(response.headers());
   });
 }
 

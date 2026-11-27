@@ -1,11 +1,24 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { speedLabel, speedTier, STREAK_SHOWN_FROM, type SpeedTier } from "@/game/feedback";
 import { formatPoints, formatSeconds, readClock, secondsNow, type ClockReading } from "@/game/round-clock";
 import type { Puzzle, PuzzleEffect, TimedScoringConfig } from "@/game/types";
 import { Button, TextInput } from "../ui/controls";
+import { Confetti } from "./Confetti";
 import { EffectCanvas } from "./EffectCanvas";
-import { SHAKE, SHAKE_TIMING, useAnimateOn, usePrefersReducedMotion } from "./motion";
+import {
+  POP,
+  POP_TIMING,
+  PULSE,
+  PULSE_TIMING,
+  SHAKE,
+  SHAKE_TIMING,
+  useAnimateOn,
+  usePrefersReducedMotion,
+} from "./motion";
+import { buzz, sounds, unlockAudio } from "./sound";
+import { SoundToggle } from "./SoundToggle";
 
 /**
  * Where the round is, as the server last said (#255):
@@ -40,6 +53,8 @@ export type TimedRoundProps = {
   result?: { answer: string; points: number; seconds: number; credit?: Puzzle["credit"] | undefined } | undefined;
   /** True on the last image, so the button after the round says "See results". */
   isLastRound: boolean;
+  /** Rounds guessed in a row just before this one (#283). Shown from 2, and raises the correct sound's pitch. */
+  streak?: number;
   /** A move is on its way to the server: buttons are marked disabled and ignored. */
   pending?: boolean;
   onStart: () => void;
@@ -104,6 +119,7 @@ export function TimedRound({
   lastWrongGuess,
   result,
   isLastRound,
+  streak = 0,
   pending = false,
   onStart,
   onGuess,
@@ -111,6 +127,14 @@ export function TimedRound({
   onTimeUp,
 }: TimedRoundProps) {
   const clock = useRoundClock(phase === "playing", elapsedSeconds, scoring);
+  // Celebrate only what happens while this is on screen: a round resumed
+  // after a refresh, already over, doesn't replay its confetti or sounds.
+  const [mountPhase] = useState(phase);
+  const justWon = phase === "correct" && mountPhase !== "correct";
+  const tier: SpeedTier | null = phase === "correct" && result ? speedTier(result.seconds, scoring) : null;
+  // A time-out ends the streak, so the chip goes with it.
+  const streakNow = phase === "correct" ? streak + 1 : phase === "timedOut" ? 0 : streak;
+  useRoundSounds({ phase, wrongGuesses, clock, streak, tier });
   // The local clock ran out before the server said so: stop guessing, and ask
   // once. A new reading from the server that isn't over re-arms the ask, so a
   // server a little behind can't leave the round stuck on "Time's up."
@@ -129,8 +153,13 @@ export function TimedRound({
   const over = phase === "correct" || phase === "timedOut";
 
   return (
-    <div className="flex w-full max-w-md flex-col items-center gap-4">
-      {phase === "playing" ? <LiveScore clock={clock} timeUp={localTimeUp} /> : null}
+    <div className="relative flex w-full max-w-md flex-col items-center gap-4">
+      <div className="flex min-h-10 w-full items-center justify-between gap-2">
+        {streakNow >= STREAK_SHOWN_FROM ? <StreakChip count={streakNow} /> : <span />}
+        <SoundToggle />
+      </div>
+
+      {phase === "playing" ? <LiveScore clock={clock} timeUp={localTimeUp} scoring={scoring} /> : null}
 
       <PhotoStage
         phase={phase}
@@ -140,7 +169,9 @@ export function TimedRound({
         seed={seed}
         progress={over ? 1 : clock.progress}
         wrongGuesses={wrongGuesses}
+        wonPoints={justWon && result ? result.points : null}
       />
+      {justWon ? <Confetti /> : null}
 
       {phase === "playing" ? <TimerBar clock={clock} scoring={scoring} /> : null}
 
@@ -149,7 +180,15 @@ export function TimedRound({
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
             The score starts at {formatPoints(scoring.maxPoints)} and drains until you guess right.
           </p>
-          <Button disabled={pending} onClick={onStart} autoFocus>
+          <Button
+            disabled={pending}
+            onClick={() => {
+              // A click is what lets the browser play this round's sounds.
+              unlockAudio();
+              onStart();
+            }}
+            autoFocus
+          >
             Start round
           </Button>
         </div>
@@ -162,19 +201,110 @@ export function TimedRound({
           onGuess={onGuess}
         />
       ) : (
-        <RoundOver phase={phase} result={result} isLastRound={isLastRound} pending={pending} onNext={onNext} />
+        <RoundOver
+          phase={phase}
+          result={result}
+          tier={tier}
+          isLastRound={isLastRound}
+          pending={pending}
+          onNext={onNext}
+        />
       )}
     </div>
   );
 }
 
+/**
+ * The round's sounds and haptics (#283), on changes seen while mounted: the
+ * start, each new wrong guess, each of the last 5 seconds, and the result.
+ */
+function useRoundSounds({
+  phase,
+  wrongGuesses,
+  clock,
+  streak,
+  tier,
+}: {
+  phase: TimedRoundPhase;
+  wrongGuesses: number;
+  clock: ClockReading;
+  streak: number;
+  tier: SpeedTier | null;
+}) {
+  const last = useRef({ phase, wrongGuesses, second: Math.ceil(clock.secondsLeft) });
+
+  useEffect(() => {
+    const before = last.current.phase;
+    last.current.phase = phase;
+    if (before === phase) return;
+    if (before === "ready" && phase === "playing") sounds.start();
+    if (before === "playing" && phase === "correct") {
+      sounds.correct(streak, tier === "lightning");
+      buzz([15, 40, 25]);
+    }
+    if (before === "playing" && phase === "timedOut") {
+      sounds.timeUp();
+      buzz(120);
+    }
+  }, [phase, streak, tier]);
+
+  useEffect(() => {
+    const before = last.current.wrongGuesses;
+    last.current.wrongGuesses = wrongGuesses;
+    if (wrongGuesses > before) {
+      sounds.wrong();
+      buzz(50);
+    }
+  }, [wrongGuesses]);
+
+  const second = Math.ceil(clock.secondsLeft);
+  useEffect(() => {
+    const before = last.current.second;
+    last.current.second = second;
+    if (phase === "playing" && second < before && second >= 1 && second <= URGENT_SECONDS) sounds.tick(second);
+  }, [phase, second]);
+}
+
+/** The last seconds tick and pulse (#283). */
+const URGENT_SECONDS = 5;
+
+/** "🔥 3 in a row": rounds guessed in a row, counting this one once it's right (#283). */
+function StreakChip({ count }: { count: number }) {
+  return (
+    <p
+      data-streak
+      className="badge-pop inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+    >
+      <span aria-hidden="true">🔥</span>
+      {count} in a row
+    </p>
+  );
+}
+
+/**
+ * The live score's colour by how much is left (#283): green while most of the
+ * points are there, amber as they drain, red near the bottom. Colour is never
+ * the only signal: the number itself says the same.
+ */
+function scoreTone(points: number, scoring: TimedScoringConfig): string {
+  const span = scoring.maxPoints - scoring.minPoints;
+  const share = span > 0 ? (points - scoring.minPoints) / span : 0;
+  if (share >= 0.5) return "text-emerald-700 dark:text-emerald-400";
+  if (share >= 0.15) return "text-amber-700 dark:text-amber-400";
+  return "text-rose-700 dark:text-rose-400";
+}
+
 /** The big draining number. Not a live region: it changes 20 times a second. */
-function LiveScore({ clock, timeUp }: { clock: ClockReading; timeUp: boolean }) {
+function LiveScore({ clock, timeUp, scoring }: { clock: ClockReading; timeUp: boolean; scoring: TimedScoringConfig }) {
+  const second = Math.ceil(clock.secondsLeft);
+  const urgent = !timeUp && second >= 1 && second <= URGENT_SECONDS ? second : null;
+  const number = useAnimateOn<HTMLSpanElement>(urgent, PULSE, PULSE_TIMING);
   return (
     <div className="flex flex-col items-center" role="timer" aria-label="Points if you guess now">
       <span
+        ref={number}
         data-live-points
-        className="text-5xl font-bold tabular-nums text-zinc-900 dark:text-zinc-100"
+        className={`inline-block text-5xl font-bold tabular-nums transition-colors duration-300 ${scoreTone(clock.points, scoring)}`}
         aria-hidden="true"
       >
         {formatPoints(clock.points)}
@@ -238,6 +368,7 @@ function PhotoStage({
   seed,
   progress,
   wrongGuesses,
+  wonPoints,
 }: {
   phase: TimedRoundPhase;
   imageSrc: string | null;
@@ -246,7 +377,10 @@ function PhotoStage({
   seed?: string | undefined;
   progress: number;
   wrongGuesses: number;
+  /** Points just won while this was on screen: the photo pops and "+points" floats up (#283). */
+  wonPoints: number | null;
 }) {
+  const popRef = useAnimateOn<HTMLDivElement>(wonPoints !== null ? "won" : null, POP, POP_TIMING);
   // Only wrong guesses made while this is on screen: a round resumed after a
   // refresh doesn't shake for old ones.
   const [mountWrong] = useState(wrongGuesses);
@@ -280,25 +414,37 @@ function PhotoStage({
   }
 
   return (
-    <div ref={box} data-photo-stage className={frame}>
-      {phase === "playing" ? (
-        <EffectCanvas
-          src={imageSrc}
-          effect={effect}
-          focus={focus ?? CENTRE}
-          seed={seed ?? ""}
-          progress={progress}
-          label="The photo to guess, still hidden"
+    <div ref={popRef} className="w-full">
+      <div ref={box} data-photo-stage className={frame}>
+        {phase === "playing" ? (
+          <EffectCanvas
+            src={imageSrc}
+            effect={effect}
+            focus={focus ?? CENTRE}
+            seed={seed ?? ""}
+            progress={progress}
+            label="The photo to guess, still hidden"
+          />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element -- the photo the effect drew, already loaded, sized by the frame
+          <img src={imageSrc} alt="The photo, fully clear" className="h-full w-full object-cover" draggable={false} />
+        )}
+        <div
+          data-wrong-flash={flashOn ? "on" : "off"}
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 rounded-xl ring-4 ring-inset ring-rose-600 ${reduced ? "" : "transition-opacity duration-300"} ${flashOn ? "bg-rose-600/20 opacity-100" : "opacity-0"}`}
         />
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element -- the photo the effect drew, already loaded, sized by the frame
-        <img src={imageSrc} alt="The photo, fully clear" className="h-full w-full object-cover" draggable={false} />
-      )}
-      <div
-        data-wrong-flash={flashOn ? "on" : "off"}
-        aria-hidden="true"
-        className={`pointer-events-none absolute inset-0 rounded-xl ring-4 ring-inset ring-rose-600 ${reduced ? "" : "transition-opacity duration-300"} ${flashOn ? "bg-rose-600/20 opacity-100" : "opacity-0"}`}
-      />
+        {wonPoints !== null && !reduced ? (
+          // Decorative: the result below says the points in words.
+          <span
+            data-points-float
+            aria-hidden="true"
+            className="points-float pointer-events-none absolute rounded-full bg-emerald-600 px-4 py-1 text-2xl font-bold tabular-nums text-white shadow-lg"
+          >
+            +{formatPoints(wonPoints)}
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -383,12 +529,14 @@ function GuessForm({
 function RoundOver({
   phase,
   result,
+  tier,
   isLastRound,
   pending,
   onNext,
 }: {
   phase: "correct" | "timedOut";
   result: TimedRoundProps["result"];
+  tier: SpeedTier | null;
   isLastRound: boolean;
   pending: boolean;
   onNext: () => void;
@@ -417,6 +565,15 @@ function RoundOver({
         <p className="text-sm text-zinc-700 dark:text-zinc-300">
           <strong className="tabular-nums">+{formatPoints(result.points)}</strong> points
           {correct ? <> in {formatSeconds(result.seconds)}</> : null}
+        </p>
+      ) : null}
+      {tier ? (
+        <p
+          data-speed={tier}
+          className="badge-pop inline-flex items-center gap-1 rounded-full bg-sky-100 px-3 py-1 text-sm font-semibold text-sky-900 dark:bg-sky-950 dark:text-sky-200"
+        >
+          <span aria-hidden="true">{tier === "lightning" ? "⚡" : "👀"}</span>
+          {speedLabel(tier)}
         </p>
       ) : null}
       {result?.credit ? <Credit credit={result.credit} /> : null}

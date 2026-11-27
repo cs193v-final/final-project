@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { correctStreak } from "@/game/feedback";
 import { scoreAt } from "@/game/scoring";
 import type { Puzzle, PuzzleEffect, TimedScoringConfig } from "@/game/types";
 import { TimedFinalScore, type TimedRoundSummary } from "./TimedFinalScore";
@@ -133,6 +134,7 @@ export function RoundPreview({
             : undefined
         }
         isLastRound={index === photos.length - 1}
+        streak={correctStreak(done.slice(0, index).map((d) => d.outcome))}
         pending={pending}
         onStart={onStart}
         onGuess={(g) => void onGuess(g)}

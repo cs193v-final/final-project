@@ -148,7 +148,7 @@ test.describe("with a database", () => {
     await page.getByRole("button", { name: "Log in" }).click();
 
     await expect(page).toHaveURL(/\/account$/);
-    await expect(page.getByRole("heading", { name: "Your account" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your account", exact: true })).toBeVisible();
     await expect(page.getByRole("status").filter({ hasText: "Logged in" })).toHaveText(`Logged in as ${username}.`);
   });
 

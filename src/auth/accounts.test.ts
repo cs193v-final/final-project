@@ -5,13 +5,16 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DecryptionError, Vault } from "@/crypto/vault";
-import { deleteExpiredRateLimits, deleteExpiredSessions, deleteSession, hitRateLimit, type PgDb } from "@/db/accounts";
+import { deleteExpiredRateLimits, deleteExpiredSessions, deleteSession, findLoginRow, hitRateLimit, type PgDb } from "@/db/accounts";
 import * as schema from "@/db/schema";
 
 import {
+  accountUserKey,
+  changePassword,
+  deleteAccount,
   DEVICE_TOKEN_DAYS,
   ipKey,
   isDeviceTokenFor,
@@ -27,6 +30,7 @@ import {
   USERNAME_FIELD,
   usernameIndex,
   type AuthResult,
+  type ChangePasswordResult,
 } from "./accounts";
 import { sha256Hex } from "./crypto";
 
@@ -55,7 +59,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await pg.exec("DELETE FROM sessions; DELETE FROM users; DELETE FROM rate_limits;");
+  await pg.exec("DELETE FROM games; DELETE FROM sessions; DELETE FROM users; DELETE FROM rate_limits;");
 });
 
 const T0 = new Date("2026-11-17T12:00:00Z");
@@ -63,13 +67,19 @@ const at = (ms: number) => new Date(T0.getTime() + ms);
 const req = (ip: string | null = "203.0.113.7", now = T0, device: string | null = null) => ({ ip, now, device });
 const PASSWORD = "correct horse battery";
 
-function expectOk(result: AuthResult) {
+function expectOk<R extends AuthResult | ChangePasswordResult>(result: R): Extract<R, { ok: true }> {
   if (!result.ok) throw new Error(`expected success, got ${JSON.stringify(result)}`);
-  return result;
+  return result as Extract<R, { ok: true }>;
 }
 
 async function rows<T>(query: string): Promise<T[]> {
   return (await pg.query<T>(query)).rows;
+}
+
+/** Whether the server would trust `token` for `username`'s account as it is now (its current password hash). */
+async function trusts(username: string, token: unknown, now = T0): Promise<boolean> {
+  const row = await findLoginRow(db, usernameIndex(vault, username));
+  return row !== null && isDeviceTokenFor(vault, { username, passwordHash: row.passwordHash }, token, now);
 }
 
 describe("register", () => {
@@ -252,17 +262,17 @@ describe("login", () => {
 
     it("gets a device token for that username at sign-up and every login", async () => {
       const signup = expectOk(await register(db, { username: "Mallory", password: PASSWORD }, req("192.0.2.2")));
-      expect(isDeviceTokenFor(vault, "mallory", signup.device, T0)).toBe(true);
-      expect(isDeviceTokenFor(vault, "ETHAN", device, T0)).toBe(true);
-      expect(isDeviceTokenFor(vault, "Ethan", signup.device, T0)).toBe(false);
+      expect(await trusts("mallory", signup.device, T0)).toBe(true);
+      expect(await trusts("ETHAN", device, T0)).toBe(true);
+      expect(await trusts("Ethan", signup.device, T0)).toBe(false);
     });
 
     it(`stops being trusted ${DEVICE_TOKEN_DAYS} days after it was made, whatever the cookie says`, async () => {
       const DAY = 24 * 60 * 60 * 1000;
-      expect(isDeviceTokenFor(vault, "Ethan", device, at((DEVICE_TOKEN_DAYS - 1) * DAY))).toBe(true);
-      expect(isDeviceTokenFor(vault, "Ethan", device, at(DEVICE_TOKEN_DAYS * DAY))).toBe(false);
+      expect(await trusts("Ethan", device, at((DEVICE_TOKEN_DAYS - 1) * DAY))).toBe(true);
+      expect(await trusts("Ethan", device, at(DEVICE_TOKEN_DAYS * DAY))).toBe(false);
       // Nor before the day it was made (a clock set back).
-      expect(isDeviceTokenFor(vault, "Ethan", device, at(-DAY))).toBe(false);
+      expect(await trusts("Ethan", device, at(-DAY))).toBe(false);
     });
 
     it("keeps its token on later logins, so logging in again doesn't add another guessing budget", async () => {
@@ -270,7 +280,7 @@ describe("login", () => {
       // A browser without one gets a new one.
       const fresh = expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("192.0.2.1"))).device;
       expect(fresh).not.toBe(device);
-      expect(isDeviceTokenFor(vault, "Ethan", fresh, T0)).toBe(true);
+      expect(await trusts("Ethan", fresh, T0)).toBe(true);
     });
 
     it("logging in with it doesn't reset the username's count, so it gives a guesser no new attempts", async () => {
@@ -547,6 +557,178 @@ describe("sessions", () => {
     expectOk(await register(db, { username: "ethan", password: PASSWORD }, req()));
     expect(await deleteExpiredSessions(db, T0)).toBe(0);
     expect(await deleteExpiredSessions(db, at(SESSION_DAYS * 86_400_000 + 1))).toBe(1);
+  });
+});
+
+describe("changing the password (#234)", () => {
+  const NEW_PASSWORD = "a brand new passphrase";
+  let user: { id: string; username: string };
+  let session: string;
+  let device: string;
+  beforeEach(async () => {
+    const signup = expectOk(await register(db, { username: "Ethan", password: PASSWORD }, req("192.0.2.1")));
+    ({ user, device } = signup);
+    session = signup.session.token;
+  });
+  const change = (current: unknown, password: unknown, r = req()) => changePassword(db, user.id, { current, password }, r);
+
+  it("needs the current password, and then only the new one works", async () => {
+    expect(await change("wrong pass", NEW_PASSWORD)).toMatchObject({ ok: false, reason: "wrong-credentials" });
+    expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req())); // unchanged
+
+    expectOk(await change(PASSWORD, NEW_PASSWORD));
+    expect(await login(db, { username: "Ethan", password: PASSWORD }, req())).toMatchObject({ reason: "wrong-credentials" });
+    expectOk(await login(db, { username: "Ethan", password: NEW_PASSWORD }, req()));
+  });
+
+  it("ends every session, including other browsers', and starts a new one for this browser", async () => {
+    const elsewhere = expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("198.51.100.3"))).session.token;
+    const result = expectOk(await change(PASSWORD, NEW_PASSWORD));
+    for (const token of [session, elsewhere]) expect(await findSessionUser(db, sha256Hex(token), T0)).toBeNull();
+    expect(await findSessionUser(db, sha256Hex(result.session.token), T0)).toEqual(user);
+    expect(await rows("SELECT * FROM sessions")).toHaveLength(1);
+  });
+
+  it("stops every old device token being trusted, and gives this browser a new one", async () => {
+    expect(await trusts("Ethan", device)).toBe(true);
+    const result = expectOk(await change(PASSWORD, NEW_PASSWORD));
+    expect(await trusts("Ethan", device)).toBe(false);
+    expect(await trusts("Ethan", result.device)).toBe(true);
+    // So the old token no longer gets its owner past someone else's guesses.
+    for (let i = 0; i < RATE_LIMITS.loginPerUser.max + 1; i++) {
+      await login(db, { username: "Ethan", password: "wrong pass" }, req(`198.51.100.${i}`));
+    }
+    expect(await login(db, { username: "Ethan", password: NEW_PASSWORD }, req("203.0.113.50", T0, device))).toMatchObject({
+      reason: "rate-limited",
+    });
+    expectOk(await login(db, { username: "Ethan", password: NEW_PASSWORD }, req("203.0.113.50", T0, result.device)));
+  });
+
+  it("checks the new password with the sign-up rules, and asks for the current one", async () => {
+    const before = await rows("SELECT * FROM rate_limits");
+    expect(await change("", "short")).toEqual({
+      ok: false,
+      reason: "invalid",
+      errors: { current: expect.any(String), password: expect.any(String) },
+    });
+    expect(await rows("SELECT * FROM rate_limits")).toEqual(before); // refused before the database
+  });
+
+  it(`allows ${RATE_LIMITS.accountPerUser.max} tries per account per window, even from different addresses`, async () => {
+    for (let i = 0; i < RATE_LIMITS.accountPerUser.max; i++) {
+      expect(await change("wrong pass", NEW_PASSWORD, req(`198.51.100.${i}`))).toMatchObject({ reason: "wrong-credentials" });
+    }
+    expect(await change(PASSWORD, NEW_PASSWORD, req("198.51.100.99"))).toMatchObject({ reason: "rate-limited" });
+    expectOk(await change(PASSWORD, NEW_PASSWORD, req("198.51.100.99", at(RATE_LIMITS.accountPerUser.windowMs + 1))));
+  });
+
+  it(`allows ${RATE_LIMITS.accountPerIp.max} tries per address per window, across accounts`, async () => {
+    const ip = "198.51.100.77";
+    for (let i = 0; i < RATE_LIMITS.accountPerIp.max; i++) {
+      await changePassword(db, `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, { current: "x", password: NEW_PASSWORD }, req(ip));
+    }
+    expect(await change(PASSWORD, NEW_PASSWORD, req(ip))).toMatchObject({ reason: "rate-limited" });
+    // Stopped before the account's own count, so a blocked address can't use it up.
+    const keys = (await rows<{ key: string }>("SELECT key FROM rate_limits")).map((r) => r.key);
+    expect(keys).not.toContain(accountUserKey(vault, user.id));
+  });
+
+  it("says the account is gone if it was deleted meanwhile", async () => {
+    await pg.exec("DELETE FROM users");
+    expect(await change(PASSWORD, NEW_PASSWORD)).toMatchObject({ ok: false, reason: "gone" });
+  });
+
+  describe("never leaves an old session valid after the password changed (review of #251)", () => {
+    afterEach(async () => {
+      await pg.exec(`
+        DROP TRIGGER IF EXISTS test_fail ON sessions;
+        DROP TRIGGER IF EXISTS test_race ON rate_limits;
+        DROP FUNCTION IF EXISTS test_fail();
+        DROP FUNCTION IF EXISTS test_race();`);
+    });
+
+    it("keeps the old password if ending the sessions fails", async () => {
+      await pg.exec(`
+        CREATE FUNCTION test_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'delete failed'; END $$;
+        CREATE TRIGGER test_fail BEFORE DELETE ON sessions FOR EACH ROW EXECUTE FUNCTION test_fail();`);
+      await expect(change(PASSWORD, NEW_PASSWORD)).rejects.toThrow();
+      await pg.exec("DROP TRIGGER test_fail ON sessions");
+      expect(await findSessionUser(db, sha256Hex(session), T0)).toEqual(user);
+      expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req())); // unchanged, so it can be retried
+    });
+
+    it("refuses a login whose password was changed while it was being checked", async () => {
+      // Change the password the moment login clears its count, after it read
+      // and checked the old hash but before it starts its session.
+      await pg.exec(`
+        CREATE FUNCTION test_race() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN UPDATE users SET password_hash = 'changed elsewhere'; RETURN OLD; END $$;
+        CREATE TRIGGER test_race AFTER DELETE ON rate_limits FOR EACH ROW EXECUTE FUNCTION test_race();`);
+      const before = await rows("SELECT token_hash FROM sessions");
+      expect(await login(db, { username: "Ethan", password: PASSWORD }, req("198.51.100.4"))).toMatchObject({
+        ok: false,
+        reason: "wrong-credentials",
+      });
+      expect(await rows("SELECT token_hash FROM sessions")).toEqual(before);
+    });
+  });
+});
+
+describe("deleting the account (#234)", () => {
+  let user: { id: string; username: string };
+  let session: string;
+  let device: string;
+  beforeEach(async () => {
+    const signup = expectOk(await register(db, { username: "Ethan", password: PASSWORD }, req("192.0.2.1")));
+    ({ user, device } = signup);
+    session = signup.session.token;
+  });
+  const remove = (current: unknown, confirm: unknown, r = req()) => deleteAccount(db, user.id, { current, confirm }, r);
+
+  it("needs the current password and the username typed again (any case)", async () => {
+    expect(await remove("wrong pass", "Ethan")).toMatchObject({ ok: false, reason: "wrong-credentials" });
+    expect(await remove(PASSWORD, "someone")).toEqual({ ok: false, reason: "invalid", errors: { confirm: expect.any(String) } });
+    expect(await remove("", "")).toEqual({
+      ok: false,
+      reason: "invalid",
+      errors: { current: expect.any(String), confirm: expect.any(String) },
+    });
+    expect(await rows("SELECT * FROM users")).toHaveLength(1);
+    expect(await remove(PASSWORD, " ETHAN ")).toEqual({ ok: true });
+  });
+
+  it("removes the user and their sessions, so nothing about them can be read or logged into", async () => {
+    expectOk(await login(db, { username: "Ethan", password: PASSWORD }, req("198.51.100.3")));
+    expect(await remove(PASSWORD, "Ethan")).toEqual({ ok: true });
+    expect(await rows("SELECT * FROM users")).toHaveLength(0);
+    expect(await rows("SELECT * FROM sessions")).toHaveLength(0);
+    expect(await findSessionUser(db, sha256Hex(session), T0)).toBeNull();
+    expect(await login(db, { username: "Ethan", password: PASSWORD }, req())).toMatchObject({ reason: "wrong-credentials" });
+  });
+
+  it("deletes their games, so they leave the leaderboard", async () => {
+    await pg.exec("INSERT INTO packs (id, kind, title, theme) VALUES ('pk-del', 'daily', 'T', 'T') ON CONFLICT DO NOTHING");
+    await pg.query(
+      `INSERT INTO games (pack_id, user_id, daily_date, state, total, finished_at) VALUES ('pk-del', $1, '2026-11-17', '{}', 300, now())`,
+      [user.id],
+    );
+    expect(await rows("SELECT * FROM games")).toHaveLength(1);
+    expect(await remove(PASSWORD, "Ethan")).toEqual({ ok: true });
+    expect(await rows("SELECT * FROM games")).toHaveLength(0);
+  });
+
+  it("stops the account's device tokens being trusted, even for a new account with the same name", async () => {
+    expect(await remove(PASSWORD, "Ethan")).toEqual({ ok: true });
+    expectOk(await register(db, { username: "ethan", password: PASSWORD }, req("192.0.2.9")));
+    expect(await trusts("ethan", device)).toBe(false);
+  });
+
+  it(`shares the ${RATE_LIMITS.accountPerUser.max}-try limit with password changes`, async () => {
+    for (let i = 0; i < RATE_LIMITS.accountPerUser.max; i++) {
+      await changePassword(db, user.id, { current: "wrong pass", password: "a brand new passphrase" }, req(`198.51.100.${i}`));
+    }
+    expect(await remove(PASSWORD, "Ethan", req("198.51.100.99"))).toMatchObject({ reason: "rate-limited" });
+    expect(await rows("SELECT * FROM users")).toHaveLength(1);
   });
 });
 
