@@ -19,6 +19,8 @@
 /scripts/seed-images.test.ts     @Hombobow @Joseph-G-McD
 /scripts/pack-scoring.ts         @Hombobow @Joseph-G-McD
 /scripts/pack-scoring.test.ts    @Hombobow @Joseph-G-McD
+/scripts/daily-check.ts          @Hombobow @Joseph-G-McD
+/scripts/daily-check.test.ts     @Hombobow @Joseph-G-McD
 /scripts/create-test-user.ts     @Hombobow @Joseph-G-McD
 /scripts/create-test-user.test.ts @Hombobow @Joseph-G-McD
 /scripts/encrypt-game-states.ts  @Hombobow @Joseph-G-McD
