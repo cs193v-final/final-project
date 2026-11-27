@@ -10,7 +10,8 @@
 //   play            → startLobbyGame(code), then /play's actAction / getGameAction
 //   leaderboard     → lobbyLeaderboard(code)
 //   own lobbies     → myLobbies(), deleteMyLobby(id)  login, owner only
-//   report          → reportLobby(code)               anyone; hidden at REPORTS_TO_HIDE
+//   report          → reportLobby(code)               anyone; hidden at REPORTS_TO_HIDE logged-in users and IPs
+//   lobby photos    → GET /img/<id>.webp (src/server/images.ts), per-IP limit
 //
 // Every call is rate-limited per IP and per owner (`LOBBY_LIMITS`), and what
 // they store is capped (`LOBBY_CAPS`).
@@ -300,19 +301,23 @@ export async function deleteMyLobby(lobbyId: unknown, now = new Date()): Promise
 
 /**
  * Reports the lobby `code` opens. Anyone may report (an anonymous player gets
- * the owner cookie, so each browser counts once); reporting your own lobby
- * does nothing. At `REPORTS_TO_HIDE` distinct reports it's hidden from
- * everyone until reviewed. `hidden` says whether it is now.
+ * the owner cookie); reporting your own lobby does nothing. Once
+ * `REPORTS_TO_HIDE` distinct logged-in players have reported it from as many
+ * distinct IP addresses, it's hidden from everyone until reviewed. An
+ * anonymous report is recorded but doesn't count (cookies are free), and gets
+ * the same answer as any report that didn't hide it. `hidden` says whether it is now.
  */
 export async function reportLobby(code: unknown, now = new Date()): Promise<LobbyResult<{ hidden: boolean }>> {
   await connection();
   return runLobbyCall(async () => {
     const owner = await currentOrNewOwner();
     const db = getDb();
-    await checkLobbyLimits(db, "reports", owner, await requestIpHash(), now);
+    const ipHash = await requestIpHash();
+    await checkLobbyLimits(db, "reports", owner, ipHash, now);
     const lobby = await lookUp(db, code, owner, now);
     if ("userId" in owner && owner.userId === lobby.ownerUserId) return { hidden: false };
-    const { hidden } = await recordReport(db, getVault(), lobby.id, ownerKey(owner), REPORTS_TO_HIDE, now);
+    const reporter = { key: ownerKey(owner), signedIn: "userId" in owner, ipHash };
+    const { hidden } = await recordReport(db, getVault(), lobby.id, reporter, REPORTS_TO_HIDE, now);
     return { hidden };
   });
 }

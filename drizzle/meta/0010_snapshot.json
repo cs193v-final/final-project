@@ -1,5 +1,5 @@
 {
-  "id": "c76c0c3d-1964-48ac-a3c3-b71df4358270",
+  "id": "96dc0b02-1586-4f85-9628-865d76d8a94f",
   "prevId": "64fe0d47-b9d6-4318-b0ee-d74f3d041172",
   "version": "7",
   "dialect": "postgresql",
@@ -823,6 +823,18 @@
         "reporter_index": {
           "name": "reporter_index",
           "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ip_index": {
+          "name": "ip_index",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signed_in": {
+          "name": "signed_in",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true
         },

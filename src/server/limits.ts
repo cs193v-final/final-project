@@ -125,6 +125,15 @@ export const LOBBY_LIMITS = {
   /** Owner actions: list and delete your own lobbies. */
   managePerOwner: { max: 60, windowMs: HOUR },
   managePerIp: { max: 300, windowMs: HOUR },
+  /**
+   * Lobby photo loads (`GET /img/<id>.webp` for a lobby's photo), per IP only:
+   * they're never CDN-cached, so each is a function call, a database read and
+   * a decryption. A game shows 3-5 photos (each one file, kept by the browser
+   * for an hour), so 600 an hour is a class of 30 behind one network playing
+   * four fresh 5-photo lobbies; one person never comes close. Seeded images
+   * are CDN-cached and not limited.
+   */
+  imagesPerIp: { max: 600, windowMs: HOUR },
 } as const satisfies Record<string, Limit>;
 
 /** Caps on what lobbies store (#85: anything that grows per user is capped). */
@@ -165,4 +174,16 @@ export async function checkLobbyLimits(
   };
   if (ipHash !== null) await check(`${kind}PerIp`, `lobby:${kind}:ip:${ipHash}`);
   if (owner !== null) await check(`${kind}PerOwner`, `lobby:${kind}:owner:${ownerKey(owner)}`);
+}
+
+/**
+ * Count one lobby photo load on `lobby:images:ip:<HMAC of the IP>`
+ * (`LOBBY_LIMITS.imagesPerIp`). Per IP only: the image route has no owner
+ * cookie. `ipHash` is `null` where per-IP limits don't apply (`limitsAddress`).
+ * Throws `RateLimitedError` over the limit.
+ */
+export async function checkLobbyImageLimit(db: PgDb, ipHash: string | null, now: Date): Promise<void> {
+  if (ipHash === null) return;
+  const { max, windowMs } = LOBBY_LIMITS.imagesPerIp;
+  if ((await hitRateLimit(db, `lobby:images:ip:${ipHash}`, windowMs, now)) > max) throw new RateLimitedError("imagesPerIp");
 }

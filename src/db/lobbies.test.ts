@@ -239,7 +239,7 @@ describe("deleting", () => {
       "INSERT INTO game_rounds (game_id, position, puzzle_id, outcome, reveal_level_reached, wrong_guesses, points, base_points, reveal_penalty, wrong_guess_penalty) VALUES ($1, 1, $2, 'skipped', 0, 0, 0, 0, 0, 0)",
       [game!.id, puzzle!.puzzle_id],
     );
-    await reportLobby(db, vault, lobbyId, "user:someone", 3, NOW);
+    await reportLobby(db, vault, lobbyId, { key: "user:someone", signedIn: true, ipHash: "ip-1" }, 3, NOW);
     // Another lobby is left alone.
     const keep = await make(owner);
 
@@ -289,18 +289,47 @@ describe("deleting", () => {
 });
 
 describe("reportLobby", () => {
-  it("counts each reporter once, hides at the threshold, and stores no reporter id", async () => {
+  const signedIn = (key: string, ipHash: string | null) => ({ key, signedIn: true, ipHash });
+  const anonymous = (key: string, ipHash: string | null) => ({ key, signedIn: false, ipHash });
+
+  it("counts each reporter once, hides at the threshold, and stores no reporter id or IP hash", async () => {
     const owner = await user();
     const { code, created } = await make(owner);
     const id = created!.lobbyId;
-    expect(await reportLobby(db, vault, id, "user:a", 2, NOW)).toEqual({ counted: true, hidden: false });
-    expect(await reportLobby(db, vault, id, "user:a", 2, NOW)).toEqual({ counted: false, hidden: false });
-    expect(await reportLobby(db, vault, id, "anon:b", 2, NOW)).toEqual({ counted: true, hidden: true });
-    expect(await reportLobby(db, vault, id, "anon:c", 2, NOW)).toEqual({ counted: false, hidden: false });
+    expect(await reportLobby(db, vault, id, signedIn("user:a", "ip-a"), 2, NOW)).toEqual({ counted: true, hidden: false });
+    expect(await reportLobby(db, vault, id, signedIn("user:a", "ip-z"), 2, NOW)).toEqual({ counted: false, hidden: false });
+    expect(await reportLobby(db, vault, id, signedIn("user:b", "ip-b"), 2, NOW)).toEqual({ counted: true, hidden: true });
+    expect(await reportLobby(db, vault, id, signedIn("user:c", "ip-c"), 2, NOW)).toEqual({ counted: false, hidden: false });
     expect(await findPlayableLobby(db, vault, code, NOW)).toBeNull();
     const reporters = JSON.stringify((await pg.query("SELECT * FROM lobby_reports")).rows);
-    expect(reporters).not.toMatch(/user:a|anon:b/u);
+    expect(reporters).not.toMatch(/user:a|user:b|ip-a|ip-b/u);
     expect(await count("SELECT report_count AS n FROM lobbies WHERE id = $1", [id])).toBe(2);
+  });
+
+  it("records anonymous reports but never hides for them", async () => {
+    const { code, created } = await make(await user());
+    const id = created!.lobbyId;
+    for (const key of ["anon:a", "anon:b", "anon:c"]) {
+      expect(await reportLobby(db, vault, id, anonymous(key, `ip-${key}`), 2, NOW)).toEqual({ counted: true, hidden: false });
+    }
+    expect(await findPlayableLobby(db, vault, code, NOW)).not.toBeNull();
+    expect(await count("SELECT report_count AS n FROM lobbies WHERE id = $1", [id])).toBe(0);
+    expect(await count("SELECT count(*)::int AS n FROM lobby_reports WHERE lobby_id = $1", [id])).toBe(3);
+    // A logged-in report after them is only the first that counts.
+    expect(await reportLobby(db, vault, id, signedIn("user:a", "ip-a"), 2, NOW)).toEqual({ counted: true, hidden: false });
+  });
+
+  it("needs the logged-in reporters to come from as many addresses (no address counts as one)", async () => {
+    const { code, created } = await make(await user());
+    const id = created!.lobbyId;
+    expect(await reportLobby(db, vault, id, signedIn("user:a", "ip-1"), 2, NOW)).toEqual({ counted: true, hidden: false });
+    expect(await reportLobby(db, vault, id, signedIn("user:b", "ip-1"), 2, NOW)).toEqual({ counted: true, hidden: false });
+    expect(await reportLobby(db, vault, id, signedIn("user:c", null), 2, NOW)).toEqual({ counted: true, hidden: true });
+    expect(await findPlayableLobby(db, vault, code, NOW)).toBeNull();
+
+    const other = (await make(await user())).created!.lobbyId;
+    expect(await reportLobby(db, vault, other, signedIn("user:a", null), 2, NOW)).toEqual({ counted: true, hidden: false });
+    expect(await reportLobby(db, vault, other, signedIn("user:b", null), 2, NOW)).toEqual({ counted: true, hidden: false });
   });
 });
 

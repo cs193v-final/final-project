@@ -18,6 +18,7 @@
 
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   customType,
   date,
@@ -446,8 +447,8 @@ export const lobbies = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     // Set when the owner deletes it: hidden at once, purged right after (or by the sweep).
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
-    // Distinct reports so far, and when it reached REPORTS_TO_HIDE (then hidden
-    // from everyone, kept for review until it expires).
+    // Distinct logged-in reports so far, and when they reached REPORTS_TO_HIDE
+    // from as many addresses (then hidden from everyone, kept for review until it expires).
     reportCount: integer("report_count").notNull().default(0),
     hiddenAt: timestamp("hidden_at", { withTimezone: true }),
   },
@@ -478,7 +479,12 @@ export const lobbyPuzzles = pgTable(
   (t) => [index("lobby_puzzles_lobby_id_idx").on(t.lobbyId)],
 );
 
-/** One row per (lobby, reporter), so each player's report counts once. */
+/**
+ * One row per (lobby, reporter), so each player's report counts once. Only
+ * logged-in reports count toward hiding, and only from distinct addresses
+ * (`reportLobby` in src/db/lobbies.ts): an anonymous reporter is just a
+ * cookie, so one person could otherwise hide a lobby from a few private windows.
+ */
 export const lobbyReports = pgTable(
   "lobby_reports",
   {
@@ -488,6 +494,11 @@ export const lobbyReports = pgTable(
     // Keyed hash of the reporter (`Vault.blindIndex("lobby_reports.reporter",
     // "user:<id>" or "anon:<owner hash>")`), never the user id or cookie.
     reporterIndex: text("reporter_index").notNull(),
+    // Keyed hash of the reporter's address (`Vault.blindIndex("lobby_reports.ip",
+    // <requestIpHash(), itself an HMAC>)`), never the address itself.
+    ipIndex: text("ip_index").notNull(),
+    // Whether the reporter was logged in: only those reports count toward hiding.
+    signedIn: boolean("signed_in").notNull(),
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.lobbyId, t.reporterIndex] })],

@@ -20,6 +20,8 @@ let db: PgliteDatabase<typeof schema>;
 const { getDbMock } = vi.hoisted(() => ({ getDbMock: vi.fn() }));
 vi.mock("@/db", () => ({ getDb: getDbMock }));
 const { GET } = await import("./route");
+const { imageResponse } = await import("@/server/images");
+const { LOBBY_LIMITS } = await import("@/server/limits");
 
 const migrationsFolder = fileURLToPath(new URL("../../../../drizzle", import.meta.url));
 
@@ -127,5 +129,18 @@ describe("GET /img/<id>.webp", () => {
     const after = await storedLevels();
     expect((await get(before[0]!.src.replace("/img/", ""))).status).toBe(404);
     expect((await get(after[0]!.src.replace("/img/", ""))).status).toBe(200);
+  });
+
+  it("never rate-limits seeded images (the CDN caches them): only lobby photos count per IP", async () => {
+    const [level] = await storedLevels();
+    const file = level!.src.replace("/img/", "");
+    // Even an IP far over the lobby photo limit gets them, and its IP isn't read.
+    await pg.query("INSERT INTO rate_limits (key, window_start, count) VALUES ('lobby:images:ip:x', now(), $1)", [
+      LOBBY_LIMITS.imagesPerIp.max * 10,
+    ]);
+    const ipHash = vi.fn(async () => "x");
+    for (let i = 0; i < 3; i++) expect((await imageResponse(() => db, file, "", undefined, new Date(), ipHash)).status).toBe(200);
+    expect(ipHash).not.toHaveBeenCalled();
+    expect((await pg.query("SELECT key FROM rate_limits")).rows).toEqual([{ key: "lobby:images:ip:x" }]);
   });
 });

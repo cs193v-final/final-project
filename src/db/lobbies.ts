@@ -50,6 +50,7 @@ export const ANSWERS_FIELD = "lobby_puzzles.answers";
 export const IMAGE_FIELD = "image_files.bytes";
 export const UPLOAD_FIELD = "lobby_uploads.bytes";
 export const REPORTER_PURPOSE = "lobby_reports.reporter";
+export const REPORT_IP_PURPOSE = "lobby_reports.ip";
 
 const lobbyKey = (lobbyId: string) => `lobby:${lobbyId.toLowerCase()}`;
 const puzzleKey = (puzzleId: string) => `lobby-puzzle:${puzzleId}`;
@@ -445,15 +446,17 @@ export async function listOwnLobbies(db: Db, vault: Vault, userId: string, now: 
 
 /**
  * An image for `GET /img/<id>.webp`: a seeded puzzle's (`lobby: false`,
- * served as stored), or a lobby's, decrypted, with whether its lobby can be
- * played at `now` (only then may it be served). `null` if there's no such image.
+ * served as stored), or a lobby's, with whether its lobby can be played at
+ * `now` (only then may it be served). `bytes()` returns the bytes to serve,
+ * decrypting a lobby image only when called, so the caller can rate-limit
+ * first. `null` if there's no such image.
  */
 export async function findServableImage(
   db: Db,
   vault: Pick<Vault, "decryptBytes">,
   id: string,
   now: Date,
-): Promise<{ contentType: string; bytes: Uint8Array; lobby: boolean; playable: boolean } | null> {
+): Promise<{ contentType: string; bytes: () => Uint8Array; lobby: boolean; playable: boolean } | null> {
   const [row] = await db
     .select({
       contentType: imageFiles.contentType,
@@ -466,10 +469,11 @@ export async function findServableImage(
     .leftJoin(lobbies, eq(lobbies.id, lobbyPuzzles.lobbyId))
     .where(eq(imageFiles.id, id));
   if (row === undefined) return null;
-  if (row.lobbyId === null) return { contentType: row.contentType, bytes: row.bytes, lobby: false, playable: true };
+  const stored = row.bytes;
+  if (row.lobbyId === null) return { contentType: row.contentType, bytes: () => stored, lobby: false, playable: true };
   const playable = isLobbyPlayable(row as LobbyStatus, now);
   // Not decrypted unless it's going to be served.
-  const bytes = playable ? vault.decryptBytes(imageKey(id), IMAGE_FIELD, row.bytes) : new Uint8Array(0);
+  const bytes = () => (playable ? vault.decryptBytes(imageKey(id), IMAGE_FIELD, stored) : new Uint8Array(0));
   return { contentType: row.contentType, bytes, lobby: true, playable };
 }
 
@@ -573,44 +577,74 @@ export async function purgeDeadLobbies(db: Db, now: Date, { unfinishedAfterMs = 
 
 export type ReportOutcome = { counted: boolean; hidden: boolean };
 
+/** Who reported: their owner key, whether they're logged in, and their IP hash. */
+export type Reporter = {
+  /** `user:<id>` or `anon:<owner hash>` (`ownerKey`); stored only as a keyed hash. */
+  key: string;
+  /** Only logged-in reports count toward hiding. */
+  signedIn: boolean;
+  /** `requestIpHash()`; `null` (no per-IP limits, e.g. loopback in dev) counts as one shared address. */
+  ipHash: string | null;
+};
+
 /**
- * Records one report of a lobby by `reporterKey` (e.g. `user:<id>`, stored
- * only as a keyed hash). Each reporter counts once per lobby. At
- * `reportsToHide` distinct reports the lobby is hidden (`hidden_at`) until
- * someone reviews it. Only a playable lobby can be reported, so a hidden one
- * gets no more rows. One statement.
+ * Records one report of a lobby. Each reporter is stored once per lobby
+ * (`counted` says whether this one was new). The lobby is hidden
+ * (`hidden_at`) until someone reviews it once `reportsToHide` distinct
+ * logged-in users have reported it from at least `reportsToHide` distinct
+ * addresses. Anonymous reports are recorded but never count: an anonymous
+ * owner is only a cookie, so one person could otherwise hide a lobby from a
+ * few private windows; and requiring distinct addresses means one person
+ * with a few accounts can't either. `report_count` is the logged-in reports.
+ * Only a playable lobby can be reported, so a hidden one gets no more rows.
+ *
+ * Two statements (no transactions on Neon HTTP): the insert, then a recount
+ * from the table, so two reports at once still hide it once both are in.
  */
 export async function reportLobby(
   db: Db,
   vault: Vault,
   lobbyId: string,
-  reporterKey: string,
+  reporter: Reporter,
   reportsToHide: number,
   now: Date,
 ): Promise<ReportOutcome> {
-  const reporterIndex = vault.blindIndex(REPORTER_PURPOSE, reporterKey);
+  const reporterIndex = vault.blindIndex(REPORTER_PURPOSE, reporter.key);
+  const ipIndex = vault.blindIndex(REPORT_IP_PURPOSE, reporter.ipHash ?? "none");
   const nowIso = now.toISOString();
-  const rows = rowsOf(
+  const added = rowsOf(
     await db.execute(sql`
       WITH target AS (
         SELECT id FROM lobbies
         WHERE id = ${lobbyId}::uuid AND owner_user_id IS NOT NULL AND ready_at IS NOT NULL
           AND deleted_at IS NULL AND hidden_at IS NULL AND expires_at > ${nowIso}::timestamptz
-      ), added AS (
-        INSERT INTO lobby_reports (lobby_id, reporter_index, created_at)
-        SELECT id, ${reporterIndex}, ${nowIso}::timestamptz FROM target
-        ON CONFLICT DO NOTHING
-        RETURNING lobby_id
+      )
+      INSERT INTO lobby_reports (lobby_id, reporter_index, ip_index, signed_in, created_at)
+      SELECT id, ${reporterIndex}, ${ipIndex}, ${reporter.signedIn}, ${nowIso}::timestamptz FROM target
+      ON CONFLICT DO NOTHING
+      RETURNING lobby_id
+    `),
+  );
+  if (added.length === 0) return { counted: false, hidden: false };
+  if (!reporter.signedIn) return { counted: true, hidden: false };
+  const [row] = rowsOf(
+    await db.execute(sql`
+      WITH tally AS (
+        SELECT count(*)::int AS reports, count(DISTINCT ip_index)::int AS addresses
+        FROM lobby_reports WHERE lobby_id = ${lobbyId}::uuid AND signed_in
       )
       UPDATE lobbies SET
-        report_count = report_count + 1,
-        hidden_at = CASE WHEN report_count + 1 >= ${reportsToHide} THEN ${nowIso}::timestamptz ELSE hidden_at END
-      WHERE id IN (SELECT lobby_id FROM added)
+        report_count = tally.reports,
+        hidden_at = COALESCE(
+          hidden_at,
+          CASE WHEN tally.reports >= ${reportsToHide} AND tally.addresses >= ${reportsToHide} THEN ${nowIso}::timestamptz END
+        )
+      FROM tally
+      WHERE id = ${lobbyId}::uuid
       RETURNING hidden_at
     `),
   );
-  const [row] = rows;
-  return { counted: row !== undefined, hidden: row !== undefined && row.hidden_at !== null };
+  return { counted: true, hidden: row !== undefined && row.hidden_at !== null };
 }
 
 /**

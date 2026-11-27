@@ -20,6 +20,8 @@ const state = vi.hoisted(() => ({
   db: undefined as unknown,
   jar: new Map<string, string>(),
   user: null as { id: string; username: string } | null,
+  // The client address `requestIp()` returns; `null` (no per-IP limits) unless a test sets one.
+  ip: null as string | null,
 }));
 
 vi.stubEnv("DATA_ENCRYPTION_KEY", KEY.toString("base64"));
@@ -32,7 +34,7 @@ vi.mock("next/headers", () => ({
   }),
   headers: async () => new Headers({ "x-forwarded-proto": "https" }),
 }));
-vi.mock("@/auth/session", () => ({ getCurrentUser: async () => state.user, requestIp: async () => null }));
+vi.mock("@/auth/session", () => ({ getCurrentUser: async () => state.user, requestIp: async () => state.ip }));
 
 const lobbiesServer = await import("./lobbies");
 const { createLobbyForUser, deleteMyLobby, joinLobby, lobbyLeaderboard, myLobbies, reportLobby, startLobbyGame, uploadLobbyPhoto } =
@@ -64,6 +66,7 @@ afterAll(async () => {
 beforeEach(async () => {
   state.jar.clear();
   state.user = null;
+  state.ip = null;
   await pg.exec("DELETE FROM rate_limits;");
 });
 
@@ -352,6 +355,36 @@ describe("hard-to-guess codes, and joining by code", () => {
     await pg.query("UPDATE lobbies SET hidden_at = now() WHERE id = $1", [lobbyId]);
     expect((await imageResponse(() => db, file, "", vault)).status).toBe(404);
   });
+
+  it(`serves at most ${LOBBY_LIMITS.imagesPerIp.max} lobby photo loads an hour per IP, then a 429`, async () => {
+    const { code } = await lobbyBy(await newUser());
+    as(null);
+    const start = await startLobbyGame(code);
+    if (!start.ok) throw new Error("start failed");
+    const file = start.view.round!.imageSrc.replace("/img/", "");
+    const now = new Date();
+    // Through the real request IP: each load counts once on its keyed hash.
+    state.ip = "192.0.2.10";
+    expect((await imageResponse(() => db, file, "", vault, now)).status).toBe(200);
+    const [hit] = (await pg.query<{ key: string; count: number }>("SELECT key, count FROM rate_limits WHERE key LIKE 'lobby:images:%'")).rows;
+    expect(hit).toMatchObject({ count: 1 });
+    expect(hit!.key).toMatch(/^lobby:images:ip:[0-9a-f]{64}$/u);
+    // Jump to the limit rather than loading it hundreds of times.
+    await pg.query("UPDATE rate_limits SET count = $2 WHERE key = $1", [hit!.key, LOBBY_LIMITS.imagesPerIp.max - 1]);
+    expect((await imageResponse(() => db, file, "", vault, now)).status).toBe(200); // the max-th
+    // Refused before the photo is decrypted (the vault isn't even resolved).
+    const untouched = vi.fn(() => vault);
+    const refused = await imageResponse(() => db, file, "", untouched, now);
+    expect(refused.status).toBe(429);
+    expect(untouched).not.toHaveBeenCalled();
+    expect(refused.headers.get("cache-control")).toBe("no-store");
+    // Another address still gets it, and so does this one in the next window.
+    state.ip = "192.0.2.11";
+    expect((await imageResponse(() => db, file, "", vault, now)).status).toBe(200);
+    state.ip = "192.0.2.10";
+    const later = new Date(now.getTime() + LOBBY_LIMITS.imagesPerIp.windowMs + 1);
+    expect((await imageResponse(() => db, file, "", vault, later)).status).toBe(200);
+  });
 });
 
 describe("a lobby leaderboard", () => {
@@ -409,7 +442,7 @@ describe("delete and report; lobbies expire", () => {
     expect((await loadGame(view.gameId)).ok).toBe(false);
   });
 
-  it(`hides a lobby after ${REPORTS_TO_HIDE} distinct reports, a game in progress included`, async () => {
+  it(`hides a lobby after ${REPORTS_TO_HIDE} logged-in reports from distinct IPs, a game in progress included`, async () => {
     const owner = await newUser();
     const { code, lobbyId } = await lobbyBy(owner);
     // Someone is mid-game.
@@ -418,18 +451,25 @@ describe("delete and report; lobbies expire", () => {
     if (!player.ok) throw new Error("start failed");
     const playerCookies = new Map(state.jar);
 
-    // The owner's own report and repeated reports don't count.
+    // The owner's own report, repeated reports and anonymous ones don't count.
     as(owner);
+    state.ip = "203.0.113.1";
     expect(await reportLobby(code)).toEqual({ ok: true, hidden: false });
     const first = await newUser();
     as(first);
+    state.ip = "203.0.113.2";
     expect(await reportLobby(code)).toEqual({ ok: true, hidden: false });
     expect(await reportLobby(code)).toEqual({ ok: true, hidden: false });
     for (let i = 1; i < REPORTS_TO_HIDE - 1; i++) {
       as(await newUser());
+      state.ip = `203.0.113.${10 + i}`;
       expect(await reportLobby(code)).toEqual({ ok: true, hidden: false });
     }
-    as(null); // an anonymous reporter counts once per browser
+    as(null);
+    state.ip = "203.0.113.99";
+    expect(await reportLobby(code)).toEqual({ ok: true, hidden: false });
+    as(await newUser());
+    state.ip = "203.0.113.100";
     expect(await reportLobby(code)).toEqual({ ok: true, hidden: true });
 
     const [row] = (await pg.query<{ report_count: number }>("SELECT report_count FROM lobbies WHERE id = $1", [lobbyId])).rows;
@@ -442,6 +482,38 @@ describe("delete and report; lobbies expire", () => {
     // Its owner still sees it, flagged.
     as(owner);
     expect(await myLobbies()).toMatchObject({ ok: true, lobbies: [{ id: lobbyId, hidden: true }] });
+  });
+
+  async function reportFrom(code: string, user: { id: string; username: string } | null, ip: string) {
+    as(user);
+    state.ip = ip;
+    return reportLobby(code);
+  }
+
+  it(`isn't hidden by ${REPORTS_TO_HIDE} anonymous reporters (cookies are free), even from distinct IPs`, async () => {
+    const { code, lobbyId } = await lobbyBy(await newUser());
+    for (let i = 0; i < REPORTS_TO_HIDE; i++) {
+      expect(await reportFrom(code, null, `198.51.100.${i + 1}`)).toEqual({ ok: true, hidden: false });
+    }
+    expect(await joinLobby(code)).toMatchObject({ ok: true });
+    const [row] = (await pg.query<{ report_count: number }>("SELECT report_count FROM lobbies WHERE id = $1", [lobbyId])).rows;
+    expect(row!.report_count).toBe(0);
+  });
+
+  it(`isn't hidden by ${REPORTS_TO_HIDE} logged-in users from one IP`, async () => {
+    const { code } = await lobbyBy(await newUser());
+    for (let i = 0; i < REPORTS_TO_HIDE; i++) {
+      expect(await reportFrom(code, await newUser(), "198.51.100.7")).toEqual({ ok: true, hidden: false });
+    }
+    expect(await joinLobby(code)).toMatchObject({ ok: true });
+  });
+
+  it(`is hidden by ${REPORTS_TO_HIDE} logged-in users from ${REPORTS_TO_HIDE} IPs`, async () => {
+    const { code } = await lobbyBy(await newUser());
+    for (let i = 0; i < REPORTS_TO_HIDE; i++) {
+      expect(await reportFrom(code, await newUser(), `198.51.100.${20 + i}`)).toEqual({ ok: true, hidden: i === REPORTS_TO_HIDE - 1 });
+    }
+    expect(await joinLobby(code)).toEqual({ ok: false, error: "not-found" });
   });
 
   it("expires after 30 days, and the sweep deletes it and stale uploads", async () => {

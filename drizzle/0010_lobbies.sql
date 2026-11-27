@@ -23,6 +23,8 @@ CREATE TABLE "lobby_puzzles" (
 CREATE TABLE "lobby_reports" (
 	"lobby_id" uuid NOT NULL,
 	"reporter_index" text NOT NULL,
+	"ip_index" text NOT NULL,
+	"signed_in" boolean NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "lobby_reports_lobby_id_reporter_index_pk" PRIMARY KEY("lobby_id","reporter_index")
 );
