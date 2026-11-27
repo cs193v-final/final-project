@@ -3,6 +3,7 @@
 // page passes it in. No state, so it works in Server and Client Components.
 import { loginPath } from "@/auth/next-path";
 import { TextLink } from "@/components/ui/controls";
+import { CARD, chipClass, joinClasses } from "@/components/ui/styles";
 import type { StreakSummary } from "@/game/streak";
 
 export type StreakNoteProps = {
@@ -35,8 +36,15 @@ export function StreakNote({ streak, where }: StreakNoteProps) {
     <section
       aria-label="Daily streak"
       // Text size matches TextLink (text-sm), so the link doesn't shrink mid-sentence.
-      className="w-full max-w-md rounded-lg bg-zinc-100 px-4 py-3 text-sm text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+      className={joinClasses(CARD, "flex w-full max-w-md items-center gap-3 px-4 py-3 text-left text-sm text-zinc-700 dark:text-zinc-300")}
     >
+      {current > 0 ? (
+        // The count at a glance. Decorative: the sentence next to it says it in words (#49).
+        <span aria-hidden="true" data-streak-chip className={chipClass("flash", "shrink-0 font-mono text-base tabular-nums")}>
+          <span>🔥</span>
+          {current}
+        </span>
+      ) : null}
       <p>
         {current === 0 ? (
           <>
@@ -45,7 +53,7 @@ export function StreakNote({ streak, where }: StreakNoteProps) {
           </>
         ) : (
           <>
-            Daily streak: <strong className="text-zinc-900 dark:text-zinc-100">{days(current)}</strong>.{" "}
+            Daily streak: <strong className="text-plum dark:text-zinc-50">{days(current)}</strong>.{" "}
             {playedToday ? (
               <>Come back tomorrow to make it {current + 1}.</>
             ) : (

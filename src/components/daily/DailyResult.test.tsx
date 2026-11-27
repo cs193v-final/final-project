@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DailyIntro } from "@/game/daily";
+import { fakeAnimate, fakeMotionSetting, removeFakeAnimate } from "@/test/fakeMotion";
 import type { DailyStats } from "@/game/daily-result";
 import type { GameView, RoundResult } from "@/game/types";
 import { DailyResult } from "./DailyResult";
@@ -162,6 +163,53 @@ describe("DailyResult", () => {
     }
     expect(setInterval.mock.calls.length).toBe(started);
     setInterval.mockRestore();
+  });
+});
+
+describe("DailyResult look (#183)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("shows a Next daily tile with the countdown, and the full sentence for screen readers", async () => {
+    const { container } = render(
+      <DailyResult intro={INTRO} view={VIEW} loadStats={vi.fn(async () => STATS)} now={EVENING} share={vi.fn()} />,
+    );
+    const tile = container.querySelector<HTMLElement>("[data-next-daily]")!;
+    expect(within(tile).getByText("Next daily")).toBeInTheDocument();
+    expect(await within(tile).findByText("3h 14m")).toBeInTheDocument();
+    expect(tile).toHaveTextContent("The next one starts in 3h 14m.");
+    await screen.findByText(/Overall you did better than/u);
+  });
+
+  it("shows the overall figure big, at its final value straight away with reduced motion, hidden from screen readers", async () => {
+    fakeMotionSetting(true);
+    setup();
+    await screen.findByText(/Overall you did better than/u);
+    const figure = document.querySelector("[data-overall-count]")!;
+    expect(figure).toHaveTextContent("50%");
+    expect(figure.closest("[aria-hidden='true']")).not.toBeNull();
+  });
+
+  it("draws a bar per compared image, as wide as its figure, hidden from screen readers", async () => {
+    setup();
+    await screen.findByText(/Overall you did better than/u);
+    const bars = Array.from(document.querySelectorAll<HTMLElement>("[data-stat-bar]"));
+    expect(bars).toHaveLength(2);
+    expect(bars.map((b) => (b.firstElementChild as HTMLElement).style.width)).toEqual(["75%", "0%"]);
+    for (const bar of bars) expect(bar).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("brings the rows in one after another by moving them, never fading text", async () => {
+    fakeMotionSetting(false);
+    const animate = fakeAnimate();
+    setup();
+    await screen.findByText(/Overall you did better than/u);
+    expect(animate).toHaveBeenCalledTimes(2);
+    const calls = animate.mock.calls as unknown as [Keyframe[], KeyframeAnimationOptions][];
+    expect(calls.map(([, options]) => options.delay)).toEqual([0, 70]);
+    for (const [frames] of calls) for (const frame of frames) expect(frame).not.toHaveProperty("opacity");
+    removeFakeAnimate();
   });
 });
 

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
-import { ButtonLink, PrototypeNotice } from "@/components/ui/controls";
+import { CropMark, MONITOR, MONITOR_EMPTY, MONITOR_FRAME } from "@/components/game/monitor";
+import { ButtonLink, CAPS_LABEL, PAGE_TITLE, PrototypeNotice } from "@/components/ui/controls";
 
 import type { DailyIntro } from "@/game/daily";
 import { DEFAULT_DAILY_RESET, type DailyResetConfig } from "@/game/daily-date";
@@ -45,8 +46,8 @@ export function DailyIntroScreen({ intro, start }: { intro: DailyIntro; start?: 
   if (intro.pack === null) {
     return (
       <section aria-labelledby="daily-heading" className="flex w-full max-w-md flex-col items-center gap-4 text-center">
-        <p className="text-sm font-semibold tracking-wide text-zinc-600 uppercase dark:text-zinc-400">{day}</p>
-        <h2 id="daily-heading" className="text-2xl font-semibold">
+        <p className={CAPS_LABEL}>{day}</p>
+        <h2 id="daily-heading" className={PAGE_TITLE}>
           No daily challenge today
         </h2>
         <p className="text-zinc-700 dark:text-zinc-300">
@@ -60,15 +61,34 @@ export function DailyIntroScreen({ intro, start }: { intro: DailyIntro; start?: 
   const { theme, puzzleCount } = intro.pack;
   return (
     <section aria-labelledby="daily-heading" className="flex w-full max-w-md flex-col items-center gap-4 text-center">
-      <p className="text-sm font-semibold tracking-wide text-zinc-600 uppercase dark:text-zinc-400">{day}</p>
-      <h2 id="daily-heading" className="text-4xl font-semibold tracking-tight">
+      <p className={CAPS_LABEL}>{day}</p>
+      <h2 id="daily-heading" className={PAGE_TITLE}>
         Today: {theme}
       </h2>
+      {/* The monitor the photos play in, still empty. Decorative: the sentence below says how many images. */}
+      <div aria-hidden="true" className={MONITOR}>
+        <div className={`${MONITOR_FRAME} ${MONITOR_EMPTY}`}>
+          <div className="flex flex-col items-center gap-3 px-6 text-center">
+            <CropMark className="size-14" />
+            <p className="text-sm">The photo appears when you start</p>
+          </div>
+        </div>
+      </div>
+      {/* One empty tile per image, like the final score's tiles. */}
+      <div aria-hidden="true" className="flex flex-wrap justify-center gap-1.5">
+        {Array.from({ length: puzzleCount }, (_, i) => (
+          <span
+            key={i}
+            data-image-tile
+            className="h-8 w-9 rounded-md border border-zinc-300 bg-paper shadow-[0_2px_0_var(--color-zinc-300)] dark:border-zinc-600 dark:bg-zinc-800 dark:shadow-[0_2px_0_var(--color-zinc-950)]"
+          />
+        ))}
+      </div>
       <p className="text-lg text-zinc-700 dark:text-zinc-300">
         {puzzleCount} {puzzleCount === 1 ? "image" : "images"}, the same for everyone. Your first game is the one that counts.
       </p>
       {start ?? <PrototypeNotice>Playing the daily arrives with server-side games.</PrototypeNotice>}
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">{next}</p>
+      <p className="text-sm text-zinc-600 dark:text-zinc-300">{next}</p>
     </section>
   );
 }
