@@ -91,7 +91,6 @@ export function useMotionChoice(): { choice: MotionChoice; system: boolean } {
   return { choice, system };
 }
 
-
 /**
  * Plays a Web Animations API animation on the returned ref's element each time
  * `trigger` changes to a new truthy value, unless the player prefers reduced

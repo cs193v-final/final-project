@@ -1,13 +1,28 @@
 "use client";
 
 import { useEffect } from "react";
-import { effectiveReducedMotion, setMotionChoice, useMotionChoice } from "./game/motion";
+import {
+  effectiveReducedMotion,
+  readMotionChoice,
+  setMotionChoice,
+  systemPrefersReducedMotion,
+  useMotionChoice,
+} from "./game/motion";
 import { buttonClass, FOCUS_RING } from "./ui/styles";
 
-/** Keeps `:root[data-reduced-motion]` (globals.css) in step with the choice and the system setting. */
+/**
+ * Keeps `:root[data-reduced-motion]` (globals.css) in step with the choice
+ * and the system setting. Reads them fresh in the browser rather than using
+ * `reduced`, which is the server's guess on the first (hydration) render: that
+ * would briefly undo what the boot script set (#303 review). `reduced` only
+ * re-runs the effect when either changes.
+ */
 function useSyncMotionAttribute(reduced: boolean) {
   useEffect(() => {
-    document.documentElement.toggleAttribute("data-reduced-motion", reduced);
+    document.documentElement.toggleAttribute(
+      "data-reduced-motion",
+      effectiveReducedMotion(readMotionChoice(), systemPrefersReducedMotion()),
+    );
   }, [reduced]);
 }
 

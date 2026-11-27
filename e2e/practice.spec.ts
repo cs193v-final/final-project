@@ -350,3 +350,34 @@ test("the controls under the image stay in the same place for a wide and a tall 
   expect(Math.abs(wide.zoomY - tall.zoomY)).toBeLessThanOrEqual(1);
   expect(Math.abs(wide.guessY - tall.guessY)).toBeLessThanOrEqual(1);
 });
+
+// The in-app Animations switch (#183, #303) overrides the system's Reduce
+// motion setting for the CSS motion too, not just the JS effects: Tailwind's
+// motion-reduce: variant follows :root[data-reduced-motion].
+test.describe("the Animations switch", () => {
+  const zoomImage = (page: Page) => page.getByRole("img", { name: /^Mystery image/ });
+  const transition = (page: Page) => zoomImage(page).evaluate((el) => getComputedStyle(el).transitionProperty);
+
+  test("turned off, the zoom has no transition even when the system allows motion", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.addInitScript(() => window.localStorage.setItem("zoomout:motion", "off"));
+    await page.goto("/play");
+    await expect(zoomImage(page)).toBeVisible();
+    expect(await transition(page)).toBe("none");
+  });
+
+  test("turned on, the zoom transitions even when the system asks for reduced motion", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(() => window.localStorage.setItem("zoomout:motion", "on"));
+    await page.goto("/play");
+    await expect(zoomImage(page)).toBeVisible();
+    expect(await transition(page)).toContain("transform");
+  });
+
+  test("left alone, it follows the system setting", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/play");
+    await expect(zoomImage(page)).toBeVisible();
+    expect(await transition(page)).toBe("none");
+  });
+});

@@ -77,7 +77,13 @@
   box-shadow: 0 4px 0 var(--bevel-color, var(--bevel));
 }
 /* Motion rules key off :root[data-reduced-motion], set before first paint from
-   the player's in-app choice or the system setting (motion-boot.ts, #183). */
+   the player's in-app choice or the system setting (motion-boot.ts, #183).
+   Tailwind's motion-reduce: and motion-safe: variants follow it too, instead
+   of the system media query, so every current and future use obeys the
+   Animations switch. */
+@custom-variant motion-reduce (&:where(:root[data-reduced-motion] *));
+@custom-variant motion-safe (&:where(:root:not([data-reduced-motion]) *));
+
 :root:not([data-reduced-motion]) {
   .bevel {
     transition:
