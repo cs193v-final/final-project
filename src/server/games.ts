@@ -14,7 +14,7 @@ import { requestIp } from "@/auth/session";
 import { getVault } from "@/crypto/vault";
 import { getDb, type Db } from "@/db";
 import { getPuzzles } from "@/db/content";
-import { ensurePackRow, findUnfinishedGames, PgGameStore } from "@/db/games";
+import { ensurePackRow, findUnfinishedGames, PgGameStore, UnfinishedGamesCapError } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
 import { getScoringConfig } from "@/db/scoring";
 import { runGameCall, type GameResult } from "@/game/game-result";
@@ -53,7 +53,11 @@ export function deps(db: Db): GameDeps {
     // (they're read from the repo), so practice games don't record rounds;
     // every other pack's puzzles are in the database, so those do (the daily
     // result's per-image stats, #58, and leaderboards, #62, read them).
-    games: new PgGameStore(db, getVault(), { recordRounds: (state) => state.pack.kind !== "practice" }),
+    // The unfinished-games cap (#85) is checked by the store, atomically (#225).
+    games: new PgGameStore(db, getVault(), {
+      recordRounds: (state) => state.pack.kind !== "practice",
+      maxUnfinishedPerPack: MAX_UNFINISHED_GAMES_PER_PACK,
+    }),
     // Practice puzzles from the repo copy (so /play works on an unseeded
     // database); everything else, e.g. the daily (#58), from the database.
     puzzles: {
@@ -117,6 +121,10 @@ export async function startPracticeGame(): Promise<GameResult> {
  * one, and at the cap there is always a game of this pack to resume.
  * `scoring` is only read when a new game is created. Used by practice and
  * Stanford mode (#65); the daily has its own one-game-per-day rule.
+ *
+ * The check here is only a fast path: the store enforces the cap atomically
+ * (#225). When a parallel start takes the last slot first, `startGame` throws
+ * `UnfinishedGamesCapError` and the latest readable game is resumed, as at the cap.
  */
 export async function startOrReuseGame(
   db: Db,
@@ -130,22 +138,43 @@ export async function startOrReuseGame(
   const reuse = [unfinished.untouchedId, ...(atCap ? unfinished.recentIds : [])].filter(
     (id, i, ids): id is string => id !== null && ids.indexOf(id) === i,
   );
+  const resumed = await resumeFirstReadable(db, owner, reuse);
+  if (resumed.view !== undefined) return resumed.view;
+  // At the cap with none that loads (most likely a wrong key): report it.
+  if (atCap && resumed.unreadable !== null) throw resumed.unreadable;
+  try {
+    return await startGame(deps(db), pack, owner, await scoring());
+  } catch (error) {
+    // Another start for this owner took the last slot first (#225): resume, as at the cap.
+    if (!(error instanceof UnfinishedGamesCapError)) throw error;
+    const { recentIds } = await findUnfinishedGames(db, owner, pack.id, MAX_UNFINISHED_GAMES_PER_PACK);
+    const resumedAfterRace = await resumeFirstReadable(db, owner, recentIds);
+    if (resumedAfterRace.view !== undefined) return resumedAfterRace.view;
+    throw resumedAfterRace.unreadable ?? error;
+  }
+}
+
+/**
+ * Resume the first of `ids` that loads. A game that can't be decrypted (#164)
+ * is skipped and logged, so "Start a new game" doesn't land on it again; the
+ * last such error is returned when none loads.
+ */
+async function resumeFirstReadable(
+  db: Db,
+  owner: GameOwner,
+  ids: readonly string[],
+): Promise<{ view?: GameView; unreadable: GameUnreadableError | null }> {
   let unreadable: GameUnreadableError | null = null;
-  for (const id of reuse) {
+  for (const id of ids) {
     try {
-      return await getGame(deps(db), id, owner);
+      return { view: await getGame(deps(db), id, owner), unreadable };
     } catch (error) {
-      // A game that can't be decrypted (#164) is skipped and logged, so
-      // "Start a new game" doesn't land on it again. Below the cap a new game
-      // is started; at the cap the next one is tried.
       if (!(error instanceof GameUnreadableError)) throw error;
       console.error("skipped an unreadable game:", JSON.stringify(errorForLog(error)));
       unreadable = error;
     }
   }
-  // At the cap with none that loads (most likely a wrong key): report it.
-  if (atCap && unreadable !== null) throw unreadable;
-  return startGame(deps(db), pack, owner, await scoring());
+  return { unreadable };
 }
 
 /**
