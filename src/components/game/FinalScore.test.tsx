@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { scoreRating } from "@/game/feedback";
 import type { RoundResult } from "@/game/types";
+import { fakeAnimate, fakeMotionSetting, removeFakeAnimate } from "@/test/fakeMotion";
 import { actionsText, beatAiText, breakdownText, FinalScore } from "./FinalScore";
 
 function result(overrides: Partial<RoundResult> = {}): RoundResult {
@@ -73,6 +75,56 @@ describe("FinalScore", () => {
     render(<FinalScore puzzles={puzzles} score={score} title="Stanford complete" />);
     expect(screen.getByRole("heading", { name: "Stanford complete" })).toHaveFocus();
     expect(screen.queryByText("Practice complete")).not.toBeInTheDocument();
+  });
+
+  it("rates the score and shows a ✓ or × tile per image (#183)", () => {
+    const { container } = render(<FinalScore puzzles={puzzles} score={score} />);
+    expect(screen.getByText(scoreRating(70, 200))).toBeInTheDocument();
+    const pips = [...container.querySelectorAll("[data-summary-pip]")];
+    expect(pips.map((p) => p.textContent)).toEqual(["✓", "×"]);
+    // Decorative: the rows say the same in words.
+    expect(pips[0]!.parentElement).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("counts the total up to the exact score", () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance", "setTimeout", "clearTimeout"] });
+    try {
+      const { container } = render(<FinalScore puzzles={puzzles} score={score} />);
+      const count = container.querySelector("[data-total-count]");
+      // Decorative: "You scored 70 out of 200" says it in words.
+      expect(count).toHaveAttribute("aria-hidden", "true");
+      act(() => void vi.advanceTimersByTime(2_000));
+      expect(count).toHaveTextContent("70");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the total at once with reduced motion", () => {
+    fakeMotionSetting(true);
+    try {
+      const { container } = render(<FinalScore puzzles={puzzles} score={score} />);
+      expect(container.querySelector("[data-total-count]")).toHaveTextContent("70");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("brings the rows in one after another, but not with reduced motion", () => {
+    const animate = fakeAnimate();
+    try {
+      fakeMotionSetting(false);
+      const { unmount } = render(<FinalScore puzzles={puzzles} score={score} />);
+      expect(animate.mock.contexts).toEqual(screen.getAllByRole("listitem"));
+      unmount();
+      animate.mockClear();
+      fakeMotionSetting(true);
+      render(<FinalScore puzzles={puzzles} score={score} />);
+      expect(animate).not.toHaveBeenCalled();
+    } finally {
+      removeFakeAnimate();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("calls onPlayAgain", async () => {

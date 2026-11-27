@@ -8,9 +8,12 @@ import { Confetti } from "./Confetti";
 import { FinalScore } from "./FinalScore";
 import { GuessPanel } from "./GuessPanel";
 import { ImageViewer } from "./ImageViewer";
-import { POP, POP_TIMING, useAnimateOn } from "./motion";
+import { CAPS } from "./monitor";
+import { POP, POP_TIMING, useAnimateOn, usePrefersReducedMotion } from "./motion";
 import { feedbackFor, finalScoreLabels, learnAnswer, NO_FEEDBACK, type Feedback, type KnownAnswers } from "./practice";
 import { RoundValue, ScoreHeader } from "./LiveScore";
+import { buzz, sounds, unlockAudio } from "./sound";
+import { SoundToggle } from "./SoundToggle";
 import { ZoomOutButton } from "./ZoomOutButton";
 import { Button, ButtonLink } from "../ui/controls";
 
@@ -118,7 +121,17 @@ export function PracticeGame({
       return;
     }
     setProblem(null);
-    setJustSolved(action?.type === "guess" && result.view.round?.state === "correct");
+    const solved = action?.type === "guess" && result.view.round?.state === "correct";
+    setJustSolved(solved);
+    // The player's own move gets a sound and a buzz (#183, as in the timed
+    // round); a view that was only loaded doesn't.
+    if (solved) {
+      sounds.correct();
+      buzz([15, 40, 25]);
+    } else if (action?.type === "guess" && result.view.lastOutcome?.kind === "incorrect") {
+      sounds.wrong();
+      buzz(50);
+    }
     latest.current = result.view;
     setView(result.view);
     setFeedback((previous) => feedbackFor(action, result.view, previous));
@@ -145,6 +158,8 @@ export function PracticeGame({
       setFeedback({ kind: "empty" });
       return Promise.resolve();
     }
+    // Called from a click or a submit, which is what lets the browser play the result's sound.
+    unlockAudio();
     return exclusive(async () => {
       const current = latest.current;
       if (current === null) return;
@@ -203,7 +218,7 @@ export function PracticeGame({
 
   const alert = problem && view ? (
     <div className="flex flex-col items-center gap-2">
-      <p role="alert" className="text-center text-sm text-rose-700 dark:text-rose-400">
+      <p role="alert" className="text-center text-sm text-rust">
         {message}
       </p>
       {problem === "unreadable" ? lostAction : null}
@@ -240,6 +255,10 @@ export function PracticeGame({
   if (view.finished || round === null) {
     return (
       <div className="flex w-full flex-col items-center gap-3">
+        {/* The results tally with sound (#183), so the switch is on this screen too. */}
+        <div className="flex w-full max-w-md justify-end">
+          <SoundToggle />
+        </div>
         {alert}
         <FinalScore
           puzzles={finalScoreLabels(view, answers)}
@@ -263,9 +282,19 @@ export function PracticeGame({
   // Once this round has ended, its result is the last one scored.
   const roundResult = round.state === "playing" ? undefined : view.results[round.position - 1];
 
+  const playing = round.state === "playing";
+
   return (
-    <div className="flex w-full flex-col items-center gap-6" aria-busy={pending}>
-      <ScoreHeader index={round.position - 1} count={round.puzzleCount} total={view.total} />
+    <div className="flex w-full flex-col items-center gap-5" aria-busy={pending}>
+      <div className="flex w-full max-w-md items-center justify-between gap-2">
+        <ScoreHeader
+          index={round.position - 1}
+          count={round.puzzleCount}
+          total={view.total}
+          outcomes={view.results.map((r) => r.outcome)}
+        />
+        <SoundToggle />
+      </div>
 
       <div className="flex w-full max-w-md flex-col items-center gap-3">
         <div ref={imageBox} data-image-box className="relative flex w-full justify-center">
@@ -274,18 +303,35 @@ export function PracticeGame({
             key={round.position}
             puzzle={{ imageUrl: round.imageSrc, reveal: cropFor(round) }}
             revealLevel={round.revealLevel}
-            showFull={round.state !== "playing"}
+            showFull={!playing}
+            instruments={
+              playing ? (
+                <RoundValue
+                  key={round.position}
+                  round={roundView}
+                  pointsNow={round.pointsAvailable}
+                  config={view.scoring}
+                />
+              ) : (
+                <EarnedGauge points={roundResult?.points ?? 0} />
+              )
+            }
+            overlay={
+              <>
+                <WrongFlash key={round.position} wrongGuesses={round.wrongGuesses} playing={playing} />
+                {solvedRound !== null && roundResult ? <PointsFloat points={roundResult.points} /> : null}
+              </>
+            }
           />
           {/* Mounts fresh each time a guess here solves an image ("Next image" unmounts it), so it plays once per solve. */}
           {solvedRound !== null && <Confetti />}
         </div>
-        {round.state === "playing" ? (
-          <ZoomOutButton round={roundView} pending={pending} onZoomOut={() => void send({ type: "reveal" })} />
-        ) : round.credit ? (
-          <Credit credit={round.credit} />
+        {playing ? (
+          <>
+            <ZoomOutButton round={roundView} pending={pending} onZoomOut={() => void send({ type: "reveal" })} />
+            <AiBadge round={round} result={roundResult} />
+          </>
         ) : null}
-        <RoundValue round={roundView} result={roundResult} pointsNow={round.pointsAvailable} config={view.scoring} />
-        <AiBadge round={round} result={roundResult} />
       </div>
 
       <GuessPanel
@@ -297,9 +343,80 @@ export function PracticeGame({
         onGuess={(guess) => void send({ type: "guess", guess })}
         onSkip={() => void send({ type: "skip" })}
         onNext={() => void send({ type: "next" })}
+        result={
+          playing ? null : (
+            <>
+              <RoundValue round={roundView} result={roundResult} config={view.scoring} />
+              <AiBadge round={round} result={roundResult} />
+              {round.credit ? <Credit credit={round.credit} /> : null}
+            </>
+          )
+        }
       />
       {alert}
     </div>
+  );
+}
+
+/**
+ * The monitor's instrument once the round is over: what the image earned.
+ * Decorative: the result card says it in words.
+ */
+function EarnedGauge({ points }: { points: number }) {
+  return (
+    <div aria-hidden="true" className="flex flex-col items-start">
+      <span className={CAPS}>This image</span>
+      <span className="font-display text-4xl leading-tight tracking-[-0.05em] text-meadow tabular-nums sm:text-5xl">
+        +{points}
+      </span>
+    </div>
+  );
+}
+
+/** How long the Peach ring stays on the photo after a wrong guess. */
+const WRONG_FLASH_MS = 400;
+
+/**
+ * A Peach ring on the photo for each wrong guess made while on screen (#183),
+ * as the timed round flashes. It fades without reduced motion; with it, it
+ * just shows and goes. Decorative: the guess panel says "isn't it".
+ */
+function WrongFlash({ wrongGuesses, playing }: { wrongGuesses: number; playing: boolean }) {
+  const reduced = usePrefersReducedMotion();
+  const [seen, setSeen] = useState(wrongGuesses);
+  const [flashing, setFlashing] = useState(false);
+  if (wrongGuesses !== seen) {
+    setSeen(wrongGuesses);
+    if (wrongGuesses > seen) setFlashing(true);
+  }
+  useEffect(() => {
+    if (!flashing) return;
+    const id = setTimeout(() => setFlashing(false), WRONG_FLASH_MS);
+    return () => clearTimeout(id);
+  }, [flashing, seen]);
+  // A flash still running when the round ends would tint the solved photo.
+  const on = flashing && playing;
+  return (
+    <span
+      data-wrong-flash={on ? "on" : "off"}
+      aria-hidden="true"
+      className={`pointer-events-none absolute inset-0 rounded-[10px] ring-4 ring-peach ring-inset ${reduced ? "" : "transition-opacity duration-300"} ${on ? "bg-peach/20 opacity-100" : "opacity-0"}`}
+    />
+  );
+}
+
+/** "+80" rising off the photo after the player's own correct guess (#283's float). None with reduced motion. */
+function PointsFloat({ points }: { points: number }) {
+  const reduced = usePrefersReducedMotion();
+  if (reduced) return null;
+  return (
+    <span
+      data-points-float
+      aria-hidden="true"
+      className="points-float pointer-events-none absolute rounded-lg border border-meadow-edge bg-meadow px-4 py-1 font-display text-3xl text-plum tabular-nums shadow-[0_4px_0_var(--color-meadow-shadow)]"
+    >
+      +{points}
+    </span>
   );
 }
 

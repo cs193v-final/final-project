@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { clampRevealLevel, cropTransformCss } from "../../game/crop";
 import type { Puzzle, RevealLevel } from "../../game/types";
+import { CORNERS_WIDEN, CORNERS_WIDEN_TIMING } from "./live-motion";
+import { CAPS, Corners, MONITOR, MONITOR_FRAME } from "./monitor";
+import { useAnimateOn } from "./motion";
 
 export type ImageViewerProps = {
   puzzle: Pick<Puzzle, "imageUrl" | "reveal">;
@@ -10,6 +13,10 @@ export type ImageViewerProps = {
   revealLevel: RevealLevel;
   /** Show the full image regardless of `revealLevel`, e.g. once the round is over. */
   showFull?: boolean;
+  /** The left of the monitor's instrument row, e.g. the "worth now" number (#183). */
+  instruments?: ReactNode;
+  /** Drawn over the photo, inside the frame: e.g. the wrong-guess flash or the "+points" float. */
+  overlay?: ReactNode;
 };
 
 type LoadState = "loading" | "loaded" | "error";
@@ -34,7 +41,7 @@ const FADE_MS = 500;
  * after that fade has finished, so zooming out never shows an empty frame. Give each puzzle its own `key` (PracticeGame uses the round
  * position), so a new puzzle starts fresh instead of over the last one.
  */
-export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageViewerProps) {
+export function ImageViewer({ puzzle, revealLevel, showFull = false, instruments, overlay }: ImageViewerProps) {
   const { imageUrl, reveal } = puzzle;
   const levels = Math.max(1, reveal.zoomLevels.length);
   const level = showFull ? levels - 1 : clampRevealLevel(reveal, revealLevel);
@@ -100,15 +107,22 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
   const fit = aspect >= FRAME_ASPECT ? { width: "100%" } : { height: "100%" };
 
   return (
-    <figure className="flex w-full max-w-md flex-col gap-2">
-      <div
-        data-frame
-        className="flex w-full items-center justify-center overflow-hidden rounded-xl bg-zinc-200 dark:bg-zinc-800"
-        style={{ aspectRatio: String(FRAME_ASPECT) }}
-      >
+    // The "monitor" (#183): the photo in the deep-plum frame, with the
+    // instruments above it and the zoom track below, as in the timed round.
+    <figure data-monitor className={`${MONITOR} flex max-w-md flex-col`}>
+      <div className="flex min-h-14 items-end justify-between gap-3 px-2 pt-1 pb-2.5">
+        <div className="min-w-0">{instruments}</div>
+        <div className="flex shrink-0 flex-col items-end" aria-hidden="true">
+          <span className={CAPS}>Zoom</span>
+          <span data-zoom-readout className="font-mono text-2xl font-bold text-[#fffbec] tabular-nums">
+            {showFull ? "Full" : `${level + 1}/${levels}`}
+          </span>
+        </div>
+      </div>
+      <div data-frame className={MONITOR_FRAME} style={{ aspectRatio: String(FRAME_ASPECT) }}>
         <div className="relative overflow-hidden" style={{ ...fit, aspectRatio: String(aspect) }}>
           {imageUrl === "" || load === "error" ? (
-            <p className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-[#e5d2fc]">
               {imageUrl === "" ? "No image for this puzzle yet" : "The image couldn't load"}
             </p>
           ) : (
@@ -154,10 +168,45 @@ export function ImageViewer({ puzzle, revealLevel, showFull = false }: ImageView
             </>
           )}
         </div>
+        {showFull ? null : <ViewfinderCorners level={level} />}
+        {overlay}
       </div>
-      <figcaption aria-live="polite" className="text-center text-sm text-zinc-600 dark:text-zinc-400">
+      <ZoomTrack levels={levels} level={level} />
+      <figcaption aria-live="polite" className={`${CAPS} px-1 pt-1.5 text-center`}>
         {caption}
       </figcaption>
     </figure>
+  );
+}
+
+/**
+ * The viewfinder corners while the photo is still cropped (#183). They open a
+ * little wider on each zoom out made while on screen (none with reduced motion).
+ */
+function ViewfinderCorners({ level }: { level: number }) {
+  const [mountLevel] = useState(level);
+  const corners = useAnimateOn<HTMLSpanElement>(level > mountLevel ? level : null, CORNERS_WIDEN, CORNERS_WIDEN_TIMING);
+  return (
+    <span ref={corners} data-corners aria-hidden="true" className="pointer-events-none absolute inset-0">
+      <Corners />
+    </span>
+  );
+}
+
+/**
+ * One segment per zoom level, Meadow up to the one on screen (#183).
+ * Decorative: the caption under it says the level in words.
+ */
+function ZoomTrack({ levels, level }: { levels: number; level: number }) {
+  return (
+    <div aria-hidden="true" className="flex gap-1 px-0.5 pt-2.5">
+      {Array.from({ length: levels }, (_, i) => (
+        <span
+          key={i}
+          data-zoom-segment={i <= level ? "on" : "off"}
+          className={`h-1.5 flex-1 rounded-full ${i <= level ? "bg-meadow" : "bg-[#615174]"}`}
+        />
+      ))}
+    </div>
   );
 }
