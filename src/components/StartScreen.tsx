@@ -65,6 +65,10 @@ export function StartScreen({ scoring = SCORING_CONFIG, streak }: { scoring?: Sc
         </ol>
       </section>
 
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <TextLink href="/credits">Photo credits</TextLink>
+      </p>
+
       <PrototypeNotice>Prototype: point values are still being tuned.</PrototypeNotice>
     </main>
   );
