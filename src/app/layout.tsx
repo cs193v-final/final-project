@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Open_Sans } from "next/font/google";
 import { Suspense } from "react";
 import { AccountStatus } from "@/components/account/AccountStatus";
 import { CloudsToggle } from "@/components/CloudsToggle";
+import { MOTION_BOOT_SCRIPT } from "@/components/motion-boot";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SkyBackdrop } from "@/components/SkyBackdrop";
 import { chipClass, FOCUS_RING } from "@/components/ui/controls";
@@ -47,7 +48,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${openSans.variable} h-full antialiased`}
+      // The motion script below sets data-reduced-motion on <html> before React hydrates.
+      suppressHydrationWarning
     >
+      <head>
+        {/* Before first paint: animations on or off, from the player's choice or the system (#183). */}
+        <script dangerouslySetInnerHTML={{ __html: MOTION_BOOT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         {/* First in the tab order, so keyboard users can jump past the header (WCAG 2.4.1). Above the
             top edge until it has focus (not `sr-only`, whose reset would drop the chip's padding). */}

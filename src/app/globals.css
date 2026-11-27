@@ -84,7 +84,15 @@
 .bevel {
   box-shadow: 0 4px 0 var(--bevel-color, var(--bevel));
 }
-@media (prefers-reduced-motion: no-preference) {
+/* Motion rules key off :root[data-reduced-motion], set before first paint from
+   the player's in-app choice or the system setting (motion-boot.ts, #183).
+   Tailwind's motion-reduce: and motion-safe: variants follow it too, instead
+   of the system media query, so every current and future use obeys the
+   Animations switch. */
+@custom-variant motion-reduce (&:where(:root[data-reduced-motion] *));
+@custom-variant motion-safe (&:where(:root:not([data-reduced-motion]) *));
+
+:root:not([data-reduced-motion]) {
   .bevel {
     transition:
       transform 150ms cubic-bezier(0.23, 1, 0.32, 1),
@@ -274,11 +282,11 @@
   transform-box: fill-box;
   transform-origin: center;
 }
-@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
-  .brand-corners {
+@media (hover: hover) and (pointer: fine) {
+  :root:not([data-reduced-motion]) .brand-corners {
     transition: transform 200ms var(--ease-out);
   }
-  .group:hover .brand-corners {
+  :root:not([data-reduced-motion]) .group:hover .brand-corners {
     transform: scale(1.18);
   }
 }
@@ -324,7 +332,7 @@
 }
 
 /* Reduced motion: no zoom, float or movement; everything is simply there. */
-@media (prefers-reduced-motion: reduce) {
+:root[data-reduced-motion] {
   .island-photo,
   .word-zoom,
   .rise-in {
@@ -345,7 +353,7 @@
 }
 
 /* Backup for the JS check in usePrefersReducedMotion. */
-@media (prefers-reduced-motion: reduce) {
+:root[data-reduced-motion] {
   .confetti-piece,
   .points-float {
     display: none;
