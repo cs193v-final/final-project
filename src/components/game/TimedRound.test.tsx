@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createEffect, frameSize } from "@/game/effects";
 import { scoreAt } from "@/game/scoring";
 import { formatPoints } from "@/game/round-clock";
 import type { TimedScoringConfig } from "@/game/types";
+import { fakeCanvas, removeFakeCanvas, sameFrame, testPhoto } from "@/test/fakeCanvas";
 import { fakeAnimate, fakeMotionSetting, removeFakeAnimate } from "@/test/fakeMotion";
 import { TimedRound, type TimedRoundProps } from "./TimedRound";
 
@@ -32,6 +34,11 @@ function props(overrides: Partial<TimedRoundProps> = {}): TimedRoundProps {
 
 const livePoints = () => document.querySelector("[data-live-points]")!.textContent;
 const advance = (ms: number) => act(() => void vi.advanceTimersByTime(ms));
+/** Let the photo decode: the fake resolves at once, a few promises deep (setTimeout is faked here). */
+const decoded = () =>
+  act(async () => {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  });
 // fireEvent, not user-event: Testing Library's async helpers wait on a real
 // setTimeout, which hangs under fake timers.
 function typeGuess(text: string) {
@@ -44,12 +51,15 @@ function typeGuess(text: string) {
 beforeEach(() => {
   // Only the clock the screen uses.
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+  // jsdom can't decode photos; by default the round's photo is still loading.
+  fakeCanvas({ "/img/test.webp": "pending" });
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   removeFakeAnimate();
+  removeFakeCanvas();
 });
 
 describe("before the round starts", () => {
@@ -82,9 +92,9 @@ describe("before the round starts", () => {
 });
 
 describe("while the clock runs", () => {
-  it("shows the photo and a score that drains with time", () => {
+  it("loads the photo and starts a score that drains with time", () => {
     render(<TimedRound {...props()} />);
-    expect(screen.getByRole("img", { name: /photo to guess/ })).toHaveAttribute("src", "/img/test.webp");
+    expect(screen.getByText("Loading the photo…")).toBeInTheDocument();
     expect(livePoints()).toBe("10,000");
     advance(12_500);
     expect(livePoints()).toBe(formatPoints(scoreAt(12.5, SCORING)));
@@ -120,14 +130,21 @@ describe("while the clock runs", () => {
     expect(parseFloat(mark.style.left)).toBeCloseTo((SCORING.revealSeconds / SCORING.limitSeconds) * 100, 3);
   });
 
-  it("clears the photo as time passes, fully at the clear time", () => {
-    render(<TimedRound {...props()} />);
-    const photo = () => screen.getByRole("img");
-    expect(photo().style.filter).toMatch(/blur\(24/);
-    advance(12_500);
-    expect(photo().style.filter).toMatch(/blur\(12/);
-    advance(12_500);
-    expect(photo().style.filter).toBe("");
+  it("hides the photo with its effect at the clock's progress, with its focus and seed, clear at the clear time", async () => {
+    // The AI solver draws the same frames (#257), so its time is for what the player sees.
+    const photo = testPhoto();
+    const fake = fakeCanvas({ "/img/test.webp": photo });
+    const round = { effect: "tiles", focus: { x: 0.3, y: 0.6 }, seed: "pz-test" } as const;
+    const draw = createEffect(round.effect, photo, { focus: round.focus, seed: round.seed, size: frameSize(photo.width, photo.height) });
+
+    const { rerender } = render(<TimedRound {...props({ ...round, elapsedSeconds: SCORING.revealSeconds / 2 })} />);
+    await decoded();
+    const canvas = screen.getByRole("img", { name: "The photo to guess, still hidden" });
+    expect(sameFrame(fake.lastFrame(canvas), draw(0.5))).toBe(true);
+
+    rerender(<TimedRound {...props({ ...round, elapsedSeconds: SCORING.revealSeconds })} />);
+    advance(1_000); // the next frame may wait while the page is left free (EffectCanvas)
+    expect(sameFrame(fake.lastFrame(canvas), draw(1))).toBe(true);
     expect(livePoints()).toBe(formatPoints(SCORING.minPoints));
   });
 
@@ -255,7 +272,7 @@ describe("time's up", () => {
     );
     expect(screen.getByRole("status")).toHaveTextContent("Time's up. It was giraffe.");
     expect(screen.getByText("+0")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "The photo, fully clear" }).style.filter).toBe("");
+    expect(screen.getByRole("img", { name: "The photo, fully clear" })).toHaveAttribute("src", "/img/test.webp");
     expect(screen.queryByRole("timer")).not.toBeInTheDocument();
   });
 });
@@ -272,9 +289,11 @@ describe("after a correct guess", () => {
     },
   });
 
-  it("shows the clear photo, the answer, the points and the time", () => {
+  it("shows the clear photo itself (full resolution, not the effect's frame), the answer, the points and the time", () => {
     render(<TimedRound {...solved} />);
-    expect(screen.getByRole("img", { name: "The photo, fully clear" }).style.filter).toBe("");
+    const photo = screen.getByRole("img", { name: "The photo, fully clear" });
+    expect(photo.tagName).toBe("IMG");
+    expect(photo).toHaveAttribute("src", "/img/test.webp");
     expect(screen.getByRole("status")).toHaveTextContent("Correct! It's giraffe.");
     expect(screen.getByRole("region", { name: "Round result" })).toHaveTextContent("+6,212 points in 6.2 s");
   });

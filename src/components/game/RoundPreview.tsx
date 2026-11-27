@@ -3,16 +3,18 @@
 import { useRef, useState } from "react";
 import { correctStreak } from "@/game/feedback";
 import { scoreAt } from "@/game/scoring";
-import type { Puzzle, TimedScoringConfig } from "@/game/types";
+import type { Puzzle, PuzzleEffect, TimedScoringConfig } from "@/game/types";
 import { TimedFinalScore, type TimedRoundSummary } from "./TimedFinalScore";
 import { TimedRound, type TimedRoundPhase } from "./TimedRound";
 
 /** What the preview may know about a photo before the round ends: no answer. */
 export type PreviewPhoto = {
+  /** The puzzle's id, the effect's seed (as the server will send it). */
+  seed: string;
   imageUrl: string;
   focus: Puzzle["reveal"]["focus"];
   credit: Puzzle["credit"];
-  effect?: string | undefined;
+  effect?: PuzzleEffect | undefined;
 };
 
 type GuessCheck = { kind: "correct" } | { kind: "incorrect"; normalizedGuess: string } | { kind: "empty" };
@@ -113,7 +115,7 @@ export function RoundPreview({
   return (
     <div className="flex w-full flex-col items-center gap-3">
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Image {index + 1} of {photos.length} · effect: {photo.effect ?? "none"} (blur stand-in)
+        Image {index + 1} of {photos.length} · effect: {photo.effect ?? "none chosen (pixelate)"}
       </p>
       <TimedRound
         key={index}
@@ -121,6 +123,7 @@ export function RoundPreview({
         imageSrc={round.phase === "ready" ? null : photo.imageUrl}
         effect={photo.effect}
         focus={photo.focus}
+        seed={photo.seed}
         elapsedSeconds={round.elapsed}
         scoring={scoring}
         wrongGuesses={round.wrong}
