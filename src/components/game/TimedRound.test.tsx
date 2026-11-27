@@ -271,7 +271,8 @@ describe("time's up", () => {
       />,
     );
     expect(screen.getByRole("status")).toHaveTextContent("Time's up. It was giraffe.");
-    expect(screen.getByText("+0")).toBeInTheDocument();
+    // The result card says it; the monitor shows the same figure decoratively (#183).
+    expect(within(screen.getByRole("region", { name: "Round result" })).getByText("+0")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "The photo, fully clear" })).toHaveAttribute("src", "/img/test.webp");
     expect(screen.queryByRole("timer")).not.toBeInTheDocument();
   });
@@ -331,7 +332,7 @@ describe("the monitor keeps its shape (#183)", () => {
 
   it("shows the round's points on the monitor once it's over", () => {
     render(<TimedRound {...props({ phase: "correct", result: { answer: "giraffe", points: 6_212, seconds: 6.2 } })} />);
-    expect(document.querySelector("[data-readout]")).toHaveTextContent("+6,212 points");
+    expect(document.querySelector("[data-readout]")).toHaveTextContent("+6,212pts");
     expect(screen.queryByRole("timer")).not.toBeInTheDocument();
   });
 

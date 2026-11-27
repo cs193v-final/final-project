@@ -1,3 +1,4 @@
+import { PAGE_TITLE } from "@/components/ui/styles";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { RoundPreview, type PreviewPhoto } from "@/components/game/RoundPreview";
@@ -29,7 +30,7 @@ export default function RoundPreviewPage() {
   }));
   return (
     <main className="flex flex-1 flex-col items-center gap-6 px-4 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">Round preview (dev only)</h1>
+      <h1 className={PAGE_TITLE}>Round preview (dev only)</h1>
       <RoundPreview photos={photos} scoring={TIMED_SCORING_CONFIG} check={checkPreviewGuess} answer={previewAnswer} />
     </main>
   );

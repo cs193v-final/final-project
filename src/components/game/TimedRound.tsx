@@ -177,7 +177,8 @@ export function TimedRound({
           <Readout
             left={{
               label: phase === "correct" ? "round score" : "time's up",
-              value: `+${formatPoints(result?.points ?? 0)} points`,
+              value: `+${formatPoints(result?.points ?? 0)}`,
+              unit: "pts",
               tone: phase === "correct" ? "text-meadow" : "text-peach",
             }}
             right={{
@@ -453,18 +454,21 @@ function Readout({
   left,
   right,
 }: {
-  left: { label: string; value: string; tone: string };
+  left: { label: string; value: string; tone: string; unit?: string };
   right: { label: string; value: string; tone: string };
 }) {
   return (
     <div data-readout className="flex items-end justify-between gap-3 px-2 pt-1 pb-2.5" aria-hidden="true">
       <div className="flex flex-col items-start">
         <span className={CAPS}>{left.label}</span>
-        <span className={`font-display text-4xl tracking-[-0.05em] tabular-nums sm:text-5xl ${left.tone}`}>{left.value}</span>
+        <span className={`font-display text-4xl tracking-[-0.05em] whitespace-nowrap tabular-nums sm:text-5xl ${left.tone}`}>
+          {left.value}
+          {left.unit ? <span className="ml-1 font-mono text-base tracking-normal">{left.unit}</span> : null}
+        </span>
       </div>
       <div className="flex flex-col items-end">
         <span className={CAPS}>{right.label}</span>
-        <span className={`font-mono text-3xl font-bold tabular-nums sm:text-4xl ${right.tone}`}>{right.value}</span>
+        <span className={`font-mono text-3xl font-bold whitespace-nowrap tabular-nums sm:text-4xl ${right.tone}`}>{right.value}</span>
       </div>
     </div>
   );
