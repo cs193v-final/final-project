@@ -168,9 +168,12 @@
  * the game's own gesture: zooming out.
  *   0 ms     the island, framed tight on the camera lens, zooms out (1.4 s)
  *   0 ms     "Out" settles from a size up, like the photo clearing
- *   120 ms   the daily button rises in, then the side modes (stagger 70 ms)
- *   1.6 s    the island starts a slow float
+ *   120 ms   the daily button rises, then the side modes (stagger 70 ms)
+ *   1.6 s    the island floats for three slow cycles, then settles
  * Everything is clickable from the first frame: nothing waits on the intro.
+ * Text only moves (transform), never fades: an accessibility scan that runs
+ * mid-intro sees the final colours (#291 review). The float stops by itself
+ * (WCAG 2.2.2).
  */
 :root {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -213,28 +216,18 @@
 @keyframes word-zoom-out {
   from {
     transform: scale(1.4);
-    opacity: 0;
   }
   to {
     transform: scale(1);
-    opacity: 1;
   }
 }
 
 @keyframes rise-in {
   from {
-    transform: translateY(10px);
-    opacity: 0;
+    transform: translateY(12px);
   }
   to {
     transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
   }
 }
 
@@ -249,7 +242,7 @@
 }
 
 .island-bob {
-  animation: island-float 6s cubic-bezier(0.77, 0, 0.175, 1) 1.6s infinite;
+  animation: island-float 6s cubic-bezier(0.77, 0, 0.175, 1) 1.6s 3;
 }
 
 .word-zoom {
@@ -276,12 +269,12 @@
   }
 }
 
-/* Reduced motion: no zoom, float or movement; things fade in instead. */
+/* Reduced motion: no zoom, float or movement; everything is simply there. */
 @media (prefers-reduced-motion: reduce) {
   .island-photo,
   .word-zoom,
   .rise-in {
-    animation: fade-in 200ms ease both;
+    animation: none;
   }
   .island-viewfinder {
     display: none;
