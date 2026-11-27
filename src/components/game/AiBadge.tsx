@@ -1,3 +1,4 @@
+import { chipClass } from "../ui/styles";
 import { aiVerdict } from "@/game/beat-ai";
 import type { PublicRound, RoundResult } from "@/game/types";
 
@@ -36,7 +37,7 @@ export function AiBadge({
     }
   }
   return (
-    <p data-ai-badge className="rounded-full border border-zinc-400 px-3 py-1 text-center text-sm text-zinc-700 dark:border-zinc-500 dark:text-zinc-300">
+    <p data-ai-badge className={chipClass("paper", "justify-center text-center font-semibold")}>
       {text}
     </p>
   );

@@ -3,7 +3,8 @@
 import type { CSSProperties } from "react";
 import { usePrefersReducedMotion } from "./motion";
 
-const COLORS = ["#f59e0b", "#0ea5e9", "#ec4899", "#10b981", "#8b5cf6"] as const;
+// The Picture Island palette (#183): Meadow, Flash, Peach, lavender and Oat Paper.
+const COLORS = ["#c4e983", "#ffcf89", "#ffad94", "#b79fe8", "#fffbec"] as const;
 const COUNT = 28;
 
 /** Fixed burst pattern (no randomness, so every render and test is the same). */
