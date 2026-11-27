@@ -14,7 +14,7 @@ export const MONITOR_EMPTY =
   "bg-[repeating-linear-gradient(45deg,#352b4b_0px,#352b4b_13px,#3b3054_13px,#3b3054_26px)] text-[#e5d2fc]";
 
 /** The monitor's small caps labels. */
-export const CAPS = "font-mono text-[11px] font-bold tracking-[0.1em] uppercase text-[#e0d4f2]";
+export const CAPS = "font-mono text-xs font-bold tracking-[0.1em] uppercase text-[#e0d4f2]";
 
 /** The viewfinder corners over the photo while it clears (#183). Decorative. */
 export function Corners() {

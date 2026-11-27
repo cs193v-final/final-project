@@ -12,7 +12,8 @@ import { Button, CARD, TextInput } from "@/components/ui/controls";
 type PasswordAction = (state: PasswordFormState, formData: FormData) => Promise<PasswordFormState>;
 type DeleteAction = (state: DeleteFormState, formData: FormData) => Promise<DeleteFormState>;
 
-const errorClass = "text-sm font-medium text-rose-700 dark:text-rose-400";
+// Rust, the palette's error colour (#183): 5.8:1 on paper, 7.3:1 on the dark card.
+const errorClass = "text-sm font-medium text-rust";
 const fieldErrorClass = `${errorClass} empty:hidden`;
 const hintClass = "text-sm text-zinc-600 empty:hidden dark:text-zinc-400";
 // Each section is a card (#183), titled in the display face at a section's size (PAGE_TITLE is the page's).

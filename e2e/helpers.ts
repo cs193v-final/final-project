@@ -40,7 +40,8 @@ export async function finishPractice(page: Page) {
     await page.getByRole("button", { name: "Skip this image" }).click();
     const after = page.getByRole("button", { name: /^(Next image|See results)$/ });
     await expect(after).toBeVisible();
-    const last = (await after.textContent()) === "See results";
+    // By accessible name, not raw text: the button also holds a decorative arrow (#183).
+    const last = (await page.getByRole("button", { name: "See results" }).count()) > 0;
     await after.click();
     if (last) break;
   }

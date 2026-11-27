@@ -17,7 +17,8 @@ export type AccountFormProps = {
 
 // The shared controls (#89, #183), so these pages match the game's.
 const inputClass = "w-full";
-const errorClass = "text-sm font-medium text-rose-700 dark:text-rose-400";
+// Rust, the palette's error colour (#183): 5.8:1 on paper, 7.3:1 on the dark card.
+const errorClass = "text-sm font-medium text-rust";
 // Field errors and hints take no space when empty (not the form's role="alert",
 // which must stay rendered for screen readers to announce it).
 const fieldErrorClass = `${errorClass} empty:hidden`;
