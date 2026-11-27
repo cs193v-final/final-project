@@ -17,8 +17,8 @@ import { cspViolations, expectSecurityHeaders, guess, guessBox, siteNav, waitFor
 // browser (the server-rendered page only). SMOKE_WRITE=1 also plays the first
 // practice image, opens Stanford in a browser (each starts an anonymous game),
 // and signs up a throwaway account with a random username and password, then
-// logs out and back in, printing its username so it can be deleted by hand
-// until the test can delete it itself (#251). Never daily games, so the leaderboard is untouched.
+// logs out and back in, then deletes it through /account (#251) and checks it
+// can't log in anymore. Never daily games, so the leaderboard is untouched.
 //
 // Not covered, because there's no public way to see it (and we don't add
 // one): whether the daily is scheduled for the coming days, and whether Vercel
@@ -167,14 +167,14 @@ test.describe("writes (SMOKE_WRITE=1)", () => {
     await expect(page.getByRole("img", { name: /^Mystery image/ })).toBeVisible();
   });
 
-  test("a throwaway account signs up, logs out and logs back in", async ({ page }) => {
+  test("a throwaway account signs up, logs out and back in, then deletes itself", async ({ page }) => {
     // 3–20 characters of [A-Za-z0-9_-], random so desktop and phone don't collide.
     const username = `smoke-${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 8)}`.slice(0, 20);
     const password = `smoke ${crypto.randomUUID()}`;
     const site = siteNav(page);
-    // Nothing can delete this account yet (#251), so print its username for
-    // deleting it by hand. Not the password: this output may be pasted into a
-    // public comment (#223), and deleting the row doesn't need it.
+    // The test deletes this account at the end. Its username is printed in case
+    // a failure stops it before then, so it can be deleted by hand. Not the
+    // password: this output may be pasted into a public comment (#223).
     console.log(`[smoke] ${test.info().project.name}: signing up throwaway account "${username}"`);
     test.info().annotations.push({ type: "throwaway account", description: username });
 
@@ -194,5 +194,22 @@ test.describe("writes (SMOKE_WRITE=1)", () => {
     await page.getByRole("main").getByRole("button", { name: "Log in", exact: true }).click();
     await expect(site.getByRole("link", { name: username, exact: true })).toBeVisible();
     await expect(site.getByRole("button", { name: "Log out" })).toBeVisible();
+
+    // Delete it (#251), so a smoke run leaves no account behind.
+    await page.goto("/account");
+    const remove = page.getByRole("region", { name: "Delete your account" });
+    await remove.getByLabel("Current password").fill(password);
+    await remove.getByLabel("Type your username to confirm").fill(username);
+    await remove.getByRole("button", { name: "Delete my account" }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(site.getByRole("link", { name: "Log in" })).toBeVisible();
+
+    // And it's gone: the same username and password no longer log in.
+    await page.goto("/login");
+    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("main").getByRole("button", { name: "Log in", exact: true }).click();
+    await expect(alerts(page)).toHaveText("That username and password don't match.");
+    await expect(site.getByRole("link", { name: username, exact: true })).toHaveCount(0);
   });
 });
