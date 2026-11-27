@@ -269,6 +269,44 @@
   }
 }
 
+/*
+ * The sky behind every screen (#183, SkyBackdrop.tsx): faceted clouds in the
+ * island's lavender, drifting left to right. Each cloud sets its own duration
+ * and (negative) delay inline. Light on the page in light mode, and only a
+ * shade off the page in dark mode, so text over them keeps its contrast.
+ */
+:root {
+  --cloud-hi: #f7f1ff;
+  --cloud-mid: #ebe1fd;
+  --cloud-lo: #d6c6f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cloud-hi: #2c2343;
+    --cloud-mid: #282040;
+    --cloud-lo: #241d3a;
+  }
+}
+
+@keyframes sky-drift {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100vw);
+  }
+}
+
+.sky-cloud {
+  will-change: transform;
+  animation: sky-drift 120s linear infinite;
+}
+
+/* CloudsToggle pauses the drift where the clouds are (WCAG 2.2.2). */
+:root[data-clouds-paused] .sky-cloud {
+  animation-play-state: paused;
+}
+
 /* Reduced motion: no zoom, float or movement; everything is simply there. */
 @media (prefers-reduced-motion: reduce) {
   .island-photo,
@@ -277,6 +315,13 @@
     animation: none;
   }
   .island-viewfinder {
+    display: none;
+  }
+  /* The clouds stay where they are, spread across the sky; nothing to pause. */
+  .sky-cloud {
+    animation-play-state: paused;
+  }
+  .clouds-toggle {
     display: none;
   }
   .island-bob {
