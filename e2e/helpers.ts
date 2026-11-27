@@ -66,6 +66,28 @@ export async function tabToStartPractice(page: Page) {
   await expect(page.getByRole("link", { name: "Start practice" })).toBeFocused();
 }
 
+/**
+ * The security headers every page sends (#105). Shared by
+ * security-headers.spec.ts and the smoke test of a deployed site (#223).
+ */
+export function expectSecurityHeaders(headers: Record<string, string>) {
+  expect(headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+  expect(headers["x-content-type-options"]).toBe("nosniff");
+  expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
+  expect(headers["strict-transport-security"]).toMatch(/^max-age=\d+/);
+  expect(headers["x-frame-options"]).toBe("DENY");
+  expect(headers["x-powered-by"]).toBeUndefined();
+}
+
+/** Collects the browser's CSP violation reports for a page. */
+export function cspViolations(page: Page): string[] {
+  const violations: string[] = [];
+  page.on("console", (message) => {
+    if (/Content Security Policy/i.test(message.text())) violations.push(message.text());
+  });
+  return violations;
+}
+
 /** In the page: what a check reports for one visible text, or nothing if it's fine. */
 export type TextCheck = (el: Element, text: string) => string | null | undefined;
 

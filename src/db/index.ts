@@ -16,9 +16,11 @@ export { schema };
 
 /**
  * The Drizzle client, whichever driver is behind it. Only the query builder and
- * `db.execute` are common to both drivers: no `db.batch` (Neon HTTP only) and
- * no interactive transactions (node-postgres only). Make writes that must
- * happen together a single SQL statement (a CTE), as `src/db/games.ts` does.
+ * `db.execute` are common to both drivers: `db.batch` is Neon HTTP only and
+ * interactive transactions are node-postgres (and PGlite) only. Make writes
+ * that must happen together a single SQL statement (a CTE), or group them with
+ * `inOneTransaction` in `src/db/games.ts` (`batch` on Neon HTTP, a transaction
+ * elsewhere), as its capped `create` does (#225).
  */
 export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 

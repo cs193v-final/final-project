@@ -177,6 +177,17 @@ export async function endSession(): Promise<void> {
 }
 
 /**
+ * Removes the session and device cookies, after the account was deleted
+ * (#234): its sessions are already gone, and its device token can't be
+ * trusted any more. Only from a Server Action or Route Handler.
+ */
+export async function clearAccountCookies(): Promise<void> {
+  const jar = await cookies();
+  jar.delete(SESSION_COOKIE);
+  jar.delete(DEVICE_COOKIE);
+}
+
+/**
  * The client's IP address, for rate limiting only (stored hashed).
  *
  * Assumes Vercel: its edge sets `x-vercel-forwarded-for` and overwrites
