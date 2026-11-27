@@ -81,11 +81,12 @@ export const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
 export const PULSE: Keyframe[] = [{ transform: "scale(1)" }, { transform: "scale(1.08)" }, { transform: "scale(1)" }];
 export const PULSE_TIMING: KeyframeAnimationOptions = { duration: 220, easing: EASE_OUT };
 
-/** A final-score row arriving (#283). */
-export const ROW_IN: Keyframe[] = [
-  { opacity: 0, transform: "translateY(6px)" },
-  { opacity: 1, transform: "translateY(0)" },
-];
+/**
+ * A final-score row arriving (#283). It only moves, never fades: an
+ * accessibility scan that runs mid-animation then still sees the text at
+ * full contrast (#302 e2e, as #291 found for the home intro).
+ */
+export const ROW_IN: Keyframe[] = [{ transform: "translateY(6px)" }, { transform: "translateY(0)" }];
 export const ROW_IN_TIMING: KeyframeAnimationOptions = { duration: 220, easing: EASE_OUT, fill: "backwards" };
 
 /**

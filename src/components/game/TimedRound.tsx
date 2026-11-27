@@ -17,7 +17,7 @@ import {
   useAnimateOn,
   usePrefersReducedMotion,
 } from "./motion";
-import { CAPS, Corners, CropMark, MONITOR } from "./monitor";
+import { CAPS, Corners, CropMark, MONITOR, MONITOR_EMPTY, MONITOR_FRAME } from "./monitor";
 import { buzz, sounds, unlockAudio } from "./sound";
 import { SoundToggle } from "./SoundToggle";
 
@@ -535,13 +535,12 @@ function PhotoStage({
   // A flash still running when the round ends would tint the "Correct!" photo.
   const flashOn = flashing && phase === "playing";
 
-  const frame =
-    "relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-[10px] bg-[#393052]";
+  const frame = MONITOR_FRAME;
 
   if (imageSrc === null || phase === "ready") {
     return (
       <div
-        className={`${frame} bg-[repeating-linear-gradient(45deg,#352b4b_0px,#352b4b_13px,#3b3054_13px,#3b3054_26px)] text-[#e5d2fc]`}
+        className={`${frame} ${MONITOR_EMPTY}`}
       >
         <div className="flex flex-col items-center gap-3 px-6 text-center">
           <CropMark className="size-14" />

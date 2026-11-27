@@ -34,8 +34,11 @@ export function useTickDown(target: number, durationMs: number = TICK_DOWN_MS): 
   useEffect(() => {
     if (!canTick || run.from <= run.to) return;
     let id = 0;
-    const start = performance.now();
+    // From the first frame's own timestamp: frame times and performance.now()
+    // are different clocks (far apart in jsdom), #302 review.
+    let start: number | null = null;
     const step = (now: number) => {
+      start ??= now;
       const value = run.from - countUpValue(run.from - run.to, now - start, durationMs);
       setFrame({ to: run.to, value });
       if (value !== run.to) id = requestAnimationFrame(step);

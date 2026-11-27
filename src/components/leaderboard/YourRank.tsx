@@ -1,5 +1,3 @@
-"use client";
-
 import { CAPS, MONITOR } from "@/components/game/monitor";
 
 /**
