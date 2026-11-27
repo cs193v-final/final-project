@@ -2,17 +2,20 @@
 // a puzzle's photo at the start of a round and clears it as the clock runs.
 // They work on plain pixels, with no DOM, so one implementation serves:
 //
-// - the round screen (#256), which draws a frame on a canvas as the clock runs:
+// - the round screen (#256), which draws a frame on a canvas as the clock runs
+//   (src/components/game/EffectCanvas.tsx):
 //
-//     const draw = createEffect(puzzle.effect, photo, { focus: puzzle.reveal.focus, seed: puzzle.id, size: { width: 600, height: 450 } });
-//     const frame = ctx.createImageData(600, 450);
+//     const size = frameSize(photo.width, photo.height);
+//     const draw = createEffect(puzzle.effect, photo, { focus: puzzle.reveal.focus, seed: puzzle.id, size });
+//     const frame = ctx.createImageData(size.width, size.height);
 //     draw(seconds / revealSeconds, frame.data);
 //     ctx.putImageData(frame, 0, 0);
 //
-//   where `photo` is the clear photo's `getImageData`, ideally about twice
-//   the frame's size so zoom starts on a sharp close-up;
+//   where `photo` is the whole clear photo's `getImageData`, bigger than the
+//   frame, so zoom starts on a sharp close-up;
 // - the Beat the AI solver, which renders the same frames in Node (sharp
-//   decodes the photo) and asks CLIP at each step.
+//   decodes the photo) and asks CLIP at each step. Both start from the same
+//   photo and draw at `frameSize`, so CLIP sees what players see.
 //
 // `progress` is the clock (seconds / the reveal time), not the score, so the
 // effects and the scoring are tuned separately. At 0 the photo is hidden; at
@@ -36,6 +39,22 @@ export type { EffectOptions, Pixels } from "./pixels.ts";
 export const EFFECT_SETUPS = { pixelate, spotlight, thermal, swirl, zoom, tiles } as const satisfies Record<string, EffectSetup>;
 
 export type EffectName = keyof typeof EFFECT_SETUPS;
+
+/** The effect a puzzle plays while it has none chosen (`Puzzle.effect` missing). */
+export const DEFAULT_EFFECT: EffectName = "pixelate";
+
+/**
+ * The longer side, in pixels, of every frame. The effects were tuned at this
+ * size in the team's prototype (#254), and the round screen and the AI solver
+ * both draw at it, so CLIP's solve times are for the frames players see.
+ */
+export const FRAME_LONG_SIDE = 600;
+
+/** The size to draw a photo's frames at: `FRAME_LONG_SIDE` on its longer side, the photo's shape. */
+export function frameSize(width: number, height: number): { width: number; height: number } {
+  const scale = FRAME_LONG_SIDE / Math.max(width, height);
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
 
 /**
  * Draws one frame. Writes into `out` if given (e.g. an `ImageData`'s `data`,

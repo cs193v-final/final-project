@@ -1,7 +1,7 @@
 // Spec for the reveal effects of the timed rounds (#257). Pure: plain pixels in, pixels out.
 import { describe, expect, it } from "vitest";
 
-import { createEffect, EFFECT_SETUPS, type EffectName, type Pixels } from "./index.ts";
+import { createEffect, DEFAULT_EFFECT, EFFECT_SETUPS, FRAME_LONG_SIDE, frameSize, type EffectName, type Pixels } from "./index.ts";
 import { pixelateBlock } from "./pixelate.ts";
 import { seededRandom, shuffled } from "./pixels.ts";
 import { SPOTLIGHT_DRIFT_SPEED } from "./spotlight.ts";
@@ -148,6 +148,32 @@ describe("createEffect", () => {
     const { data, width, height } = photo();
     const fromSharp = createEffect("swirl", { data: new Uint8Array(data), width, height }, options);
     expect(changedBytes(fromSharp(0.3), createEffect("swirl", photo(), options)(0.3))).toBe(0);
+  });
+});
+
+// The round screen (EffectCanvas) and the AI solver (solveTimed) both draw at
+// this size, so CLIP's solve times are for the frames players see (#257).
+describe("frameSize", () => {
+  it.each([
+    ["a cut photo", 1600, 1200, 600, 450],
+    ["a practice photo", 1920, 1282, 600, 401],
+    ["a tall photo", 1200, 1600, 450, 600],
+    ["a square", 900, 900, 600, 600],
+    ["a photo smaller than the frame (stretched)", 300, 200, 600, 400],
+    ["a sliver, which keeps at least 1 pixel", 10_000, 1, 600, 1],
+  ])("puts %s at %i × %i into %i × %i", (_name, width, height, w, h) => {
+    expect(frameSize(width, height)).toEqual({ width: w, height: h });
+  });
+
+  it(`is ${FRAME_LONG_SIDE} px on the longer side, the size the effects were tuned at`, () => {
+    expect(FRAME_LONG_SIDE).toBe(600);
+  });
+});
+
+describe("DEFAULT_EFFECT", () => {
+  it("is pixelate, an effect every photo works with", () => {
+    expect(DEFAULT_EFFECT).toBe("pixelate");
+    expect(EFFECTS).toContain(DEFAULT_EFFECT);
   });
 });
 

@@ -10,7 +10,7 @@
 
 import sharp from "sharp";
 
-import { createEffect, type EffectName } from "../../game/effects/index.ts";
+import { createEffect, DEFAULT_EFFECT, frameSize, type EffectName } from "../../game/effects/index.ts";
 import { levelCrop, type ImageSize, type PixelRect } from "../../game/levels.ts";
 import { TIMED_SCORING_CONFIG } from "../../game/scoring-config.ts";
 import type { Puzzle, RevealLevel } from "../../game/types.ts";
@@ -227,15 +227,8 @@ export async function analyzePhoto(
   };
 }
 
-/**
- * The longer side, in pixels, of the frames the solver draws. The effects were
- * tuned at this size in the team's prototype (#254); the round screen should
- * draw at it too, so CLIP and players see the same frames.
- */
-export const SOLVER_FRAME_SIZE = 600;
-
-/** The effect the game plays while a puzzle has none chosen (the game's `DEFAULT_EFFECT`, #255). */
-export const SOLVER_DEFAULT_EFFECT: EffectName = "pixelate";
+/** The effect the game plays while a puzzle has none chosen (`DEFAULT_EFFECT` in src/game/effects). */
+export const SOLVER_DEFAULT_EFFECT: EffectName = DEFAULT_EFFECT;
 
 /** What CLIP made of one frame of a puzzle's effect. */
 export type StepResult = {
@@ -282,8 +275,8 @@ export async function solveTimed(
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  const scale = SOLVER_FRAME_SIZE / Math.max(info.width, info.height);
-  const raw = { width: Math.max(1, Math.round(info.width * scale)), height: Math.max(1, Math.round(info.height * scale)), channels: 4 as const };
+  // The round screen's frame size (EffectCanvas), so CLIP sees what players see.
+  const raw = { ...frameSize(info.width, info.height), channels: 4 as const };
   const draw = createEffect(
     puzzle.effect ?? SOLVER_DEFAULT_EFFECT,
     { data, width: info.width, height: info.height },

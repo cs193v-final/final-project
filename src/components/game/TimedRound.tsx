@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { formatPoints, formatSeconds, readClock, secondsNow, type ClockReading } from "@/game/round-clock";
-import type { Puzzle, TimedScoringConfig } from "@/game/types";
+import type { Puzzle, PuzzleEffect, TimedScoringConfig } from "@/game/types";
 import { Button, TextInput } from "../ui/controls";
+import { EffectCanvas } from "./EffectCanvas";
 import { SHAKE, SHAKE_TIMING, useAnimateOn, usePrefersReducedMotion } from "./motion";
-
-/** `PuzzleEffect` from #258 (PR #259) once it merges; a string until then. */
-type EffectName = string;
 
 /**
  * Where the round is, as the server last said (#255):
@@ -21,9 +19,16 @@ export type TimedRoundProps = {
   phase: TimedRoundPhase;
   /** The clear photo. Null before the round starts: the server only sends it after `start`. */
   imageSrc: string | null;
-  /** How the photo is hidden while the clock runs (#258). Drawn by #257; a blur stands in until then. */
-  effect?: EffectName | undefined;
+  /** How the photo is hidden while the clock runs (#258), drawn by src/game/effects (#257). Missing = `DEFAULT_EFFECT`. */
+  effect?: PuzzleEffect | undefined;
+  /** Where zoom, spotlight and swirl centre (`reveal.focus`). Missing = the middle. */
   focus?: Puzzle["reveal"]["focus"] | undefined;
+  /**
+   * Fixes the effect's random parts, like the tiles' order: the puzzle's id
+   * (`PublicRound.seed`, #255). The AI solver uses the same, so pass it for
+   * the AI's time to match what the player sees.
+   */
+  seed?: string | undefined;
   /** Seconds since the round started, as the server said when its response arrived. */
   elapsedSeconds: number;
   scoring: TimedScoringConfig;
@@ -49,7 +54,10 @@ export type TimedRoundProps = {
   onTimeUp: () => void;
 };
 
-/** How often the live score and timer bar update while the clock runs. */
+/** The focus when a round has none: the middle of the photo. */
+const CENTRE = { x: 0.5, y: 0.5 };
+
+/** How often the live score, timer bar and photo update while the clock runs. */
 const TICK_MS = 50;
 
 /**
@@ -89,6 +97,7 @@ export function TimedRound({
   imageSrc,
   effect,
   focus,
+  seed,
   elapsedSeconds,
   scoring,
   wrongGuesses,
@@ -128,6 +137,7 @@ export function TimedRound({
         imageSrc={imageSrc}
         effect={effect}
         focus={focus}
+        seed={seed}
         progress={over ? 1 : clock.progress}
         wrongGuesses={wrongGuesses}
       />
@@ -215,24 +225,25 @@ function TimerBar({ clock, scoring }: { clock: ClockReading; scoring: TimedScori
 }
 
 /**
- * The photo, hidden by its effect at `progress` (0 hidden, 1 clear). Each
- * new wrong guess shakes it and flashes red; no shake with reduced motion.
- *
- * TODO(#257): draw the puzzle's own effect on a canvas. Until then every
- * effect is a blur that clears with progress, so the screen is playable.
+ * The photo, hidden by its effect at `progress` (0 hidden, 1 clear) while the
+ * clock runs, drawn on a canvas (`EffectCanvas`). Once the round is over it's
+ * the photo itself, at full resolution. Each new wrong guess shakes it and
+ * flashes red; no shake with reduced motion.
  */
 function PhotoStage({
   phase,
   imageSrc,
   effect,
   focus,
+  seed,
   progress,
   wrongGuesses,
 }: {
   phase: TimedRoundPhase;
   imageSrc: string | null;
-  effect?: EffectName | undefined;
+  effect?: PuzzleEffect | undefined;
   focus?: Puzzle["reveal"]["focus"] | undefined;
+  seed?: string | undefined;
   progress: number;
   wrongGuesses: number;
 }) {
@@ -268,24 +279,21 @@ function PhotoStage({
     );
   }
 
-  const hidden = 1 - progress;
-  const style: CSSProperties = {
-    filter: hidden > 0 ? `blur(${(hidden * 24).toFixed(2)}px)` : undefined,
-    // Zoom-like effects centre on the focus point (#258).
-    transformOrigin: focus ? `${focus.x * 100}% ${focus.y * 100}%` : undefined,
-    transform: hidden > 0 ? `scale(${(1 + hidden * 0.1).toFixed(3)})` : undefined,
-  };
-
   return (
-    <div ref={box} data-photo-stage data-effect={effect ?? "none"} className={frame}>
-      {/* eslint-disable-next-line @next/next/no-img-element -- drawn by the effect, sized by the frame */}
-      <img
-        src={imageSrc}
-        alt={phase === "playing" ? "The photo to guess, still hidden" : "The photo, fully clear"}
-        className="h-full w-full object-cover"
-        style={style}
-        draggable={false}
-      />
+    <div ref={box} data-photo-stage className={frame}>
+      {phase === "playing" ? (
+        <EffectCanvas
+          src={imageSrc}
+          effect={effect}
+          focus={focus ?? CENTRE}
+          seed={seed ?? ""}
+          progress={progress}
+          label="The photo to guess, still hidden"
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element -- the photo the effect drew, already loaded, sized by the frame
+        <img src={imageSrc} alt="The photo, fully clear" className="h-full w-full object-cover" draggable={false} />
+      )}
       <div
         data-wrong-flash={flashOn ? "on" : "off"}
         aria-hidden="true"
