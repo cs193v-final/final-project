@@ -57,7 +57,7 @@ const puzzle = (id: string, file: string, answer: string): Puzzle => ({
   answer,
   acceptedAnswers: [],
   reveal: { focus: { x: 0.5, y: 0.5 }, zoomLevels: [8, 4, 2, 1] },
-  credit: { source: "Someone", license: "CC BY-SA 4.0" },
+  credit: { source: "Someone", license: "CC BY-SA 4.0", url: "https://commons.example/photo" },
   aiSolvedLevel: null,
 });
 const PUZZLES = [puzzle("pz-d1", "pz-dbdb4dee", "Giraffe"), puzzle("pz-d2", "pz-683182e7", "Strawberry")];
