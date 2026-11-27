@@ -25,6 +25,7 @@ import { parseArgs } from "node:util";
 import { seedContent } from "../src/db/content.ts";
 import { combineContent, parseContent, type Content } from "../src/game/packs.ts";
 import { parsePuzzles } from "../src/game/puzzles.ts";
+import { errorLines } from "./error-lines.ts";
 import { connect } from "./seed-db.ts";
 import { cutPuzzleImages, originalPath, storedImageSettings } from "./seed-images.ts";
 
@@ -177,14 +178,8 @@ async function main() {
 try {
   await main();
 } catch (error) {
-  // For a failed query, drizzle's message is the SQL followed by its params,
-  // which can include answers; printing it is tracked in #110. The database's
-  // own error (missing table, wrong password) is in `cause`.
-  let current: unknown = error;
-  for (let depth = 0; current !== undefined && depth < 5; depth++) {
-    const message = current instanceof Error ? current.message : String(current);
-    console.error(depth === 0 ? message : `Caused by: ${message}`);
-    current = current instanceof Error ? current.cause : undefined;
-  }
+  // Never drizzle's own message for a failed query: it lists every parameter,
+  // answers included (#110). The database's error is printed from `cause`.
+  for (const line of errorLines(error)) console.error(line);
   process.exitCode = 1;
 }
