@@ -9,7 +9,26 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { combineContent, parseContent } from "../game/packs.ts";
 import type { Candidate } from "./openverse.ts";
-import { exportPack, parseExportRequest, parseReview, readReviews, reviewedCandidates, saveReview } from "./review.ts";
+import {
+  exportPack,
+  parseExportRequest,
+  parsePackDraft,
+  parseReview,
+  readExportedPack,
+  readPackDraft,
+  readReviews,
+  reviewedCandidates,
+  savePackDraft,
+  saveReview,
+} from "./review.ts";
+
+import sharp from "sharp";
+
+/** A small real JPEG carrying EXIF (a camera model), as downloaded photos do. */
+const PHOTO = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#c33" } })
+  .withExif({ IFD0: { Model: "Test camera" } })
+  .jpeg()
+  .toBuffer();
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -35,7 +54,7 @@ function setup() {
   mkdirSync(themeDir, { recursive: true });
   const list = [candidate("pz-0000aaaa", "red thing"), candidate("pz-0000bbbb", "crimson thing")];
   writeFileSync(join(themeDir, "candidates.json"), JSON.stringify(list));
-  for (const c of list) writeFileSync(join(themeDir, c.file), `photo ${c.id}`);
+  for (const c of list) writeFileSync(join(themeDir, c.file), PHOTO);
   return { content, themeDir };
 }
 
@@ -80,12 +99,12 @@ describe("saving reviews", () => {
 describe("exportPack", () => {
   const request = { title: "Red things", theme: "Red things", kind: "daily" as const, puzzleIds: ["pz-0000bbbb", "pz-0000aaaa"] };
 
-  it("writes a content file the seed script accepts, with the photos next to it", () => {
+  it("writes a content file the seed script accepts, with the photos next to it", async () => {
     const { content, themeDir } = setup();
     saveReview(themeDir, "pz-0000aaaa", { status: "approved", effect: "zoom", focus: { x: 0.3, y: 0.7 } });
     saveReview(themeDir, "pz-0000bbbb", { status: "approved", effect: "tiles", answer: "Crimson thing", acceptedAnswers: ["crimson"] });
 
-    const result = exportPack(content, themeDir, "red-things", { ...request, date: "2026-12-03" });
+    const result = await exportPack(content, themeDir, "red-things", { ...request, date: "2026-12-03" });
 
     const written = JSON.parse(readFileSync(join(content, "red-things.json"), "utf8"));
     const parsed = combineContent([{ source: "red-things.json", content: parseContent(written, "red-things.json") }]);
@@ -97,31 +116,33 @@ describe("exportPack", () => {
     for (const p of parsed.puzzles) {
       expect(p.imageUrl).toBe(`photos/${result.packId}/${p.id}.jpg`);
       expect(existsSync(join(content, p.imageUrl))).toBe(true);
+      expect((await sharp(join(content, p.imageUrl)).metadata()).exif).toBeUndefined(); // metadata stripped…
     }
+    expect((await sharp(PHOTO).metadata()).exif).toBeDefined(); // …from photos that had it
     expect(result.packId).toMatch(/^pk_[0-9a-f]{16}$/u);
   });
 
-  it("keeps the pack id when the same theme is exported again", () => {
+  it("keeps the pack id when the same theme is exported again", async () => {
     const { content, themeDir } = setup();
     saveReview(themeDir, "pz-0000aaaa", { status: "approved", effect: "zoom" });
     saveReview(themeDir, "pz-0000bbbb", { status: "approved", effect: "tiles" });
-    const first = exportPack(content, themeDir, "red-things", request);
-    const second = exportPack(content, themeDir, "red-things", { ...request, puzzleIds: ["pz-0000aaaa"] });
+    const first = await exportPack(content, themeDir, "red-things", request);
+    const second = await exportPack(content, themeDir, "red-things", { ...request, puzzleIds: ["pz-0000aaaa"] });
     expect(second.packId).toBe(first.packId);
   });
 
-  it("refuses photos that aren't approved, and writes nothing", () => {
+  it("refuses photos that aren't approved, and writes nothing", async () => {
     const { content, themeDir } = setup();
     saveReview(themeDir, "pz-0000aaaa", { status: "approved", effect: "zoom" });
-    expect(() => exportPack(content, themeDir, "red-things", request)).toThrow(/pz-0000bbbb isn't approved/);
+    await expect(exportPack(content, themeDir, "red-things", request)).rejects.toThrow(/pz-0000bbbb isn't approved/);
     expect(existsSync(join(content, "red-things.json"))).toBe(false);
   });
 
-  it("refuses an export whose answer would leak through an id, like the seed script", () => {
+  it("refuses an export whose answer would leak through an id, like the seed script", async () => {
     const { content, themeDir } = setup();
     writeFileSync(join(themeDir, "candidates.json"), JSON.stringify([candidate("pz-0000aaaa", "aaaa")]));
     saveReview(themeDir, "pz-0000aaaa", { status: "approved", effect: "zoom" });
-    expect(() => exportPack(content, themeDir, "red-things", { ...request, puzzleIds: ["pz-0000aaaa"] })).toThrow(/aaaa/);
+    await expect(exportPack(content, themeDir, "red-things", { ...request, puzzleIds: ["pz-0000aaaa"] })).rejects.toThrow(/aaaa/);
   });
 });
 
@@ -138,3 +159,45 @@ describe("parseExportRequest", () => {
     });
   });
 });
+
+describe("the pack being built (pack.json)", () => {
+  it("keeps the fields it knows, dropping blanks and anything malformed", () => {
+    expect(parsePackDraft({ title: " Fruit ", theme: "", kind: "lobby", date: "Dec 3", puzzleIds: ["pz-0000aaaa"], extra: 1 })).toEqual({
+      title: "Fruit",
+      puzzleIds: ["pz-0000aaaa"],
+    });
+    expect(parsePackDraft({ kind: "stanford", date: "2026-12-03" })).toEqual({ kind: "stanford", date: "2026-12-03" });
+    expect(() => parsePackDraft([])).toThrow(/object/);
+    expect(() => parsePackDraft({ title: "x".repeat(201) })).toThrow(/title/);
+  });
+
+  it("is saved per theme and read back", () => {
+    const { themeDir } = setup();
+    expect(readPackDraft(themeDir, null)).toEqual({});
+    savePackDraft(themeDir, { title: "Red things", puzzleIds: ["pz-0000bbbb", "pz-0000aaaa"] });
+    expect(readPackDraft(themeDir, null)).toEqual({ title: "Red things", puzzleIds: ["pz-0000bbbb", "pz-0000aaaa"] });
+  });
+
+  it("starts from what was exported when there's no draft yet, and becomes the export after one", async () => {
+    const { content, themeDir } = setup();
+    saveReview(themeDir, "pz-0000aaaa", { status: "approved", effect: "zoom" });
+    saveReview(themeDir, "pz-0000bbbb", { status: "approved", effect: "tiles" });
+    const request = { title: "Red things", theme: "Reds", kind: "daily" as const, puzzleIds: ["pz-0000bbbb", "pz-0000aaaa"], date: "2026-12-03" };
+    const { packId } = await exportPack(content, themeDir, "red-things", request);
+
+    const exported = readExportedPack(content, "red-things");
+    expect(exported).toEqual({ ...request, packId });
+    expect(readPackDraft(themeDir, exported)).toEqual(request); // export saved the draft too
+    rmSync(join(themeDir, "pack.json"));
+    expect(readPackDraft(themeDir, exported)).toEqual(request); // an older export, from before drafts
+  });
+
+  it("reports no export for a theme that hasn't been exported, or a file it can't read", () => {
+    const { content } = setup();
+    expect(readExportedPack(content, "red-things")).toBeNull();
+    writeFileSync(join(content, "red-things.json"), "not json");
+    expect(readExportedPack(content, "red-things")).toBeNull();
+    expect(readExportedPack(content, "../etc")).toBeNull();
+  });
+});
+

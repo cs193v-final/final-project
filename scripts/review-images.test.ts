@@ -60,7 +60,7 @@ const json = (body: unknown, origin = base) => ({
 describe("review server", () => {
   it("serves the page and lists themes with their counts", async () => {
     expect((await fetch(base)).headers.get("content-type")).toMatch(/text\/html/);
-    expect(await (await fetch(`${base}/api/themes`)).json()).toEqual([{ slug: "red-things", total: 1, approved: 0, rejected: 0, pending: 1 }]);
+    expect(await (await fetch(`${base}/api/themes`)).json()).toEqual([{ slug: "red-things", total: 1, approved: 0, rejected: 0, pending: 1, exported: false }]);
   });
 
   it("serves a theme's candidates and a smaller preview of each photo", async () => {
@@ -75,6 +75,15 @@ describe("review server", () => {
     expect(res.status).toBe(200);
     const saved = JSON.parse(readFileSync(join(content, "candidates", "red-things", "review.json"), "utf8"));
     expect(saved).toEqual({ "pz-0000aaaa": { status: "approved", effect: "swirl" } });
+  });
+
+  it("saves the pack being built, and serves it with the theme", async () => {
+    const draft = { title: "Red things", kind: "daily", puzzleIds: ["pz-0000aaaa"] };
+    const res = await fetch(`${base}/api/red-things/pack`, { method: "PUT", ...json(draft) });
+    expect(res.status).toBe(200);
+    expect(await (await fetch(`${base}/api/red-things`)).json()).toMatchObject({ pack: draft, exported: null });
+    const bad = await fetch(`${base}/api/red-things/pack`, { method: "PUT", ...json({ title: "x".repeat(300) }) });
+    expect(bad.status).toBe(400);
   });
 
   it("explains a bad decision instead of saving it", async () => {
