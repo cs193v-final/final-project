@@ -36,7 +36,7 @@ export function RoundValue({
   result?: RoundResult | undefined;
   /** What a correct answer is worth now, as the server worked it out (`PublicRound.pointsAvailable`). */
   pointsNow?: number | undefined;
-  /** Only used when `pointsNow` isn't given. TODO(#64): the game's own config. */
+  /** Only used when `pointsNow` isn't given. A game passes its own (`GameView.scoring`, #174). */
   config?: ScoringConfig;
 }) {
   if (round.state !== "playing") {

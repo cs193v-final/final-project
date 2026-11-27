@@ -97,6 +97,45 @@ describe("seedContent", () => {
     expect(await getPack(db, "pk-1")).toMatchObject({ title: "Fruits", puzzleIds: ["pz-1", "pz-2"] });
   });
 
+  it("stores each puzzle's effect, reads a missing one back as missing, and lets it change after play", async () => {
+    const withEffects = content({
+      puzzles: [puzzle("pz-1", "Strawberry", { effect: "pixelate" }), puzzle("pz-2", "Pineapple")],
+      packs: [daily("pk-1", ["pz-1", "pz-2"])],
+    });
+    await seedContent(db, withEffects);
+    const [first, second] = await getPuzzles(db, ["pz-1", "pz-2"]);
+    expect(first!.effect).toBe("pixelate");
+    expect(second).not.toHaveProperty("effect");
+
+    // Choosing a different effect is like fixing a typo: allowed after people played.
+    await addGame("pk-1");
+    await seedContent(db, content({
+      puzzles: [puzzle("pz-1", "Strawberry", { effect: "swirl" }), puzzle("pz-2", "Pineapple", { effect: "tiles" })],
+      packs: [daily("pk-1", ["pz-1", "pz-2"])],
+    }));
+    expect((await getPuzzles(db, ["pz-1", "pz-2"])).map((p) => p.effect)).toEqual(["swirl", "tiles"]);
+  });
+
+  it("stores each puzzle's AI solve time (#257), reads a missing one back as missing, and lets it change after play", async () => {
+    await seedContent(db, content({
+      puzzles: [puzzle("pz-1", "Strawberry", { aiSolvedSeconds: 6.5 }), puzzle("pz-2", "Pineapple")],
+      packs: [daily("pk-1", ["pz-1", "pz-2"])],
+    }));
+    const [first, second] = await getPuzzles(db, ["pz-1", "pz-2"]);
+    expect(first!.aiSolvedSeconds).toBe(6.5);
+    expect(second).not.toHaveProperty("aiSolvedSeconds");
+
+    // The solver re-runs on the final content (#182): its new times replace the old ones, even after play.
+    await addGame("pk-1");
+    await seedContent(db, content({
+      puzzles: [puzzle("pz-1", "Strawberry"), puzzle("pz-2", "Pineapple", { aiSolvedSeconds: 0 })],
+      packs: [daily("pk-1", ["pz-1", "pz-2"])],
+    }));
+    const [cleared, solvedAtOnce] = await getPuzzles(db, ["pz-1", "pz-2"]);
+    expect(cleared).not.toHaveProperty("aiSolvedSeconds");
+    expect(solvedAtOnce!.aiSolvedSeconds).toBe(0);
+  });
+
   it("reorders a pack nobody has played yet", async () => {
     await seedContent(db, FRUIT_DAY);
     await seedContent(db, content({ puzzles: FRUIT, packs: [daily("pk-1", ["pz-2", "pz-1"])] }));

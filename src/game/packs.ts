@@ -114,6 +114,13 @@ export function combineContent(parts: readonly { source: string; content: Conten
     combined.schedule.push(...content.schedule);
   }
 
+  // Stanford mode plays one fixed pack (#65), so a seed may bring at most one.
+  const stanford = combined.packs.filter((p) => p.kind === "stanford");
+  if (stanford.length > 1) {
+    const [first, second] = stanford as [Pack, Pack];
+    throw new PuzzleDataError(`pack ${second.id}: kind`, `only one stanford pack can be seeded at a time (also "${first.id}")`);
+  }
+
   const puzzleIds = new Set(combined.puzzles.map((p) => p.id));
   const packsById = new Map(combined.packs.map((p) => [p.id, p]));
   const scheduledOn = new Map<string, string>();

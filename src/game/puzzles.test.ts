@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePuzzle, parsePuzzles, PuzzleDataError } from "./puzzles.ts";
+import { EFFECTS, parsePuzzle, parsePuzzles, PuzzleDataError } from "./puzzles.ts";
 
 function valid(): Record<string, unknown> {
   return {
@@ -56,6 +56,40 @@ describe("parsePuzzle", () => {
 
   it.each([-1, 4, 1.5, "2"])("rejects aiSolvedLevel %j", (level) => {
     expect(errorPath(() => parsePuzzle(withField("aiSolvedLevel", level)))).toBe("puzzle.aiSolvedLevel");
+  });
+
+  // Timed-reveal redesign: each puzzle names the effect that hides it.
+  it("leaves effect out when the data has none (not chosen yet)", () => {
+    expect(parsePuzzle(valid())).not.toHaveProperty("effect");
+  });
+
+  it.each(EFFECTS)("accepts the effect %j", (name) => {
+    expect(parsePuzzle(withField("effect", name)).effect).toBe(name);
+  });
+
+  it("offers every effect, coarse ones first", () => {
+    expect(EFFECTS).toEqual(["pixelate", "spotlight", "thermal", "swirl", "zoom", "tiles"]);
+  });
+
+  it.each(["blur", "Pixelate", "", null, 3])("rejects the effect %j, naming the allowed ones", (name) => {
+    const fn = () => parsePuzzle(withField("effect", name));
+    expect(errorPath(fn)).toBe("puzzle.effect");
+    expect(fn).toThrow("must be one of: pixelate, spotlight, thermal, swirl, zoom, tiles");
+  });
+
+  // Beat the AI by solve time (#257): when the AI solver first got it.
+  it.each([undefined, null])("leaves aiSolvedSeconds out when the data has %j (never got it, or not run yet)", (value) => {
+    expect(parsePuzzle(withField("aiSolvedSeconds", value))).not.toHaveProperty("aiSolvedSeconds");
+  });
+
+  it.each([0, 6.5, 25])("accepts aiSolvedSeconds %j", (seconds) => {
+    expect(parsePuzzle(withField("aiSolvedSeconds", seconds)).aiSolvedSeconds).toBe(seconds);
+  });
+
+  it.each([-0.5, Number.NaN, Number.POSITIVE_INFINITY, "6.5", true])("rejects aiSolvedSeconds %s", (seconds) => {
+    const fn = () => parsePuzzle(withField("aiSolvedSeconds", seconds));
+    expect(errorPath(fn)).toBe("puzzle.aiSolvedSeconds");
+    expect(fn).toThrow("must be null or a number of seconds, 0 or more");
   });
 
   it.each(["pz-7c1e9a40", "pk_3f9c2a7e51d84b06", "a1"])("accepts the opaque id %j", (value) => {

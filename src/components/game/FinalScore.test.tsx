@@ -69,6 +69,12 @@ describe("FinalScore", () => {
     expect(items[1]).toHaveTextContent("2. Strawberry skipped");
   });
 
+  it("takes another mode's heading, e.g. Stanford's (#65), and still focuses it", () => {
+    render(<FinalScore puzzles={puzzles} score={score} title="Stanford complete" />);
+    expect(screen.getByRole("heading", { name: "Stanford complete" })).toHaveFocus();
+    expect(screen.queryByText("Practice complete")).not.toBeInTheDocument();
+  });
+
   it("calls onPlayAgain", async () => {
     const onPlayAgain = vi.fn();
     render(<FinalScore puzzles={puzzles} score={score} onPlayAgain={onPlayAgain} />);

@@ -1,4 +1,14 @@
-import type { Puzzle, RevealLevel } from "./types.ts";
+import type { Puzzle, PuzzleEffect, RevealLevel } from "./types.ts";
+
+/**
+ * Every `PuzzleEffect`, in the order a picker should offer them (coarse ones,
+ * for simple photos, first). The database checks against the same list.
+ */
+export const EFFECTS = ["pixelate", "spotlight", "thermal", "swirl", "zoom", "tiles"] as const satisfies readonly PuzzleEffect[];
+
+// Fails to compile if `EFFECTS` misses a `PuzzleEffect`.
+const allEffectsListed: PuzzleEffect extends (typeof EFFECTS)[number] ? true : never = true;
+void allEffectsListed;
 
 /** Thrown when puzzle or pack data doesn't match its format. `path` says where. */
 export class PuzzleDataError extends Error {
@@ -84,6 +94,29 @@ function aiSolvedLevel(value: unknown, levelCount: number, path: string): Reveal
   return value;
 }
 
+/** Optional in the data; missing means no effect has been chosen yet. */
+function effect(value: unknown, path: string): PuzzleEffect | undefined {
+  if (value === undefined) return undefined;
+  const known: readonly unknown[] = EFFECTS;
+  if (!known.includes(value)) {
+    throw new PuzzleDataError(path, `must be one of: ${EFFECTS.join(", ")}`);
+  }
+  return value as PuzzleEffect;
+}
+
+/**
+ * Optional in the data; missing or null means the AI solver (#257) never got
+ * it, or hasn't run yet. The solver writes null for "never", so a content file
+ * shows it ran.
+ */
+function aiSolvedSeconds(value: unknown, path: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new PuzzleDataError(path, "must be null or a number of seconds, 0 or more");
+  }
+  return value;
+}
+
 /** Checks one puzzle and returns it typed. Unknown extra fields are dropped. */
 export function parsePuzzle(value: unknown, path = "puzzle"): Puzzle {
   const data = object(value, path);
@@ -99,6 +132,8 @@ export function parsePuzzle(value: unknown, path = "puzzle"): Puzzle {
   const focus = object(reveal.focus, `${path}.reveal.focus`);
   const credit = object(data.credit, `${path}.credit`);
   const zoomLevels = parseZoomLevels(reveal.zoomLevels, `${path}.reveal.zoomLevels`);
+  const chosenEffect = effect(data.effect, `${path}.effect`);
+  const solvedSeconds = aiSolvedSeconds(data.aiSolvedSeconds, `${path}.aiSolvedSeconds`);
 
   return {
     id: id(data.id, `${path}.id`),
@@ -118,6 +153,8 @@ export function parsePuzzle(value: unknown, path = "puzzle"): Puzzle {
       ...(credit.url === undefined ? {} : { url: text(credit.url, `${path}.credit.url`) }),
     },
     aiSolvedLevel: aiSolvedLevel(data.aiSolvedLevel, zoomLevels.length, `${path}.aiSolvedLevel`),
+    ...(chosenEffect === undefined ? {} : { effect: chosenEffect }),
+    ...(solvedSeconds === undefined ? {} : { aiSolvedSeconds: solvedSeconds }),
   };
 }
 

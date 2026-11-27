@@ -6,8 +6,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { pointsIfCorrect } from "@/game/scoring";
 import { SCORING_CONFIG } from "@/game/scoring-config";
-import { act, getGame, MemoryGameStore, puzzleSourceFrom, startGame, type GameOwner } from "@/game/server-game";
-import type { GameAction, Pack, Puzzle } from "@/game/types";
+import {
+  act,
+  getGame,
+  MAX_WRONG_GUESSES_PER_ROUND,
+  MemoryGameStore,
+  puzzleSourceFrom,
+  startGame,
+  type GameOwner,
+} from "@/game/server-game";
+import type { GameAction, Pack, Puzzle, ScoringConfig } from "@/game/types";
 import { PracticeGame } from "./PracticeGame";
 
 function puzzle(id: string, answer: string, acceptedAnswers: string[] = []): Puzzle {
@@ -30,7 +38,7 @@ const OWNER: GameOwner = { anonId: "test-owner" };
  * on an in-memory store, so these tests play the same rules as the server.
  * Every result the component receives is recorded.
  */
-function backend(puzzles: readonly Puzzle[] = PUZZLES) {
+function backend(puzzles: readonly Puzzle[] = PUZZLES, scoring: ScoringConfig = SCORING_CONFIG) {
   const deps = { games: new MemoryGameStore(), puzzles: puzzleSourceFrom(puzzles) };
   const received: GameResult[] = [];
   const record = async (result: Promise<GameResult>) => {
@@ -40,7 +48,7 @@ function backend(puzzles: readonly Puzzle[] = PUZZLES) {
   };
   return {
     received,
-    start: vi.fn(() => record(runGameCall(() => startGame(deps, PACK, OWNER, SCORING_CONFIG)))),
+    start: vi.fn(() => record(runGameCall(() => startGame(deps, PACK, OWNER, scoring)))),
     // Passes the client's revision through, so a client sending a stale one would get `conflict` (#107).
     act: vi.fn((gameId: string, action: GameAction, revision: number) =>
       record(runGameCall(() => act(deps, gameId, OWNER, action, revision))),
@@ -126,6 +134,16 @@ describe("PracticeGame start and resume (#54)", () => {
     const server = backend();
     render(<PracticeGame initial={{ ok: false, error: "not-found" }} start={server.start} act={server.act} get={server.get} />);
     expect(screen.getByRole("alert")).toHaveTextContent("We couldn't find that game.");
+    await user.click(screen.getByRole("button", { name: "Start a new game" }));
+    expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
+  });
+
+  it("says a game that can't be loaded anymore is lost, instead of blaming the connection, and offers a new one (#164)", async () => {
+    const user = userEvent.setup();
+    const server = backend();
+    render(<PracticeGame initial={{ ok: false, error: "unreadable" }} start={server.start} act={server.act} get={server.get} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("This game can't be loaded anymore");
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/connection/i);
     await user.click(screen.getByRole("button", { name: "Start a new game" }));
     expect(await screen.findByText("Image 1 of 2")).toBeInTheDocument();
   });
@@ -303,6 +321,28 @@ describe("PracticeGame when a limit is hit (#85)", () => {
     expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+
+  it("at the wrong-guess safety cap, says to zoom out or skip, and Skip still works (#209)", async () => {
+    const user = userEvent.setup();
+    const server = backend();
+    let initial = await server.start();
+    for (let i = 0; i < MAX_WRONG_GUESSES_PER_ROUND; i++) {
+      if (!initial.ok) throw new Error("move failed");
+      initial = await server.act(initial.view.gameId, { type: "guess", guess: "bay bridge" }, initial.view.revision);
+    }
+    render(<PracticeGame initial={initial} start={server.start} act={server.act} get={server.get} />);
+
+    // Even the right answer is refused at the cap, and the round stays as it was.
+    await user.type(screen.getByRole("textbox", { name: "What is it?" }), "golden gate{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "That's the most guesses one image allows. Zoom out or skip it to keep playing.",
+    );
+    expect(screen.getByText(`${MAX_WRONG_GUESSES_PER_ROUND} wrong guesses`)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Skip this image" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Skipped. It was Golden Gate Bridge."));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
 
 describe("PracticeGame guessing", () => {
@@ -445,6 +485,23 @@ describe("PracticeGame score (#16), worked out on the server", () => {
 
     await user.click(screen.getByRole("button", { name: "Play again" }));
     await waitFor(() => expect(score()).toHaveTextContent("Score 0"));
+  });
+
+  it("scores the final maximum with the game's own config, not the default (#174)", async () => {
+    const own: ScoringConfig = { ...SCORING_CONFIG, basePoints: SCORING_CONFIG.basePoints * 3 };
+    const server = backend(PUZZLES, own);
+    const user = userEvent.setup();
+    render(<PracticeGame initial={null} start={server.start} act={server.act} get={server.get} />);
+    await screen.findByText("Image 1 of 2");
+    expect(value()).toHaveTextContent(`Worth ${own.basePoints} points now`);
+
+    await user.click(screen.getByRole("button", { name: "Skip this image" }));
+    await user.click(await screen.findByRole("button", { name: "Next image" }));
+    await user.click(await screen.findByRole("button", { name: "Skip this image" }));
+    await user.click(await screen.findByRole("button", { name: "See results" }));
+    expect(await screen.findByText(/You scored/)).toHaveTextContent(
+      `You scored ${own.skipPoints * 2} out of ${own.basePoints * PUZZLES.length}`,
+    );
   });
 });
 

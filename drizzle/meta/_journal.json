@@ -50,6 +50,27 @@
       "when": 1794935372291,
       "tag": "0006_encrypt_game_state",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795665107206,
+      "tag": "0007_puzzle_effect",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795683436776,
+      "tag": "0008_leaderboard_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795686225699,
+      "tag": "0009_ai_solved_seconds",
+      "breakpoints": true
     }
   ]
 }

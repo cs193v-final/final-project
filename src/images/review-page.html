@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo review</title>
+<!-- Served only by scripts/review-images.ts on 127.0.0.1 (#180). No external requests. -->
+<style>
+/* Layout: a grid of photo cards on the left, the pack being built on the right (stacks on narrow screens). */
+:root {
+  --bg: #f4f3f9; --panel: #ffffff; --line: #dcd9ea; --text: #1b1830; --muted: #5f5a7c;
+  --accent: #5a3fd6; --good: #0f7a4f; --bad: #b4233a; --chip: #ece9f8;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14122a; --panel: #1e1b3b; --line: #36325f; --text: #f0eefb; --muted: #a9a4cc;
+    --accent: #a993ff; --good: #5fe0a8; --bad: #ff7083; --chip: #2a2652; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 12px 20px; }
+h1 { font-size: 17px; margin: 0; }
+select, input, textarea, button { font: inherit; color: inherit; }
+select, input[type=text], input[type=date], textarea {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; min-width: 0; }
+textarea { width: 100%; resize: vertical; min-height: 34px; }
+button { cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 11px; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .5; cursor: default; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.counts { color: var(--muted); font-variant-numeric: tabular-nums; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; padding: 20px; align-items: start; }
+@media (max-width: 980px) { main { grid-template-columns: minmax(0, 1fr); } }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; }
+@media (max-width: 440px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.card.approved { border-color: var(--good); box-shadow: inset 0 0 0 1px var(--good); }
+.card.rejected { opacity: .55; }
+.stage { position: relative; background: #000; cursor: crosshair; }
+.stage canvas { display: block; width: 100%; height: auto; }
+.dot { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
+  border: 2px solid #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.6); pointer-events: none; }
+.body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row label { color: var(--muted); font-size: 12px; min-width: 64px; }
+.row input[type=text] { flex: 1; }
+.time { flex: 1; accent-color: var(--accent); }
+.tlabel { font-family: var(--mono); font-size: 12px; color: var(--muted); width: 44px; text-align: right; }
+.effects button { padding: 4px 9px; font-size: 13px; }
+.pill { font: 600 11px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; padding: 4px 7px; border-radius: 99px; background: var(--chip); }
+.pill.approved { color: var(--good); } .pill.rejected { color: var(--bad); }
+.credit { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.credit a { color: inherit; }
+.answer { font-weight: 650; font-size: 16px; }
+aside { position: sticky; top: 76px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+aside h2 { font-size: 15px; margin: 0; }
+aside ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+aside li { display: flex; gap: 6px; align-items: center; background: var(--bg); border-radius: 8px; padding: 5px 6px; }
+aside li img { width: 54px; height: 40px; object-fit: cover; border-radius: 4px; }
+aside li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+aside li .eff { color: var(--muted); font-size: 12px; flex: 0 0 auto; }
+aside li button { padding: 2px 7px; }
+.msg { font-size: 13px; overflow-wrap: anywhere; } .msg.bad { color: var(--bad); } .msg.good { color: var(--good); }
+.empty { color: var(--muted); padding: 40px 0; text-align: center; }
+code { font-family: var(--mono); font-size: 12px; background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Photo review</h1>
+  <label>Theme <select id="theme"></select></label>
+  <div class="chips" id="filters" role="group" aria-label="Show">
+    <button data-f="pending" class="on">To review</button>
+    <button data-f="approved">Approved</button>
+    <button data-f="rejected">Rejected</button>
+    <button data-f="all">All</button>
+  </div>
+  <span class="counts" id="counts"></span>
+</header>
+
+<main>
+  <section>
+    <p class="msg" id="hint">Pick an effect, press ▶ to watch it play over 25 seconds, click the photo to set the focus point, then approve or reject. Changes save as you go.</p>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <aside aria-labelledby="packh">
+    <h2 id="packh">Pack</h2>
+    <p class="msg">Approved photos, in play order (easy to hard). Five for a daily.</p>
+    <ol id="pack"></ol>
+    <div class="row"><label for="ptitle">Title</label><input type="text" id="ptitle" placeholder="e.g. Fruit"></div>
+    <div class="row"><label for="ptheme">Theme</label><input type="text" id="ptheme" placeholder="Shown as “Today: …”"></div>
+    <div class="row"><label for="pkind">Kind</label>
+      <select id="pkind"><option value="daily">Daily</option><option value="stanford">Stanford</option></select></div>
+    <div class="row"><label for="pdate">Day</label><input type="date" id="pdate"><span class="msg">optional</span></div>
+    <button class="primary" id="export">Export pack</button>
+    <p class="msg" id="exportMsg" role="status"></p>
+  </aside>
+</main>
+
+<script type="module">
+// The game's own effects (src/game/effects, #257), served as JavaScript by scripts/review-images.ts,
+// so the preview is exactly what players will see.
+import { createEffect, EFFECT_SETUPS } from "/effects/index.js";
+
+const EFFECTS = Object.keys(EFFECT_SETUPS);
+const REVEAL_SECONDS = 25;
+const $ = (id) => document.getElementById(id);
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
+
+let theme = null, candidates = [], filter = "pending", order = [];
+
+// ---------- data ----------
+async function api(path, options = {}) {
+  const res = await fetch(path, { ...options, headers: { "Content-Type": "application/json" } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  return body;
+}
+async function loadThemes() {
+  const list = await api("/api/themes");
+  const sel = $("theme"); sel.textContent = "";
+  if (list.length === 0) { $("grid").replaceChildren(el("p", { className: "empty", textContent: 'No candidates yet. Run npm run images:find -- --theme <theme> --answers "<answer>,…"' })); return; }
+  for (const t of list) sel.append(el("option", { value: t.slug, textContent: `${t.slug} (${t.pending} to review)` }));
+  const saved = (() => { try { return localStorage.getItem("review-theme"); } catch { return null; } })();
+  sel.value = list.some((t) => t.slug === saved) ? saved : list[0].slug;
+  await loadTheme(sel.value);
+}
+async function loadTheme(slug) {
+  theme = slug;
+  try { localStorage.setItem("review-theme", slug); } catch {}
+  const data = await api(`/api/${slug}`);
+  candidates = data.candidates;
+  order = candidates.filter((c) => c.review.status === "approved").map((c) => c.id);
+  if (!$("ptitle").value) $("ptitle").value = slug.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
+  if (!$("ptheme").value) $("ptheme").value = $("ptitle").value;
+  render();
+}
+async function save(c) {
+  try {
+    // Keep c.review the same object: each card's handlers edit it as `r`, so
+    // replacing it with the server's copy would make every later save send
+    // the state from before that edit.
+    await api(`/api/${theme}/${c.id}`, { method: "PUT", body: JSON.stringify(c.review) });
+    return true;
+  } catch (error) {
+    $("hint").textContent = `Couldn't save ${c.id}: ${error.message}`; $("hint").className = "msg bad";
+    return false;
+  }
+}
+
+// ---------- rendering ----------
+function render() {
+  const n = (s) => candidates.filter((c) => c.review.status === s).length;
+  $("counts").textContent = `${candidates.length} photos · ${n("pending")} to review · ${n("approved")} approved · ${n("rejected")} rejected`;
+  const shown = candidates.filter((c) => filter === "all" || c.review.status === filter);
+  const grid = $("grid");
+  grid.replaceChildren(...shown.map(card));
+  if (shown.length === 0) grid.append(el("p", { className: "empty", textContent: "Nothing here." }));
+  renderPack();
+}
+
+function card(c) {
+  const r = c.review;
+  const root = el("article", { className: `card ${r.status}` });
+  const canvas = el("canvas", { width: 800, height: 600 });
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", `Photo for ${r.answer || c.answer}. Click to set the focus point.`);
+  const dot = el("div", { className: "dot" });
+  const stage = el("div", { className: "stage" }, canvas, dot);
+  const time = el("input", { type: "range", min: 0, max: REVEAL_SECONDS, step: 0.1, value: 0, className: "time" });
+  time.setAttribute("aria-label", "Seconds into the round");
+  const tlabel = el("span", { className: "tlabel", textContent: "0.0 s" });
+  const play = el("button", { textContent: "▶", title: "Play the round" });
+  play.setAttribute("aria-label", "Play the round");
+
+  const img = new Image();
+  const view = { img, canvas, ctx: canvas.getContext("2d"), seed: c.id, source: null, frame: null, effect: null, key: "" };
+  const draw = () => {
+    const t = Number(time.value);
+    tlabel.textContent = `${t.toFixed(1)} s`;
+    drawEffect(view, r.effect, t / REVEAL_SECONDS, r.focus || { x: 0.5, y: 0.5 });
+    const f = r.focus || { x: 0.5, y: 0.5 };
+    dot.style.left = `${f.x * 100}%`; dot.style.top = `${f.y * 100}%`;
+  };
+  img.onload = () => {
+    const w = Math.min(800, img.naturalWidth), h = Math.round(w * img.naturalHeight / img.naturalWidth);
+    canvas.width = w; canvas.height = h;
+    // The photo's pixels, up to twice the frame's size, so zoom starts on a sharp close-up (src/game/effects/index.ts).
+    const src = document.createElement("canvas"); src.width = img.naturalWidth; src.height = img.naturalHeight;
+    const sctx = src.getContext("2d"); sctx.drawImage(img, 0, 0);
+    view.source = sctx.getImageData(0, 0, src.width, src.height);
+    view.frame = view.ctx.createImageData(w, h);
+    draw();
+  };
+  img.src = `/img/${theme}/${c.file}`;
+
+  let raf = 0;
+  play.onclick = () => {
+    if (raf) { cancelAnimationFrame(raf); raf = 0; play.textContent = "▶"; return; }
+    if (Number(time.value) >= REVEAL_SECONDS) time.value = 0;
+    const t0 = performance.now() - Number(time.value) * 1000;
+    play.textContent = "❚❚";
+    const step = (now) => {
+      const t = (now - t0) / 1000;
+      time.value = Math.min(REVEAL_SECONDS, t); draw();
+      if (t < REVEAL_SECONDS) raf = requestAnimationFrame(step); else { raf = 0; play.textContent = "▶"; }
+    };
+    raf = requestAnimationFrame(step);
+  };
+  time.oninput = draw;
+  stage.onclick = (e) => {
+    const box = canvas.getBoundingClientRect();
+    r.focus = { x: clamp((e.clientX - box.left) / box.width, 0, 1), y: clamp((e.clientY - box.top) / box.height, 0, 1) };
+    draw(); void save(c);
+  };
+
+  const effects = el("div", { className: "row effects", role: "group" });
+  effects.setAttribute("aria-label", "Effect");
+  for (const name of EFFECTS) {
+    const b = el("button", { textContent: name, className: r.effect === name ? "on" : "" });
+    b.setAttribute("aria-pressed", String(r.effect === name));
+    b.onclick = () => {
+      r.effect = name;
+      for (const other of effects.children) { other.classList.toggle("on", other === b); other.setAttribute("aria-pressed", String(other === b)); }
+      draw(); void save(c);
+    };
+    effects.append(b);
+  }
+
+  const answer = el("input", { type: "text", value: r.answer || c.answer, id: `a-${c.id}` });
+  const alts = el("input", { type: "text", value: (r.acceptedAnswers || []).join(", "), placeholder: "plurals, other names", id: `alt-${c.id}` });
+  const note = el("textarea", { value: r.note || "", placeholder: "Note (optional)", id: `n-${c.id}` });
+  note.setAttribute("aria-label", "Note");
+  const commitFields = () => {
+    const a = answer.value.trim();
+    if (a && a !== c.answer) r.answer = a; else delete r.answer;
+    r.acceptedAnswers = alts.value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (note.value.trim()) r.note = note.value; else delete r.note;
+    void save(c);
+  };
+  answer.onchange = alts.onchange = note.onchange = commitFields;
+
+  const setStatus = async (status) => {
+    const before = r.status;
+    r.status = status;
+    if (!(await save(c))) { r.status = before; return; }
+    $("hint").className = "msg";
+    if (status === "approved" && !order.includes(c.id)) order.push(c.id);
+    if (status !== "approved") order = order.filter((id) => id !== c.id);
+    render();
+  };
+  const approve = el("button", { textContent: "Approve", className: "primary", onclick: () => setStatus("approved") });
+  const reject = el("button", { textContent: "Reject", onclick: () => setStatus("rejected") });
+  const reset = el("button", { textContent: "Back to review", onclick: () => setStatus("pending") });
+
+  const credit = el("p", { className: "credit" });
+  const link = /^https:\/\//.test(c.credit.url || "") ? el("a", { href: c.credit.url, target: "_blank", rel: "noopener noreferrer", textContent: "source" }) : null;
+  credit.append(`${c.credit.source} · ${c.credit.license} · ${c.width}×${c.height}`, ...(link ? [" · ", link] : []));
+  const title = el("p", { className: "credit", textContent: `Title: ${c.title || "(none)"}` });
+
+  root.append(stage, el("div", { className: "body" },
+    el("div", { className: "row" }, el("span", { className: "answer", textContent: r.answer || c.answer }), el("span", { className: `pill ${r.status}`, textContent: r.status })),
+    el("div", { className: "row" }, play, time, tlabel),
+    effects,
+    el("div", { className: "row" }, el("label", { htmlFor: answer.id, textContent: "Answer" }), answer),
+    el("div", { className: "row" }, el("label", { htmlFor: alts.id, textContent: "Also accept" }), alts),
+    note,
+    el("div", { className: "row" }, approve, reject, ...(r.status === "pending" ? [] : [reset])),
+    credit, title,
+  ));
+  return root;
+}
+
+function renderPack() {
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+  order = order.filter((id) => byId.get(id)?.review.status === "approved");
+  const list = $("pack");
+  if (order.length === 0) { list.replaceChildren(el("li", { textContent: "Approve photos to add them." })); return; }
+  list.replaceChildren(...order.map((id, i) => {
+    const c = byId.get(id);
+    const up = el("button", { textContent: "↑", disabled: i === 0, onclick: () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; renderPack(); } });
+    const down = el("button", { textContent: "↓", disabled: i === order.length - 1, onclick: () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; renderPack(); } });
+    up.setAttribute("aria-label", `Move ${c.review.answer || c.answer} up`);
+    down.setAttribute("aria-label", `Move ${c.review.answer || c.answer} down`);
+    return el("li", {}, el("img", { src: `/img/${theme}/${c.file}`, alt: "" }),
+      el("span", { textContent: `${i + 1}. ${c.review.answer || c.answer}` }), el("span", { className: "eff", textContent: c.review.effect }), up, down);
+  }));
+}
+
+$("export").onclick = async () => {
+  const msg = $("exportMsg");
+  try {
+    const result = await api(`/api/${theme}/export`, { method: "POST", body: JSON.stringify({
+      title: $("ptitle").value, theme: $("ptheme").value, kind: $("pkind").value, puzzleIds: order, date: $("pdate").value,
+    }) });
+    msg.className = "msg good";
+    msg.replaceChildren(`Saved ${result.photos} photos to `, el("code", { textContent: result.file }), ". Check it with ", el("code", { textContent: "npm run db:seed -- --dry-run" }), ".");
+  } catch (error) {
+    msg.className = "msg bad"; msg.textContent = `Not exported: ${error.message}`;
+  }
+};
+$("theme").onchange = (e) => loadTheme(e.target.value);
+for (const b of $("filters").children) b.onclick = () => {
+  filter = b.dataset.f;
+  for (const o of $("filters").children) o.classList.toggle("on", o === b);
+  render();
+};
+
+// ---------- effects ----------
+// p = how far the round is, 0 (start, hidden) to 1 (clear). An effect is set up
+// once per photo, effect and focus point, then each frame is cheap.
+function drawEffect(view, effect, p, focus) {
+  const { img, canvas, ctx } = view;
+  if (!view.source) return;
+  if (!effect || p >= 1) return ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const key = `${effect} ${focus.x} ${focus.y}`;
+  if (view.key !== key) {
+    view.effect = createEffect(effect, view.source, { focus, seed: view.seed, size: { width: canvas.width, height: canvas.height } });
+    view.key = key;
+  }
+  view.effect(clamp(p, 0, 1), view.frame.data);
+  ctx.putImageData(view.frame, 0, 0);
+}
+
+loadThemes().catch((error) => { $("hint").textContent = `Couldn't load: ${error.message}`; $("hint").className = "msg bad"; });
+</script>
+</body>
+</html>

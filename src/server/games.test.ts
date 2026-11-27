@@ -244,6 +244,18 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     expect(await ownGameCount()).toBe(2);
   });
 
+  it("starts a new game instead of resuming an untouched one that can't be decrypted, so \"Start a new game\" works (#164)", async () => {
+    const lost = await started();
+    await pg.query(`UPDATE games SET state_encrypted = 'v1.${"A".repeat(16)}.${"A".repeat(40)}' WHERE id = $1`, [lost.gameId]);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await loadGame(lost.gameId)).toEqual({ ok: false, error: "unreadable" });
+    const fresh = await started();
+    expect(fresh.gameId).not.toBe(lost.gameId);
+    expect(await loadGame(fresh.gameId)).toMatchObject({ ok: true });
+    expect((await started()).gameId).toBe(fresh.gameId); // and a refresh resumes the new one, not another row
+    log.mockRestore();
+  });
+
   it(`never lets a player have more than ${MAX_UNFINISHED_GAMES_PER_PACK} unfinished games: the next start resumes the latest`, async () => {
     let latest = "";
     for (let i = 0; i < MAX_UNFINISHED_GAMES_PER_PACK; i++) {
@@ -256,6 +268,70 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     expect(resumed.gameId).toBe(latest);
     expect(resumed.round).toMatchObject({ revealLevel: 1 });
     expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
+  });
+
+  it("logs a skipped unreadable game without its state or owner (#164)", async () => {
+    const lost = await started();
+    const bad = `v1.${"A".repeat(16)}.${"A".repeat(40)}`;
+    await pg.query("UPDATE games SET state_encrypted = $1 WHERE id = $2", [bad, lost.gameId]);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await started()).gameId).not.toBe(lost.gameId);
+      expect(log).toHaveBeenCalledWith("skipped an unreadable game:", expect.stringContaining("GameUnreadableError"));
+      const { hashOwnerToken, OWNER_COOKIE } = await import("./owner");
+      const logged = JSON.stringify(log.mock.calls);
+      expect(logged).not.toContain(hashOwnerToken(state.jar.get(OWNER_COOKIE)!));
+      expect(logged).not.toContain(state.jar.get(OWNER_COOKIE)!);
+      expect(logged).not.toContain(bad);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  describe(`at the cap of ${MAX_UNFINISHED_GAMES_PER_PACK}, with a game that can't be decrypted (#164)`, () => {
+    const damage = (id: string) =>
+      pg.query(`UPDATE games SET state_encrypted = 'v1.${"A".repeat(16)}.${"A".repeat(40)}' WHERE id = $1`, [id]);
+    /** Starts and plays `n` games, oldest first; returns their ids. */
+    async function played(n: number): Promise<string[]> {
+      const ids: string[] = [];
+      for (let i = 0; i < n; i++) {
+        const id = (await started()).gameId;
+        await actNow(id, { type: "reveal" });
+        ids.push(id);
+      }
+      return ids;
+    }
+    let log: { mockRestore: () => void };
+    beforeEach(() => {
+      log = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+    afterEach(() => log.mockRestore());
+
+    it("resumes the most recent game that loads when the latest can't, every time", async () => {
+      const ids = await played(MAX_UNFINISHED_GAMES_PER_PACK);
+      await damage(ids.at(-1)!);
+
+      expect((await started()).gameId).toBe(ids.at(-2));
+      expect((await started()).gameId).toBe(ids.at(-2)); // "Start a new game" doesn't loop on the lost one
+      expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
+    });
+
+    it("resumes a played game when the untouched one can't be decrypted", async () => {
+      const ids = await played(MAX_UNFINISHED_GAMES_PER_PACK - 1);
+      const untouched = (await started()).gameId;
+      await damage(untouched);
+
+      expect((await started()).gameId).toBe(ids.at(-1));
+      expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
+    });
+
+    it("reports unreadable only when none of them loads", async () => {
+      const ids = await played(MAX_UNFINISHED_GAMES_PER_PACK);
+      for (const id of ids) await damage(id);
+
+      expect(await startPracticeGame()).toEqual({ ok: false, error: "unreadable" });
+      expect(await ownGameCount()).toBe(MAX_UNFINISHED_GAMES_PER_PACK);
+    });
   });
 
   it("starts a new game after a finished one (Play again), even with other unfinished games", async () => {
@@ -303,6 +379,90 @@ describe("reusing games and the unfinished-games cap (#85)", () => {
     }
     expect((await started()).gameId).toBe(latest);
     expect(await ownGameCount()).toBe(2 * MAX_UNFINISHED_GAMES_PER_PACK);
+  });
+});
+
+describe("untrusted requests (#54)", () => {
+  it("answers a malformed action the same for your game, someone else's and a missing one, and changes nothing", async () => {
+    const theirs = await started();
+    const theirJar = new Map(state.jar);
+    state.jar.clear();
+    const mine = await started();
+    const bad = { type: "score", points: 1000 };
+
+    const replies = [
+      await actOnGame(mine.gameId, bad, mine.revision),
+      await actOnGame(theirs.gameId, bad, theirs.revision),
+      await actOnGame("00000000-0000-4000-8000-000000000000", bad, 0),
+    ];
+    // Whatever the code is, it can't tell a prober whether a game id exists or whose it is.
+    expect(replies[1]).toEqual(replies[0]);
+    expect(replies[2]).toEqual(replies[0]);
+    expect(replies[0]).toMatchObject({ ok: false });
+
+    expect(await loadGame(mine.gameId)).toEqual({ ok: true, view: mine });
+    state.jar = theirJar;
+    expect(await loadGame(theirs.gameId)).toEqual({ ok: true, view: theirs });
+  });
+
+  it("without an owner cookie: `not-found`, no cookie is set, and nothing is written to the database", async () => {
+    const view = await started();
+    await pg.exec("DELETE FROM rate_limits;");
+    const games = async () => (await pg.query<{ n: number }>("SELECT count(*)::int AS n FROM games")).rows[0]!.n;
+    const before = await games();
+    state.jar.clear();
+
+    for (const id of [view.gameId, 42, null, { id: view.gameId }]) {
+      expect(await actOnGame(id, { type: "skip" }, view.revision)).toEqual({ ok: false, error: "not-found" });
+      expect(await loadGame(id)).toEqual({ ok: false, error: "not-found" });
+    }
+    // Only starting a game hands out an owner cookie; moves and loads never do.
+    expect(state.jar.size).toBe(0);
+    expect((await pg.query("SELECT key FROM rate_limits")).rows).toEqual([]);
+    expect(await games()).toBe(before);
+  });
+
+  it("with an owner cookie, a game id that isn't a string is `not-found` for moves too", async () => {
+    const view = await started();
+    for (const id of [42, null, undefined, { id: view.gameId }, [view.gameId]]) {
+      expect(await actOnGame(id, { type: "skip" }, view.revision)).toEqual({ ok: false, error: "not-found" });
+    }
+    expect(await loadGame(view.gameId)).toEqual({ ok: true, view });
+  });
+
+  it("applies a retried wrong guess (same revision, e.g. after a lost response) once, and answers the retry with `conflict`", async () => {
+    const view = await started();
+    const guess = { type: "guess", guess: "zzz definitely wrong" };
+    const first = await actOnGame(view.gameId, guess, view.revision);
+    expect(first).toMatchObject({ ok: true, view: { round: { wrongGuesses: 1 } } });
+    expect(await actOnGame(view.gameId, guess, view.revision)).toEqual({ ok: false, error: "conflict" });
+    expect(await loadGame(view.gameId)).toEqual(first);
+  });
+});
+
+describe("what a finished practice game stores", () => {
+  it("keeps total and finished_at in step with the game, and writes no game_rounds rows (practice puzzles may not be seeded)", async () => {
+    const { SAMPLE_PUZZLES } = await import("@/puzzles");
+    let view = await started();
+    const rounds = view.round!.puzzleCount;
+    for (let i = 0; i < rounds; i++) {
+      const puzzleId = PRACTICE_PACK.puzzleIds[i]!;
+      const answer = SAMPLE_PUZZLES.find((p) => p.id === puzzleId)!.answer;
+      // Answer the first round, skip the rest, so the total isn't just skipPoints.
+      await actNow(view.gameId, i === 0 ? { type: "guess", guess: answer } : { type: "skip" });
+      const next = await actNow(view.gameId, { type: "next" });
+      if (!next.ok) throw new Error(next.error);
+      view = next.view;
+    }
+    expect(view.finished).toBe(true);
+    expect(view.total).toBeGreaterThan(0);
+
+    const { rows } = await pg.query<{ total: number; finished_at: Date | null }>(
+      "SELECT total, finished_at FROM games WHERE id = $1",
+      [view.gameId],
+    );
+    expect(rows).toEqual([{ total: view.total, finished_at: expect.any(Date) }]);
+    expect((await pg.query("SELECT 1 FROM game_rounds WHERE game_id = $1", [view.gameId])).rows).toEqual([]);
   });
 });
 
