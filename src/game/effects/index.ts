@@ -21,8 +21,10 @@
 // values come from the team's prototype (#254) and are exported from each
 // effect's file for tuning.
 
+import { kaleidoscope } from "./kaleidoscope.ts";
 import { pixelate } from "./pixelate.ts";
 import { resampler, shrinkTo } from "./resample.ts";
+import { shards } from "./shards.ts";
 import type { EffectOptions, EffectSetup, Pixels } from "./pixels.ts";
 import { spotlight } from "./spotlight.ts";
 import { swirl } from "./swirl.ts";
@@ -33,7 +35,7 @@ import { zoom } from "./zoom.ts";
 export type { EffectOptions, Pixels } from "./pixels.ts";
 
 /** Every effect, coarse ones (for simple photos) first. The names are `Puzzle.effect`'s values (#258). */
-export const EFFECT_SETUPS = { pixelate, spotlight, thermal, swirl, zoom, tiles } as const satisfies Record<string, EffectSetup>;
+export const EFFECT_SETUPS = { pixelate, spotlight, thermal, swirl, zoom, tiles, kaleidoscope, shards } as const satisfies Record<string, EffectSetup>;
 
 export type EffectName = keyof typeof EFFECT_SETUPS;
 

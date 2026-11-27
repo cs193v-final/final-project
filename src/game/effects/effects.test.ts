@@ -2,8 +2,10 @@
 import { describe, expect, it } from "vitest";
 
 import { createEffect, EFFECT_SETUPS, type EffectName, type Pixels } from "./index.ts";
+import { KALEIDOSCOPE_OPEN_BY, KALEIDOSCOPE_WEDGES } from "./kaleidoscope.ts";
 import { pixelateBlock } from "./pixelate.ts";
 import { seededRandom, shuffled } from "./pixels.ts";
+import { SHARDS_CRACKS_GONE_BY } from "./shards.ts";
 import { SPOTLIGHT_DRIFT_SPEED } from "./spotlight.ts";
 import { SWIRL_WOBBLE } from "./swirl.ts";
 import { THERMAL_PALETTE } from "./thermal.ts";
@@ -219,9 +221,9 @@ describe("drawing at a size other than the photo's", () => {
 });
 
 describe("the smooth effects change a little at a time", () => {
-  // Spotlight, thermal, swirl and zoom move continuously: a step of 1/10,000 of
+  // Spotlight, thermal, swirl, zoom, kaleidoscope and shards move continuously: a step of 1/10,000 of
   // the reveal (far shorter than a frame) changes almost nothing.
-  it.each(["spotlight", "thermal", "swirl", "zoom"] as const)("%s", (effect) => {
+  it.each(["spotlight", "thermal", "swirl", "zoom", "kaleidoscope", "shards"] as const)("%s", (effect) => {
     const source = photo();
     const draw = createEffect(effect, source, options);
     const whole = difference(draw(0), source.data);
@@ -457,5 +459,51 @@ describe("seeded randomness", () => {
     expect(shuffled(0, "x")).toEqual([]);
     expect(shuffled(1, "x")).toEqual([0]);
     expect(new Set(shuffled(100, "x")).size).toBe(100);
+  });
+});
+
+describe("kaleidoscope", () => {
+  const source = photo();
+  const centre = { focus: { x: 0.5, y: 0.5 }, seed: "pz-test" };
+  const [width, height] = [source.width, source.height];
+  /** The pixel at `angle` (radians) and `radius` from the middle of a frame. */
+  const at = (frame: Uint8ClampedArray, angle: number, radius: number) =>
+    pixel(frame, width, Math.round(width / 2 + radius * Math.cos(angle)), Math.round(height / 2 + radius * Math.sin(angle)));
+
+  it("starts as mirrored wedges: a point and its reflection across a wedge's edge match", () => {
+    const frame = createEffect("kaleidoscope", source, centre)(0);
+    const wedge = (2 * Math.PI) / KALEIDOSCOPE_WEDGES;
+    let same = 0;
+    const tries = [0.1, 0.2, 0.3].flatMap((offset) => [15, 25, 35].map((radius) => [offset, radius] as const));
+    for (const [offset, radius] of tries) {
+      if (at(frame, wedge - offset, radius).join() === at(frame, wedge + offset, radius).join()) same++;
+    }
+    expect(same).toBeGreaterThanOrEqual(tries.length - 2); // rounding to whole pixels can miss one or two
+  });
+
+  it("is fully unfolded, the photo exactly, by 90% of the reveal", () => {
+    expect(changedBytes(createEffect("kaleidoscope", source, centre)(KALEIDOSCOPE_OPEN_BY), source.data)).toBe(0);
+  });
+});
+
+describe("shards", () => {
+  const white = solid(160, 120, [255, 255, 255]);
+
+  it("starts with dark cracks between the shards, gone by the end", () => {
+    const darkPixels = (frame: Uint8ClampedArray) => {
+      let n = 0;
+      for (let i = 0; i < frame.length; i += 4) if (frame[i]! < 100) n++;
+      return n;
+    };
+    const draw = createEffect("shards", white, options);
+    const start = darkPixels(draw(0));
+    expect(start).toBeGreaterThan(160 * 120 * 0.02);
+    expect(start).toBeLessThan(160 * 120 * 0.3); // lines, not whole shards
+    expect(darkPixels(draw(SHARDS_CRACKS_GONE_BY))).toBe(0);
+  });
+
+  it("cracks differently for a different seed", () => {
+    const source = photo();
+    expect(changedBytes(createEffect("shards", source, options)(0), createEffect("shards", source, { ...options, seed: "pz-other" })(0))).toBeGreaterThan(0);
   });
 });
