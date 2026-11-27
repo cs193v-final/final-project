@@ -18,6 +18,7 @@
 
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   customType,
   date,
@@ -397,5 +398,135 @@ export const gameRounds = pgTable(
     check("game_rounds_position_min", sql`${t.position} >= 1`),
     check("game_rounds_reveal_level_min", sql`${t.revealLevelReached} >= 0`),
     check("game_rounds_wrong_guesses_min", sql`${t.wrongGuesses} >= 0`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Custom lobbies (#67)
+// ---------------------------------------------------------------------------
+//
+// A lobby is a pack of kind "lobby" (`packs`), whose 3-5 puzzles are ordinary
+// `puzzles` rows with their photo in `puzzle_images` / `image_files`, so the
+// server game (#54), images (#57) and `game_rounds` work unchanged. Lobbies
+// play timed rounds (#254), so each puzzle stores one image, the whole photo
+// (both of its placeholder zoom levels point to it, see
+// `LOBBY_PUZZLE_ZOOM_LEVELS` in src/db/lobbies.ts), and an optional `effect`.
+// What differs is that it's user data (#84):
+// - The answers are only in `lobby_puzzles.answers_encrypted`. The puzzle row's
+//   `answer` is '' and `accepted_answers` is empty; src/server/games.ts fills
+//   them in from here, and only for a lobby that can still be played.
+// - The photo's bytes in `image_files` are encrypted (`Vault.encryptBytes`),
+//   and `/img/<id>.webp` serves them only while the lobby can be played.
+// - The share code is stored only as a keyed hash (to look it up) and
+//   encrypted for its owner (to show it again), never in plain text.
+// Deleting a lobby is a sequence of statements (`purgeLobby` in
+// src/db/lobbies.ts), not one cascade: games, then puzzles, then the pack,
+// whose deletion removes the lobby row.
+
+export const lobbies = pgTable(
+  "lobbies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // SET NULL, not CASCADE: deleting an account can't delete the lobby's
+    // pack, puzzles and games in one statement, so the lobby is hidden at once
+    // (no owner) and the sweep deletes the rest.
+    ownerUserId: uuid("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+    // Deleting the pack (the last step of `purgeLobby`) deletes this row.
+    packId: text("pack_id")
+      .notNull()
+      .references(() => packs.id, { onDelete: "cascade" }),
+    // Keyed hash (HMAC, `Vault.blindIndex("lobbies.code", ...)`) of the
+    // normalized code: what joining looks up. Never the code itself.
+    codeIndex: text("code_index").notNull(),
+    // The code, encrypted with this lobby's key, so its owner can see it again.
+    codeEncrypted: text("code_encrypted").notNull(),
+    createdAt: createdAt(),
+    // NULL while it's being created (no transactions on Neon HTTP); only a
+    // ready lobby can be played. The sweep deletes ones never finished.
+    readyAt: timestamp("ready_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    // Set when the owner deletes it: hidden at once, purged right after (or by the sweep).
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    // Distinct logged-in reports so far, and when they reached REPORTS_TO_HIDE
+    // from as many addresses (then hidden from everyone, kept for review until it expires).
+    reportCount: integer("report_count").notNull().default(0),
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("lobbies_code_index_key").on(t.codeIndex),
+    uniqueIndex("lobbies_pack_id_key").on(t.packId),
+    index("lobbies_owner_user_id_idx").on(t.ownerUserId),
+    index("lobbies_expires_at_idx").on(t.expiresAt),
+    check("lobbies_expires_after_created", sql`${t.expiresAt} > ${t.createdAt}`),
+    check("lobbies_report_count_min", sql`${t.reportCount} >= 0`),
+  ],
+);
+
+/** The secret part of a lobby puzzle: its answers, encrypted. One row per lobby puzzle. */
+export const lobbyPuzzles = pgTable(
+  "lobby_puzzles",
+  {
+    puzzleId: text("puzzle_id")
+      .primaryKey()
+      .references(() => puzzles.id, { onDelete: "cascade" }),
+    lobbyId: uuid("lobby_id")
+      .notNull()
+      .references(() => lobbies.id, { onDelete: "cascade" }),
+    // JSON `{ answer, acceptedAnswers }`, encrypted with this puzzle's key
+    // (`lobby-puzzle:<puzzle id>`, field "lobby_puzzles.answers").
+    answersEncrypted: text("answers_encrypted").notNull(),
+  },
+  (t) => [index("lobby_puzzles_lobby_id_idx").on(t.lobbyId)],
+);
+
+/**
+ * One row per (lobby, reporter), so each player's report counts once. Only
+ * logged-in reports count toward hiding, and only from distinct addresses
+ * (`reportLobby` in src/db/lobbies.ts): an anonymous reporter is just a
+ * cookie, so one person could otherwise hide a lobby from a few private windows.
+ */
+export const lobbyReports = pgTable(
+  "lobby_reports",
+  {
+    lobbyId: uuid("lobby_id")
+      .notNull()
+      .references(() => lobbies.id, { onDelete: "cascade" }),
+    // Keyed hash of the reporter (`Vault.blindIndex("lobby_reports.reporter",
+    // "user:<id>" or "anon:<owner hash>")`), never the user id or cookie.
+    reporterIndex: text("reporter_index").notNull(),
+    // Keyed hash of the reporter's address (`Vault.blindIndex("lobby_reports.ip",
+    // <requestIpHash(), itself an HMAC>)`), never the address itself.
+    ipIndex: text("ip_index").notNull(),
+    // Whether the reporter was logged in: only those reports count toward hiding.
+    signedIn: boolean("signed_in").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.lobbyId, t.reporterIndex] })],
+);
+
+/**
+ * A photo uploaded for a lobby that isn't made yet: already re-encoded (no
+ * metadata, at most 1600 px) and encrypted. Creating the lobby stores it as
+ * that lobby's photo and deletes it; the sweep deletes any older than a day.
+ */
+export const lobbyUploads = pgTable(
+  "lobby_uploads",
+  {
+    id: text("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // WebP, encrypted with this upload's key (`lobby-upload:<id>`).
+    bytes: bytea("bytes").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("lobby_uploads_user_id_idx").on(t.userId),
+    index("lobby_uploads_created_at_idx").on(t.createdAt),
+    check("lobby_uploads_id_format", sql`${t.id} ~ '^[0-9a-f]{32}$'`),
+    // MAX_STORED_UPLOAD_BYTES (src/server/lobby-images.ts, 3 MiB) plus the encryption overhead.
+    check("lobby_uploads_bytes_max", sql`octet_length(${t.bytes}) <= 3145757`),
   ],
 );

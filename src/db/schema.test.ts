@@ -89,7 +89,7 @@ const count = async (table: string, where: string, params: unknown[]) =>
 // ---------------------------------------------------------------------------
 
 describe("migrations", () => {
-  it("create exactly the planned tables (no lobbies yet, #67)", async () => {
+  it("create exactly the planned tables", async () => {
     const tables = await rows<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public' ORDER BY table_name`,
@@ -99,6 +99,10 @@ describe("migrations", () => {
       "game_rounds",
       "games",
       "image_files", // per-level image bytes (#57)
+      "lobbies", // custom lobbies (#67)
+      "lobby_puzzles",
+      "lobby_reports",
+      "lobby_uploads",
       "pack_puzzles",
       "packs",
       "puzzle_images",

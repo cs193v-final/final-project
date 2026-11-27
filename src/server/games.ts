@@ -13,9 +13,9 @@ import { limitsAddress } from "@/auth/limits-address";
 import { requestIp } from "@/auth/session";
 import { getVault } from "@/crypto/vault";
 import { getDb, type Db } from "@/db";
-import { getPuzzles } from "@/db/content";
 import { ensurePackRow, findUnfinishedGames, PgGameStore, UnfinishedGamesCapError } from "@/db/games";
 import { getLevelSrcs } from "@/db/images";
+import { getPuzzlesWithLobbyAnswers } from "@/db/lobbies";
 import { getScoringConfig } from "@/db/scoring";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { errorForLog } from "@/game/log-safe";
@@ -59,9 +59,11 @@ export function deps(db: Db): GameDeps {
       maxUnfinishedPerPack: MAX_UNFINISHED_GAMES_PER_PACK,
     }),
     // Practice puzzles from the repo copy (so /play works on an unseeded
-    // database); everything else, e.g. the daily (#58), from the database.
+    // database); everything else, e.g. the daily (#58), from the database,
+    // with a lobby puzzle's answers (#67) decrypted from `lobby_puzzles`.
     puzzles: {
-      getPuzzles: (ids) => (ids.every((id) => practiceIds.has(id)) ? practice.getPuzzles(ids) : getPuzzles(db, ids)),
+      getPuzzles: (ids) =>
+        ids.every((id) => practiceIds.has(id)) ? practice.getPuzzles(ids) : getPuzzlesWithLobbyAnswers(db, getVault(), ids, new Date()),
     },
     // Per-level images (#57), cut by `npm run db:seed`. A practice puzzle that
     // isn't cut yet is still shown whole and cropped in the browser; any other
@@ -119,8 +121,8 @@ export async function startPracticeGame(): Promise<GameResult> {
  * `MAX_UNFINISHED_GAMES_PER_PACK` unfinished games of it (then the latest one
  * that can be read is resumed). The cap is per pack, so other packs' games never block this
  * one, and at the cap there is always a game of this pack to resume.
- * `scoring` is only read when a new game is created. Used by practice and
- * Stanford mode (#65); the daily has its own one-game-per-day rule.
+ * `scoring` is only read when a new game is created. Used by practice,
+ * Stanford mode (#65) and lobbies (#67); the daily has its own one-game-per-day rule.
  *
  * The check here is only a fast path: the store enforces the cap atomically
  * (#225). When a parallel start takes the last slot first, `startGame` throws

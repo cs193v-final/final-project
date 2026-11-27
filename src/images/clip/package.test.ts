@@ -22,7 +22,8 @@ describe("tools/clip/package.json", () => {
   });
 
   it("uses the app's sharp", () => {
-    expect(clip.dependencies.sharp).toBe(app.devDependencies.sharp);
+    // A runtime dependency since lobby uploads (#67) re-encode photos at request time.
+    expect(clip.dependencies.sharp).toBe(app.dependencies.sharp ?? app.devDependencies.sharp);
   });
 
   it("stays out of the app's install", () => {

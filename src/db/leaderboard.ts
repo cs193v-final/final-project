@@ -51,7 +51,8 @@ const beatAiCount = sql`(
 
 type Row = Record<string, unknown>;
 
-function toEntries(vault: Vault, rows: Row[]): LeaderboardEntry[] {
+/** Rows with `rank`, `score`, `user_id`, `username_encrypted` and `beat_ai` as entries. Also used by the lobby board (#67). */
+export function toEntries(vault: Vault, rows: Row[]): LeaderboardEntry[] {
   let failed = false;
   const entries = rows.map((r) => {
     let username = UNKNOWN_PLAYER;

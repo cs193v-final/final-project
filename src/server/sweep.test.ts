@@ -6,15 +6,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RATE_LIMITS } from "@/auth/accounts";
-import { GAME_LIMITS } from "@/server/limits";
+import { GAME_LIMITS, LOBBY_LIMITS, UPLOAD_MAX_AGE_MS } from "@/server/limits";
 import type { PgDb } from "@/db/accounts";
 
-const { deleteExpiredSessions, deleteExpiredRateLimits, getDb } = vi.hoisted(() => ({
+const { deleteExpiredSessions, deleteExpiredRateLimits, purgeDeadLobbies, deleteStaleUploads, getDb } = vi.hoisted(() => ({
   deleteExpiredSessions: vi.fn(),
   deleteExpiredRateLimits: vi.fn(),
+  purgeDeadLobbies: vi.fn(),
+  deleteStaleUploads: vi.fn(),
   getDb: vi.fn(),
 }));
 vi.mock("@/db/accounts", () => ({ deleteExpiredSessions, deleteExpiredRateLimits }));
+vi.mock("@/db/lobbies", () => ({ purgeDeadLobbies, deleteStaleUploads }));
 vi.mock("@/db", () => ({ getDb }));
 
 const { isAuthorizedCron, RATE_LIMIT_MAX_AGE_MS, sweepExpired, sweepResponse } = await import("./sweep");
@@ -28,6 +31,8 @@ const fakeDb = { fake: true } as unknown as PgDb;
 beforeEach(() => {
   deleteExpiredSessions.mockReset().mockResolvedValue(3);
   deleteExpiredRateLimits.mockReset().mockResolvedValue(7);
+  purgeDeadLobbies.mockReset().mockResolvedValue(2);
+  deleteStaleUploads.mockReset().mockResolvedValue(4);
   getDb.mockReset().mockReturnValue(fakeDb);
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -62,13 +67,19 @@ describe("isAuthorizedCron", () => {
 
 describe("sweepExpired", () => {
   it("sweeps sessions expired by now and rate-limit rows older than the longest window", async () => {
-    expect(await sweepExpired(fakeDb, NOW)).toEqual({ sessions: 3, rateLimits: 7 });
+    expect(await sweepExpired(fakeDb, NOW)).toEqual({ sessions: 3, rateLimits: 7, lobbies: 2, lobbyUploads: 4 });
     expect(deleteExpiredSessions).toHaveBeenCalledWith(fakeDb, NOW);
     expect(deleteExpiredRateLimits).toHaveBeenCalledWith(fakeDb, new Date(NOW.getTime() - RATE_LIMIT_MAX_AGE_MS));
   });
 
-  it("keeps every rate-limit row whose window could still be open, login and game limits alike (#85)", () => {
-    const limits = { ...RATE_LIMITS, ...GAME_LIMITS };
+  it("purges dead lobbies and deletes lobby uploads older than a day (#67)", async () => {
+    await sweepExpired(fakeDb, NOW);
+    expect(purgeDeadLobbies).toHaveBeenCalledWith(fakeDb, NOW);
+    expect(deleteStaleUploads).toHaveBeenCalledWith(fakeDb, new Date(NOW.getTime() - UPLOAD_MAX_AGE_MS));
+  });
+
+  it("keeps every rate-limit row whose window could still be open, login, game and lobby limits alike (#85, #67)", () => {
+    const limits = { ...RATE_LIMITS, ...GAME_LIMITS, ...LOBBY_LIMITS };
     for (const [name, limit] of Object.entries(limits)) expect(RATE_LIMIT_MAX_AGE_MS, name).toBeGreaterThanOrEqual(limit.windowMs);
     expect(RATE_LIMIT_MAX_AGE_MS).toBe(Math.max(...Object.values(limits).map((l) => l.windowMs)));
   });
@@ -101,10 +112,16 @@ describe("sweepResponse", () => {
     const response = await sweepResponse(`Bearer ${SECRET}`, SECRET, connect, NOW);
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.json()).toEqual({ deleted: { sessions: 3, rateLimits: 7 } });
+    expect(await response.json()).toEqual({ deleted: { sessions: 3, rateLimits: 7, lobbies: 2, lobbyUploads: 4 } });
     expect(connect).toHaveBeenCalledOnce();
     expect(deleteExpiredSessions).toHaveBeenCalledWith(fakeDb, NOW);
     expect(deleteExpiredRateLimits).toHaveBeenCalledWith(fakeDb, new Date(NOW.getTime() - RATE_LIMIT_MAX_AGE_MS));
+  });
+
+  it("purges dead lobbies and deletes lobby uploads older than a day (#67)", async () => {
+    await sweepExpired(fakeDb, NOW);
+    expect(purgeDeadLobbies).toHaveBeenCalledWith(fakeDb, NOW);
+    expect(deleteStaleUploads).toHaveBeenCalledWith(fakeDb, new Date(NOW.getTime() - UPLOAD_MAX_AGE_MS));
   });
 
   it("never writes the secret to the log", async () => {
@@ -136,7 +153,7 @@ describe("GET /api/cron/sweep", () => {
     vi.stubEnv("CRON_SECRET", SECRET);
     const response = await get(`Bearer ${SECRET}`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ deleted: { sessions: 3, rateLimits: 7 } });
+    expect(await response.json()).toEqual({ deleted: { sessions: 3, rateLimits: 7, lobbies: 2, lobbyUploads: 4 } });
     expect(deleteExpiredSessions).toHaveBeenCalledOnce();
     expect(deleteExpiredRateLimits).toHaveBeenCalledOnce();
   });
