@@ -9,7 +9,18 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { combineContent, parseContent } from "../game/packs.ts";
 import type { Candidate } from "./openverse.ts";
-import { exportPack, parseExportRequest, parseReview, readReviews, reviewedCandidates, saveReview } from "./review.ts";
+import {
+  exportPack,
+  parseExportRequest,
+  parsePackDraft,
+  parseReview,
+  readExportedPack,
+  readPackDraft,
+  readReviews,
+  reviewedCandidates,
+  savePackDraft,
+  saveReview,
+} from "./review.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -138,3 +149,45 @@ describe("parseExportRequest", () => {
     });
   });
 });
+
+describe("the pack being built (pack.json)", () => {
+  it("keeps the fields it knows, dropping blanks and anything malformed", () => {
+    expect(parsePackDraft({ title: " Fruit ", theme: "", kind: "lobby", date: "Dec 3", puzzleIds: ["pz-0000aaaa"], extra: 1 })).toEqual({
+      title: "Fruit",
+      puzzleIds: ["pz-0000aaaa"],
+    });
+    expect(parsePackDraft({ kind: "stanford", date: "2026-12-03" })).toEqual({ kind: "stanford", date: "2026-12-03" });
+    expect(() => parsePackDraft([])).toThrow(/object/);
+    expect(() => parsePackDraft({ title: "x".repeat(201) })).toThrow(/title/);
+  });
+
+  it("is saved per theme and read back", () => {
+    const { themeDir } = setup();
+    expect(readPackDraft(themeDir, null)).toEqual({});
+    savePackDraft(themeDir, { title: "Red things", puzzleIds: ["pz-0000bbbb", "pz-0000aaaa"] });
+    expect(readPackDraft(themeDir, null)).toEqual({ title: "Red things", puzzleIds: ["pz-0000bbbb", "pz-0000aaaa"] });
+  });
+
+  it("starts from what was exported when there's no draft yet, and becomes the export after one", () => {
+    const { content, themeDir } = setup();
+    saveReview(themeDir, "pz-0000aaaa", { status: "approved", effect: "zoom" });
+    saveReview(themeDir, "pz-0000bbbb", { status: "approved", effect: "tiles" });
+    const request = { title: "Red things", theme: "Reds", kind: "daily" as const, puzzleIds: ["pz-0000bbbb", "pz-0000aaaa"], date: "2026-12-03" };
+    const { packId } = exportPack(content, themeDir, "red-things", request);
+
+    const exported = readExportedPack(content, "red-things");
+    expect(exported).toEqual({ ...request, packId });
+    expect(readPackDraft(themeDir, exported)).toEqual(request); // export saved the draft too
+    rmSync(join(themeDir, "pack.json"));
+    expect(readPackDraft(themeDir, exported)).toEqual(request); // an older export, from before drafts
+  });
+
+  it("reports no export for a theme that hasn't been exported, or a file it can't read", () => {
+    const { content } = setup();
+    expect(readExportedPack(content, "red-things")).toBeNull();
+    writeFileSync(join(content, "red-things.json"), "not json");
+    expect(readExportedPack(content, "red-things")).toBeNull();
+    expect(readExportedPack(content, "../etc")).toBeNull();
+  });
+});
+
