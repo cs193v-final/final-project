@@ -6,7 +6,7 @@ import type { CSSProperties } from "react";
  * decorative: hidden from screen readers, never takes clicks, and behind
  * everything (`-z-10`). The drift is CSS (globals.css: `.sky-cloud`), on
  * `transform` only; `CloudsToggle` pauses it, and with reduced motion the
- * clouds stand still.
+ * clouds drift three times slower.
  *
  * Each cloud's height, size, speed and starting point are fixed (no
  * randomness), so every render and test is the same. Smaller clouds are
@@ -35,9 +35,10 @@ export function SkyBackdrop() {
               top: c.top,
               width: c.width,
               opacity: c.opacity,
-              animationDuration: `${c.seconds}s`,
+              // Read by globals.css, which slows them with reduced motion.
+              "--drift": `${c.seconds}s`,
               // A negative delay starts each cloud part-way across, so the sky is full on arrival.
-              animationDelay: `${-c.start * c.seconds}s`,
+              "--drift-start": `${-c.start * c.seconds}s`,
             } as CSSProperties
           }
         >
