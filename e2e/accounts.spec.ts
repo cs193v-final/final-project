@@ -58,7 +58,7 @@ test("sign-up explains a short password", async ({ page }) => {
   await expect(password).toHaveAccessibleDescription(/passwords need at least 8 characters/i);
 });
 
-test("log-in asks for both fields, and links to sign-up and back to start", async ({ page }) => {
+test("log-in asks for both fields, and links to sign-up and back home", async ({ page }) => {
   await page.goto("/login");
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page.getByLabel("Username")).toHaveAccessibleDescription("Enter your username.");
@@ -66,7 +66,8 @@ test("log-in asks for both fields, and links to sign-up and back to start", asyn
 
   await page.getByRole("link", { name: "Create an account" }).click();
   await expect(page).toHaveURL(/\/register$/);
-  await page.getByRole("link", { name: "← Back to start" }).click();
+  // "Home", like /daily and /leaderboard; `exact`, or it would also match the header's "Zoom Out home".
+  await page.getByRole("navigation", { name: "Back" }).getByRole("link", { name: "Home", exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
 });
 

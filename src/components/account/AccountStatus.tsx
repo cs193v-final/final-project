@@ -5,16 +5,18 @@ import Link from "next/link";
 
 import { logoutAction } from "@/app/account/actions";
 import { getCurrentUserOrLoggedOut } from "@/auth/session";
+import { FOCUS_RING } from "@/components/ui/controls";
 import type { PublicUser } from "@/game/types";
 
 import { LoginLink, WelcomeStatus } from "./AccountStatusLinks";
 
-const linkClass = "font-medium underline underline-offset-2";
+// The same look as the header's Leaderboard link (SiteHeader), with the same focus ring (#183).
+const linkClass = `-mx-2 inline-block rounded-md px-2 py-2 font-semibold hover:bg-zinc-200 dark:hover:bg-zinc-800 ${FOCUS_RING}`;
 
 /** What the header shows for a user, or for nobody. Split out so it can be tested without cookies. */
 export function AccountStatusView({ user }: { user: PublicUser | null }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-4">
       {/* Outside the branch, so the same (empty) status region is already on
           the page when a login switches the header over and fills it in: many
           screen readers don't announce a live region added with its text. */}
@@ -26,7 +28,7 @@ export function AccountStatusView({ user }: { user: PublicUser | null }) {
           </Link>
           {/* A form, not a link: Next prefetches links, which could log someone out. */}
           <form action={logoutAction}>
-            <button type="submit" className="rounded-md px-2 py-1 font-medium hover:bg-zinc-100 dark:hover:bg-zinc-900">
+            <button type="submit" className={linkClass}>
               Log out
             </button>
           </form>

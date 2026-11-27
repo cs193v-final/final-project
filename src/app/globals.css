@@ -19,6 +19,7 @@
   --bevel: #776795;
   --rust: #925145;
   --focus: #5835ab;
+  color-scheme: light dark; /* native scrollbars and autofill follow dark mode */
 }
 
 @theme inline {
