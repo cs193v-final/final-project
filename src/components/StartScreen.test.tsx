@@ -22,6 +22,10 @@ describe("StartScreen", () => {
     expect(html).toMatch(/<a[^>]*href="\/play"[^>]*>Start practice<svg[^>]*aria-hidden="true"/u);
   });
 
+  it("links to the photo credits (#239)", () => {
+    expect(html).toMatch(/<a[^>]*href="\/credits"[^>]*>Photo credits<\/a>/u);
+  });
+
   it("lists every how-to-play step, in order", () => {
     const positions = HOW_TO_PLAY.map((step) => html.indexOf(step.replace("'", "&#x27;")));
     expect(positions.every((p) => p >= 0)).toBe(true);
