@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { RoundResult, ScoringConfig } from "@/game/types";
-import { RoundValue, ScoreHeader } from "./LiveScore";
+import { RoundValue, ScoreHeader, worthTone } from "./LiveScore";
 
 // Fixed values so these don't change when playtesting tweaks SCORING_CONFIG.
 const CONFIG: ScoringConfig = { basePoints: 100, revealPenalty: 20, wrongGuessPenalty: 10, minPoints: 10, skipPoints: 0 };
@@ -13,6 +13,22 @@ const playing = (revealLevel: number, wrongGuesses = 0) =>
 describe("ScoreHeader", () => {
   it("shows the image number and the running total", () => {
     expect(text(<ScoreHeader index={1} count={3} total={150} />)).toBe("Image 2 of 3Score 150");
+  });
+
+  it("adds a decorative tile per image without changing what it says (#183)", () => {
+    const header = <ScoreHeader index={1} count={3} total={150} outcomes={["correct"]} />;
+    expect(text(header)).toBe("Image 2 of 3Score 150");
+    const html = renderToStaticMarkup(header);
+    expect(html).toContain('aria-hidden="true"');
+    expect([...html.matchAll(/data-image-pip="(\w+)"/g)].map((m) => m[1])).toEqual(["correct", "current", "next"]);
+  });
+});
+
+describe("worthTone (#183)", () => {
+  it("goes Meadow, then Flash, then Peach as the image loses its points", () => {
+    expect(worthTone(100, CONFIG)).toBe("text-meadow");
+    expect(worthTone(40, CONFIG)).toBe("text-flash");
+    expect(worthTone(10, CONFIG)).toBe("text-peach");
   });
 });
 

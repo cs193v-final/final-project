@@ -29,7 +29,7 @@ export function SiteHeader({ account }: SiteHeaderProps) {
     <header className="w-full">
       <nav
         aria-label="Site"
-        className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 border-b border-zinc-300 px-4 py-3 dark:border-zinc-700"
+        className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 px-4 py-3"
       >
         <Link
           href="/"

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { Round } from "@/game/round";
-import { Button, TextInput } from "../ui/controls";
+import { Button, CARD, TextInput } from "../ui/controls";
 import { SHAKE, SHAKE_TIMING, useAnimateOn } from "./motion";
 import type { Feedback } from "./practice";
 
@@ -35,6 +35,8 @@ export type GuessPanelProps = {
   onGuess: (guess: string) => void;
   onSkip: () => void;
   onNext: () => void;
+  /** Once the round is over, shown in the result card under the status line: points, the AI verdict, the credit. */
+  result?: ReactNode;
 };
 
 function feedbackText(feedback: Feedback): string {
@@ -61,8 +63,10 @@ function feedbackText(feedback: Feedback): string {
 /**
  * Guess input, feedback and round controls (#14). Render it with a key per
  * image (e.g. `key={round.position}`) so the input resets for each image.
+ * Once the round is over, the same status line heads a result card (#183),
+ * like the timed round's, with `result` and Next image under it.
  */
-export function GuessPanel({ round, feedback, isLastRound, pending = false, onGuess, onSkip, onNext }: GuessPanelProps) {
+export function GuessPanel({ round, feedback, isLastRound, pending = false, onGuess, onSkip, onNext, result }: GuessPanelProps) {
   const [guess, setGuess] = useState("");
   const inputId = useId();
   const nextButton = useRef<HTMLButtonElement>(null);
@@ -95,15 +99,20 @@ export function GuessPanel({ round, feedback, isLastRound, pending = false, onGu
 
   const message = feedbackText(feedback);
   const icon = feedbackIcon(feedback);
+  // Rust is the error ink in both modes (globals.css lightens it in the dark).
   const tone =
     feedback.kind === "correct"
       ? "text-emerald-700 dark:text-emerald-400"
       : feedback.kind === "incorrect" || feedback.kind === "empty"
-        ? "text-rose-700 dark:text-rose-400"
-        : "text-zinc-700 dark:text-zinc-300";
+        ? "text-rust"
+        : playing
+          ? "text-zinc-700 dark:text-zinc-300"
+          : "text-zinc-900 dark:text-zinc-50";
 
   return (
     <section aria-label="Your guess" className="flex w-full max-w-md flex-col gap-3">
+      {/* The form and the result card share one status line, at the same place
+          in the tree, so it's never re-created and screen readers hear each change. */}
       {playing ? (
         <form onSubmit={submit} className="flex flex-col gap-3">
           <label htmlFor={inputId} className="text-sm font-medium">
@@ -123,8 +132,8 @@ export function GuessPanel({ round, feedback, isLastRound, pending = false, onGu
               autoFocus
               className="min-w-0 flex-1"
             />
-            {/* The screen's main action while playing (#89). */}
-            <Button type="submit" disabled={pending}>
+            {/* The screen's main action while playing, in Peach Flash as in the timed round (#183). */}
+            <Button type="submit" variant="flash" disabled={pending}>
               Guess
             </Button>
           </div>
@@ -139,24 +148,40 @@ export function GuessPanel({ round, feedback, isLastRound, pending = false, onGu
             </Button>
           </div>
         </form>
-      ) : (
-        <Button ref={nextButton} disabled={pending} onClick={onNext} className="self-start">
-          {isLastRound ? "See results" : "Next image"}
-        </Button>
-      )}
-      {/* Always rendered so screen readers announce changes to it. */}
-      <p
-        role="status"
-        aria-live="polite"
-        className={`flex min-h-6 items-start gap-2 ${tone} ${feedback.kind === "correct" ? "font-semibold" : ""}`}
+      ) : null}
+      <div
+        data-round-result={playing ? undefined : ""}
+        className={playing ? "contents" : `${CARD} flex flex-col items-center gap-2 px-4 py-4 text-center`}
       >
-        {icon && (
-          <span aria-hidden="true" data-feedback-icon className="font-bold">
-            {icon}
-          </span>
+        {/* Always rendered so screen readers announce changes to it. */}
+        <p
+          role="status"
+          aria-live="polite"
+          className={`flex min-h-6 items-start gap-2 ${tone} ${
+            playing
+              ? feedback.kind === "correct"
+                ? "font-semibold"
+                : ""
+              : "justify-center font-display text-2xl tracking-tight text-balance"
+          }`}
+        >
+          {icon && (
+            <span aria-hidden="true" data-feedback-icon className="font-bold">
+              {icon}
+            </span>
+          )}
+          <span>{message}</span>
+        </p>
+        {playing ? null : (
+          <>
+            {result}
+            <Button ref={nextButton} size="lg" disabled={pending} onClick={onNext} className="mt-2">
+              {isLastRound ? "See results" : "Next image"}
+              <span aria-hidden="true">→</span>
+            </Button>
+          </>
         )}
-        <span>{message}</span>
-      </p>
+      </div>
     </section>
   );
 }

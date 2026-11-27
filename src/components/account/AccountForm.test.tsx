@@ -6,7 +6,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AccountFormState } from "@/app/account/actions";
-import { buttonClass, TEXT_INPUT } from "@/components/ui/styles";
+import { buttonClass, CARD, TEXT_INPUT } from "@/components/ui/styles";
 
 import { AccountForm } from "./AccountForm";
 
@@ -21,6 +21,11 @@ describe("AccountForm", () => {
     render(<AccountForm mode="login" action={never} />);
     for (const name of ["Username", "Password"]) expect(screen.getByLabelText(name).className).toContain(TEXT_INPUT);
     expect(screen.getByRole("button", { name: "Log in" }).className).toBe(buttonClass("primary"));
+  });
+
+  it("sits in a card (#183)", () => {
+    render(<AccountForm mode="login" action={never} />);
+    expect(screen.getByRole("button", { name: "Log in" }).closest("form")!.className).toContain(CARD);
   });
 
   it("links to the other form, keeping where to go next", () => {

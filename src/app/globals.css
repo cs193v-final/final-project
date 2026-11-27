@@ -19,6 +19,7 @@
   --bevel: #776795;
   --rust: #925145;
   --focus: #5835ab;
+  color-scheme: light dark; /* native scrollbars and autofill follow dark mode */
 }
 
 @theme inline {
@@ -30,6 +31,13 @@
   --color-paper: var(--paper);
   --color-plum: #27213f;
   --color-rust: var(--rust);
+  /* The bevel edges and bases (#183): one place, used by CARD, chips and buttons. */
+  --color-bevel: var(--bevel);
+  --color-meadow-edge: var(--meadow-edge);
+  --color-meadow-shadow: var(--meadow-shadow);
+  --color-flash-edge: var(--flash-edge);
+  --color-flash-shadow: #995c37;
+  --color-meadow-soft: #d8f1ad;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-display: var(--font-open-sans);
@@ -243,6 +251,12 @@
 
 .island-bob {
   animation: island-float 6s cubic-bezier(0.77, 0, 0.175, 1) 1.6s 3;
+}
+
+/* "Pause clouds" stops every ambient drift on the page, the island's float
+   too (WCAG 2.2.2). */
+:root[data-clouds-paused] .island-bob {
+  animation-play-state: paused;
 }
 
 .word-zoom {

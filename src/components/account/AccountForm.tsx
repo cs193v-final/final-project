@@ -6,7 +6,7 @@ import { useActionState, useId } from "react";
 import type { AccountFormState } from "@/app/account/actions";
 import { DEFAULT_NEXT } from "@/auth/next-path";
 import { PASSWORD_MAX, PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN } from "@/auth/rules";
-import { Button, TextInput, TextLink } from "@/components/ui/controls";
+import { Button, CARD, TextInput, TextLink } from "@/components/ui/controls";
 
 export type AccountFormProps = {
   mode: "login" | "register";
@@ -17,7 +17,8 @@ export type AccountFormProps = {
 
 // The shared controls (#89, #183), so these pages match the game's.
 const inputClass = "w-full";
-const errorClass = "text-sm font-medium text-rose-700 dark:text-rose-400";
+// Rust, the palette's error colour (#183): 5.8:1 on paper, 7.3:1 on the dark card.
+const errorClass = "text-sm font-medium text-rust";
 // Field errors and hints take no space when empty (not the form's role="alert",
 // which must stay rendered for screen readers to announce it).
 const fieldErrorClass = `${errorClass} empty:hidden`;
@@ -32,7 +33,7 @@ export function AccountForm({ mode, action, next = DEFAULT_NEXT }: AccountFormPr
   const keepNext = next === DEFAULT_NEXT ? "" : `?next=${encodeURIComponent(next)}`;
 
   return (
-    <form action={formAction} className="flex w-full max-w-sm flex-col gap-4" noValidate>
+    <form action={formAction} className={`${CARD} flex w-full max-w-sm flex-col gap-4 p-5`} noValidate>
       {/* The server checks it again: anyone can post any value. */}
       {next !== DEFAULT_NEXT && <input type="hidden" name="next" value={next} />}
       <div className="flex flex-col gap-1">

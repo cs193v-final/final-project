@@ -1,11 +1,13 @@
 "use client";
 
 import type { ButtonHTMLAttributes, Ref } from "react";
-import { buttonClass, type ButtonVariant } from "./styles";
+import { buttonClass, type ButtonSize, type ButtonVariant } from "./styles";
 
 export type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "disabled"> & {
   /** `primary` is the screen's main action (one per screen), `secondary` a normal one, `quiet` a minor one (e.g. Skip). */
   variant?: ButtonVariant;
+  /** `lg` for the screen's one main action (#183). */
+  size?: ButtonSize;
   /**
    * Marks the button `aria-disabled` and ignores clicks and form submits, but
    * keeps it focusable, so keyboard focus doesn't jump away while, say, a move
@@ -19,14 +21,14 @@ export type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "disable
 };
 
 /** An action on this screen (#89). Navigation that looks like a button is `ButtonLink`. */
-export function Button({ variant = "primary", disabled, type = "button", className, onClick, ref, ...rest }: ButtonProps) {
+export function Button({ variant = "primary", size = "md", disabled, type = "button", className, onClick, ref, ...rest }: ButtonProps) {
   return (
     <button
       type={type}
       {...rest}
       ref={ref}
       aria-disabled={disabled}
-      className={buttonClass(variant, className)}
+      className={buttonClass(variant, className, size)}
       onClick={(event) => {
         if (disabled) {
           event.preventDefault(); // also stops a submit button from submitting its form

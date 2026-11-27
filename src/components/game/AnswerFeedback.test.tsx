@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { runGameCall, type GameResult } from "@/game/game-result";
 import { parsePuzzle } from "@/game/puzzles";
+import { pointsIfCorrect } from "@/game/scoring";
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import { act as playMove, getGame, MemoryGameStore, puzzleSourceFrom, startGame, type GameOwner } from "@/game/server-game";
 import type { GameAction, Pack, Puzzle } from "@/game/types";
@@ -73,6 +74,9 @@ function animated(): HTMLElement[] {
 }
 const shakes = () => animated().filter((el) => el.hasAttribute("data-guess-row"));
 const pops = () => animated().filter((el) => el.hasAttribute("data-image-box"));
+const pulses = () => animated().filter((el) => el.hasAttribute("data-worth-points"));
+const chips = () => animated().filter((el) => el.hasAttribute("data-penalty-chip"));
+const corners = () => animated().filter((el) => el.hasAttribute("data-corners"));
 
 /** Renders the game (a new one, or `initial` as loaded on the server) and waits for its first image. */
 async function setup({ server = backend(), initial = null }: { server?: Backend; initial?: GameResult | null } = {}) {
@@ -100,8 +104,11 @@ describe("answer feedback with motion allowed", () => {
     const { guess, icon, confetti } = await setup();
     await guess("bay bridge", "“bay bridge” isn't it");
 
-    expect(animated()).toHaveLength(1);
+    // The shake, plus the monitor's worth number pulsing and its "−10" chip (#183). No pop.
     expect(shakes()).toHaveLength(1);
+    expect(pulses()).toHaveLength(1);
+    expect(chips()).toHaveLength(1);
+    expect(animated()).toHaveLength(3);
     expect(icon()).toHaveTextContent("✗");
     expect(icon()).toHaveAttribute("aria-hidden", "true");
     expect(confetti()).not.toBeInTheDocument();
@@ -128,7 +135,9 @@ describe("answer feedback with motion allowed", () => {
     await guess("bay bridge", "isn't it");
     await user.click(screen.getByRole("button", { name: /zoom out/i }));
     expect(await screen.findByText("Zoom level 2 of 3")).toBeInTheDocument();
-    expect(animated()).toHaveLength(1);
+    // The zoom out moves the monitor (#183), but the guess box shook only once.
+    expect(shakes()).toHaveLength(1);
+    expect(pops()).toHaveLength(0);
   });
 
   it("celebrates a correct guess: confetti, a pop on the image, and ✓ with text", async () => {
@@ -229,6 +238,83 @@ describe("answer feedback with motion allowed", () => {
     expect(status()).toHaveTextContent("Correct! It's Golden Gate Bridge.");
     expect(confetti()).not.toBeInTheDocument();
     expect(animated()).toHaveLength(0);
+  });
+});
+
+// Spec for the monitor's game feel (#183): the "worth now" number ticks down
+// with a pulse, the penalty drops off it as a chip, the corners widen on a
+// zoom out, and a solve floats "+points". Only for moves made on screen, and
+// nothing moves with reduced motion.
+describe("the monitor's game feel (#183)", () => {
+  const worth = () => document.querySelector("[data-worth-points]");
+  const chip = () => document.querySelector("[data-penalty-chip]");
+  const zoomOut = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole("button", { name: "Zoom out" }));
+    await screen.findByText("Zoom level 2 of 3");
+  };
+
+  it("drops a “−penalty” chip off the worth number on a zoom out, ticks the number down and widens the corners", async () => {
+    fakeMotionSetting(false);
+    const { user } = await setup();
+    expect(worth()).toHaveTextContent(String(SCORING_CONFIG.basePoints));
+    expect(chip()).not.toBeInTheDocument();
+
+    await zoomOut(user);
+    expect(chip()).toHaveTextContent(`−${SCORING_CONFIG.revealPenalty}`);
+    expect(chip()).toHaveAttribute("aria-hidden", "true");
+    await waitFor(() => expect(worth()).toHaveTextContent(String(pointsIfCorrect(1, 0, SCORING_CONFIG))));
+    expect(screen.getByText(/now$/)).toHaveTextContent(`Worth ${pointsIfCorrect(1, 0, SCORING_CONFIG)} points now`);
+    expect(pulses()).toHaveLength(1);
+    expect(chips()).toHaveLength(1);
+    expect(corners()).toHaveLength(1);
+    expect(shakes()).toHaveLength(0);
+
+    // The chip leaves once it has dropped.
+    await waitFor(() => expect(chip()).not.toBeInTheDocument(), { timeout: 2000 });
+  });
+
+  it("drops the wrong-guess penalty and rings the photo in Peach on a wrong guess", async () => {
+    fakeMotionSetting(false);
+    const { guess } = await setup();
+    await guess("bay bridge", "isn't it");
+    expect(chip()).toHaveTextContent(`−${SCORING_CONFIG.wrongGuessPenalty}`);
+    expect(document.querySelector("[data-wrong-flash]")).toHaveAttribute("data-wrong-flash", "on");
+    expect(corners()).toHaveLength(0);
+  });
+
+  it("floats “+points” off the photo for a solve made here, but not for one a refresh resumes", async () => {
+    fakeMotionSetting(false);
+    const { guess } = await setup();
+    await guess("golden gate bridge", "Correct!");
+    expect(document.querySelector("[data-points-float]")).toHaveTextContent(`+${SCORING_CONFIG.basePoints}`);
+    cleanup();
+
+    const server = backend();
+    const initial = await gameAfter(server, [{ type: "guess", guess: "golden gate bridge" }]);
+    await setup({ server, initial });
+    expect(document.querySelector("[data-points-float]")).not.toBeInTheDocument();
+  });
+
+  it("starts still when a refresh resumes a round with zoom-outs and misses", async () => {
+    fakeMotionSetting(false);
+    const server = backend();
+    const initial = await gameAfter(server, [{ type: "reveal" }, { type: "guess", guess: "bay bridge" }]);
+    await setup({ server, initial });
+    expect(worth()).toHaveTextContent(String(pointsIfCorrect(1, 1, SCORING_CONFIG)));
+    expect(chip()).not.toBeInTheDocument();
+    expect(document.querySelector("[data-wrong-flash]")).toHaveAttribute("data-wrong-flash", "off");
+    expect(animated()).toHaveLength(0);
+  });
+
+  it("with reduced motion: no chip, no float, and the number goes straight to its new value", async () => {
+    fakeMotionSetting(true);
+    const { user, guess } = await setup();
+    await zoomOut(user);
+    expect(worth()).toHaveTextContent(String(pointsIfCorrect(1, 0, SCORING_CONFIG)));
+    expect(chip()).not.toBeInTheDocument();
+    await guess("golden gate bridge", "Correct!");
+    expect(document.querySelector("[data-points-float]")).not.toBeInTheDocument();
+    expect(animate).not.toHaveBeenCalled();
   });
 });
 

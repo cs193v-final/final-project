@@ -116,7 +116,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 
       await page.getByRole("button", { name: "Zoom out" }).click();
       // Audit the new level, not the in-between state while the server answers.
-      await expect(page.getByText("Zoom level 2 of")).toBeVisible();
+      await expect(page.getByText(/^Zoom level 2 of /)).toBeVisible();
       await checkScreen(page, "game, zoomed out");
 
       await guess(page, first.answer);
@@ -206,7 +206,7 @@ test("a whole game can be played from the keyboard alone", async ({ page }) => {
       await expect(zoomOut).toBeFocused();
       await page.keyboard.press("Enter");
       // Wait for the server to answer: while a move is pending, a guess is dropped.
-      await expect(page.getByText("Zoom level 2 of")).toBeVisible();
+      await expect(page.getByText(/^Zoom level 2 of /)).toBeVisible();
       for (let n = 0; n < 6 && !(await guessBox(page).evaluate((el) => el === document.activeElement)); n++) {
         await page.keyboard.press("Tab");
       }

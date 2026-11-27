@@ -50,6 +50,21 @@ describe("DailyIntro", () => {
   });
 });
 
+describe("DailyIntro look (#183)", () => {
+  it("shows the empty monitor and one empty tile per image, hidden from screen readers", () => {
+    const { container } = render(<DailyIntroScreen intro={FRUIT} />);
+    expect(screen.getByText("The photo appears when you start").closest("[aria-hidden='true']")).not.toBeNull();
+    const tiles = container.querySelectorAll("[data-image-tile]");
+    expect(tiles).toHaveLength(5);
+    expect(tiles[0]!.closest("[aria-hidden='true']")).not.toBeNull();
+  });
+
+  it("has a tile for a one-image pack too", () => {
+    const { container } = render(<DailyIntroScreen intro={{ ...FRUIT, pack: { theme: "Fruit", puzzleCount: 1 } }} />);
+    expect(container.querySelectorAll("[data-image-tile]")).toHaveLength(1);
+  });
+});
+
 // vi.stubEnv restores TZ exactly (including "not set"), so no zone leaks into later tests.
 afterEach(() => {
   vi.unstubAllEnvs();

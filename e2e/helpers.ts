@@ -10,6 +10,9 @@ export const siteNav = (page: Page) => page.getByRole("navigation", { name: "Sit
 /** The header's link home. */
 export const homeLink = (page: Page) => siteNav(page).getByRole("link", { name: `${GAME_NAME} home` });
 
+/** "Skip to content", the first thing Tab reaches on every page (layout.tsx). */
+export const skipLink = (page: Page) => page.getByRole("link", { name: "Skip to content" });
+
 /**
  * Wait for the header's "Log in" link (logged out). It streams in after the
  * page shell (it reads the session cookie), so tab order and page-wide checks
@@ -37,7 +40,8 @@ export async function finishPractice(page: Page) {
     await page.getByRole("button", { name: "Skip this image" }).click();
     const after = page.getByRole("button", { name: /^(Next image|See results)$/ });
     await expect(after).toBeVisible();
-    const last = (await after.textContent()) === "See results";
+    // By accessible name, not raw text: the button also holds a decorative arrow (#183).
+    const last = (await page.getByRole("button", { name: "See results" }).count()) > 0;
     await after.click();
     if (last) break;
   }
@@ -45,13 +49,16 @@ export async function finishPractice(page: Page) {
 }
 
 /**
- * Open the home screen and Tab to Start practice: the home link, Leaderboard (#62), Log in (#53),
- * then the playable modes, Daily (#58), Stanford (#65) and then Practice
- * (coming-soon cards are skipped). Leaves focus on Start practice.
+ * Open the home screen and Tab to Start practice: Skip to content, the home
+ * link, Leaderboard (#62), Log in (#53), then the playable modes, Daily (#58),
+ * Stanford (#65) and then Practice (coming-soon cards are skipped). Leaves
+ * focus on Start practice.
  */
 export async function tabToStartPractice(page: Page) {
   await page.goto("/");
   await waitForAccountLinks(page);
+  await page.keyboard.press("Tab");
+  await expect(skipLink(page)).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(homeLink(page)).toBeFocused();
   await page.keyboard.press("Tab");
