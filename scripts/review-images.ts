@@ -166,7 +166,7 @@ export function createHandler({ contentDir, port }: ServerOptions) {
       }
       if (req.method === "POST" && kind === "api" && item === "export" && extra === undefined) {
         const request = parseExportRequest(await readBody(req));
-        const result = exportPack(contentDir, themeDir, theme, request);
+        const result = await exportPack(contentDir, themeDir, theme, request);
         return send(res, 200, { ok: true, ...result, file: `content/${theme}.json`, exported: readExportedPack(contentDir, theme) });
       }
       return send(res, 404, { error: "not found" });

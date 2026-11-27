@@ -13,8 +13,10 @@
 // Runs directly in Node 24 (type stripping), so imports keep their `.ts`.
 
 import { randomBytes } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+import sharp from "sharp";
 
 import { combineContent, parseContent, type Content } from "../game/packs.ts";
 import { EFFECTS } from "../game/puzzles.ts";
@@ -234,11 +236,13 @@ export function buildContent(candidates: ReviewedCandidate[], request: ExportReq
 export type ExportResult = { file: string; packId: string; photos: number };
 
 /**
- * Writes content/<theme>.json and copies the photos to content/photos/<pack id>/.
+ * Writes content/<theme>.json and copies the photos to content/photos/<pack id>/,
+ * re-encoded without their metadata (EXIF, GPS: the content repo's rule),
+ * turned upright first so a photo shot sideways stays the right way up.
  * Exporting the same theme again keeps its pack id, so a re-export updates the
  * pack instead of making a second one.
  */
-export function exportPack(contentDir: string, themeDir: string, theme: string, request: ExportRequest): ExportResult {
+export async function exportPack(contentDir: string, themeDir: string, theme: string, request: ExportRequest): Promise<ExportResult> {
   if (!THEME_PATTERN.test(theme)) throw new Error("bad theme folder name");
   const file = join(contentDir, `${theme}.json`);
   let packId = newPackId();
@@ -254,7 +258,8 @@ export function exportPack(contentDir: string, themeDir: string, theme: string, 
   for (const puzzle of content.puzzles) {
     const name = puzzle.imageUrl.split("/").pop()!;
     if (!FILE_PATTERN.test(name)) throw new Error(`unexpected photo name ${name}`);
-    copyFileSync(join(themeDir, name), join(photoDir, name));
+    const photo = sharp(join(themeDir, name)).rotate(); // sharp drops metadata unless asked to keep it
+    await (name.endsWith(".jpg") ? photo.jpeg({ quality: 92, mozjpeg: true }) : photo).toFile(join(photoDir, name));
   }
   writeJson(file, content);
   savePackDraft(themeDir, request); // the draft is now what was exported
