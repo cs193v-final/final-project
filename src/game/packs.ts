@@ -178,17 +178,32 @@ function words(value: string): string[] {
 /** Short words that say nothing about an answer on their own. */
 const FILLER = new Set(["the", "and", "for", "los", "las", "les", "des", "del", "von", "van"]);
 
+/** Irregular plurals, both ways round, so "mice.jpg" gives away "Mouse" (#109). */
+const IRREGULAR: Record<string, string> = {
+  mouse: "mice", louse: "lice", goose: "geese", tooth: "teeth", foot: "feet", man: "men", woman: "women",
+  child: "children", person: "people", ox: "oxen", die: "dice", cactus: "cacti", fungus: "fungi", octopus: "octopi",
+  knife: "knives", leaf: "leaves", wolf: "wolves", calf: "calves", half: "halves", loaf: "loaves", shelf: "shelves",
+  thief: "thieves", wife: "wives", life: "lives", scarf: "scarves", hoof: "hooves",
+};
+const IRREGULAR_BOTH = new Map<string, string>(Object.entries(IRREGULAR).flatMap(([one, many]) => [[one, many], [many, one]]));
+
 /**
  * What counts as giving `answer` away: the whole answer, and each word of 3 or
  * more letters ("ben" for "Big Ben"), also as a singular ("cherries" →
  * "cherry", "tomatoes" → "tomato", "giraffes" → "giraffe") and, for a word
  * ending in "y", as a plural ("cherry" → "cherries"). Other plurals contain the
- * singular already ("peach" is in "peaches").
+ * singular already ("peach" is in "peaches"); irregular ones ("mice") are
+ * listed. An answer of three or more words also gives itself away by its
+ * initials ("ggb" for "Golden Gate Bridge"); two-word initials would flag
+ * every "pz-" and "pk_" id, so they aren't checked.
  */
 function needles(answer: string): string[] {
   const parts = words(answer);
   const found = new Set<string>([parts.join("")]);
+  if (parts.length >= 3) found.add(parts.map((w) => w[0]).join(""));
   for (const word of parts) {
+    const irregular = IRREGULAR_BOTH.get(word);
+    if (irregular) found.add(irregular);
     if (word.length >= 3 && !FILLER.has(word)) found.add(word);
     if (word.length >= 5 && word.endsWith("ies")) found.add(`${word.slice(0, -3)}y`);
     else if (word.length >= 5 && word.endsWith("es")) found.add(word.slice(0, -2)).add(word.slice(0, -1));
@@ -198,10 +213,17 @@ function needles(answer: string): string[] {
   return [...found].filter(Boolean);
 }
 
-/** Long needles match anywhere ("giraffe" in "/img/giraffe2.jpg"); short ones only as a whole word ("ox" in "ox-1", not "box"). */
+/** Endings a short needle may carry and still be a whole word: "cats", "foxes", "oxen" (#109). */
+const SHORT_ENDINGS = ["", "s", "es", "en"];
+
+/**
+ * Long needles match anywhere ("giraffe" in "/img/giraffe2.jpg"); short ones
+ * only as a whole word, plain or plural ("ox" in "ox-1" and "oxen", not "box").
+ */
 function leaks(field: string, needle: string): boolean {
   const tokens = words(field);
-  return needle.length >= 4 ? tokens.join("").includes(needle) : tokens.includes(needle);
+  if (needle.length >= 4) return tokens.join("").includes(needle);
+  return tokens.some((token) => SHORT_ENDINGS.some((ending) => token === needle + ending));
 }
 
 export type AnswerLeak = { path: string; problem: string };
