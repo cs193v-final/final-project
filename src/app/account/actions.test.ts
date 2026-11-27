@@ -3,17 +3,32 @@
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loginAction, registerAction } from "./actions";
+import { changePasswordAction, deleteAccountAction, loginAction, registerAction } from "./actions";
 
-const { redirect, setSessionCookie, setDeviceCookie, discardSession, login, register } = vi.hoisted(() => ({
+const {
+  redirect,
+  setSessionCookie,
+  setDeviceCookie,
+  discardSession,
+  clearAccountCookies,
+  getCurrentUser,
+  login,
+  register,
+  changePassword,
+  deleteAccount,
+} = vi.hoisted(() => ({
   redirect: vi.fn((url: string) => {
     throw Object.assign(new Error("NEXT_REDIRECT"), { url });
   }),
   setSessionCookie: vi.fn<(token: string, expiresAt: Date) => Promise<void>>(async () => {}),
   setDeviceCookie: vi.fn<(token: string, now: Date) => Promise<void>>(async () => {}),
   discardSession: vi.fn<(token: string) => Promise<void>>(async () => {}),
+  clearAccountCookies: vi.fn<() => Promise<void>>(async () => {}),
+  getCurrentUser: vi.fn<() => Promise<{ id: string; username: string } | null>>(async () => ({ id: "u1", username: "ethan" })),
   login: vi.fn(),
   register: vi.fn(),
+  changePassword: vi.fn(),
+  deleteAccount: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("server-only", () => ({}));
@@ -25,11 +40,13 @@ vi.mock("@/auth/session", async (importOriginal) => ({
   setSessionCookie,
   setDeviceCookie,
   discardSession,
+  clearAccountCookies,
+  getCurrentUser,
   endSession: vi.fn(async () => {}),
   requestIp: async () => "203.0.113.7",
   requestDeviceToken: async () => "device-from-cookie",
 }));
-vi.mock("@/auth/accounts", () => ({ DEVICE_TOKEN_DAYS: 365, login, register }));
+vi.mock("@/auth/accounts", () => ({ DEVICE_TOKEN_DAYS: 365, login, register, changePassword, deleteAccount }));
 
 const form = (username: string, password: string, next?: string) => {
   const data = new FormData();
@@ -61,6 +78,12 @@ beforeEach(() => {
   // A failed test can leave a mockResolvedValueOnce unused; don't let it leak.
   login.mockReset();
   register.mockReset();
+  changePassword.mockReset();
+  deleteAccount.mockReset();
+  clearAccountCookies.mockReset();
+  clearAccountCookies.mockImplementation(async () => {});
+  getCurrentUser.mockReset();
+  getCurrentUser.mockImplementation(async () => ({ id: "u1", username: "ethan" }));
   consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
   return () => consoleError.mockRestore();
 });
@@ -182,5 +205,90 @@ describe("if the database fails", () => {
     expect(state).toEqual({ username: "ethan", errors: {}, message: expect.stringMatching(/account was created.*please log in/i) });
     expect(redirect).not.toHaveBeenCalled();
     expect(discardSession).toHaveBeenCalledWith("t");
+  });
+});
+
+describe("changing the password and deleting the account (#234)", () => {
+  const passwordForm = (current: string, password: string) => {
+    const data = new FormData();
+    data.set("current", current);
+    data.set("password", password);
+    return data;
+  };
+  const deleteForm = (current: string, confirm: string) => {
+    const data = new FormData();
+    data.set("current", current);
+    data.set("confirm", confirm);
+    return data;
+  };
+
+  it("acts on the logged-in user's id, and sends anyone logged out to log in first", async () => {
+    changePassword.mockResolvedValueOnce(OK);
+    await changePasswordAction(undefined, passwordForm("old one here", "a new password"));
+    expect(changePassword).toHaveBeenCalledWith(
+      expect.anything(),
+      "u1",
+      { current: "old one here", password: "a new password" },
+      expect.objectContaining({ ip: "203.0.113.7" }),
+    );
+
+    getCurrentUser.mockResolvedValueOnce(null);
+    await expect(deleteAccountAction(undefined, deleteForm("x", "ethan"))).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirect).toHaveBeenCalledWith("/login?next=%2Faccount");
+    expect(deleteAccount).not.toHaveBeenCalled();
+  });
+
+  it("after a password change, sets the new session and device cookies and says it worked", async () => {
+    changePassword.mockResolvedValueOnce(OK);
+    expect(await changePasswordAction(undefined, passwordForm("old one here", "a new password"))).toEqual({ errors: {}, done: true });
+    expect(setSessionCookie).toHaveBeenCalledWith("t", OK.session.expiresAt);
+    expect(setDeviceCookie).toHaveBeenCalledWith("new-device-token", expect.any(Date));
+  });
+
+  it("shows why a change failed, and never echoes a password", async () => {
+    changePassword.mockResolvedValueOnce({ ok: false, reason: "wrong-credentials", message: "That isn't your current password." });
+    const state = await changePasswordAction(undefined, passwordForm("guess one", "a new password"));
+    expect(state).toEqual({ errors: {}, message: "That isn't your current password." });
+    expect(JSON.stringify(state)).not.toMatch(/guess one|a new password/);
+    expect(setSessionCookie).not.toHaveBeenCalled();
+
+    changePassword.mockResolvedValueOnce({ ok: false, reason: "invalid", errors: { password: "Too short." } });
+    expect(await changePasswordAction(undefined, passwordForm("x", "y"))).toEqual({ errors: { password: "Too short." } });
+  });
+
+  it("if the new session's cookie can't be set, discards it and says to log in with the new password", async () => {
+    changePassword.mockResolvedValueOnce(OK);
+    setSessionCookie.mockRejectedValueOnce(new Error("cookies are read-only here"));
+    const state = await changePasswordAction(undefined, passwordForm("old one here", "a new password"));
+    expect(state?.message).toMatch(/password was changed.*log in with your new password/i);
+    expect(discardSession).toHaveBeenCalledWith("t");
+  });
+
+  it("after deleting the account, clears the cookies and goes home", async () => {
+    deleteAccount.mockResolvedValueOnce({ ok: true });
+    await expect(deleteAccountAction(undefined, deleteForm("my password", "ethan"))).rejects.toThrow("NEXT_REDIRECT");
+    expect(deleteAccount).toHaveBeenCalledWith(expect.anything(), "u1", { current: "my password", confirm: "ethan" }, expect.anything());
+    expect(clearAccountCookies).toHaveBeenCalled();
+    expect(redirect).toHaveBeenCalledWith("/");
+  });
+
+  it("stays on the form when deleting fails", async () => {
+    deleteAccount.mockResolvedValueOnce({ ok: false, reason: "invalid", errors: { confirm: "That isn't your username." } });
+    expect(await deleteAccountAction(undefined, deleteForm("my password", "someone"))).toEqual({
+      errors: { confirm: "That isn't your username." },
+    });
+    expect(redirect).not.toHaveBeenCalled();
+    expect(clearAccountCookies).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["password change", () => changePasswordAction(undefined, passwordForm("a", "b")), changePassword],
+    ["delete", () => deleteAccountAction(undefined, deleteForm("a", "ethan")), deleteAccount],
+  ] as const)("%s shows a short message if the database fails, and logs no values", async (_name, run, fn) => {
+    fn.mockRejectedValueOnce(
+      new DrizzleQueryError('update "users" set "password_hash" = $1', ["$argon2id$secret-hash"], new Error("connect ECONNREFUSED")),
+    );
+    expect((await run())?.message).toMatch(/something went wrong/i);
+    expect(consoleError.mock.calls.flat().map(String).join("\n")).not.toContain("secret-hash");
   });
 });

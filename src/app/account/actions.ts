@@ -1,12 +1,33 @@
 "use server";
-// Register, log in and log out (#53). Server Actions are reachable by direct
+// Register, log in and log out (#53); change the password and delete the
+// account (#234). Server Actions are reachable by direct
 // POST, so each one validates its own input; Next.js also checks the Origin
 // header, which blocks cross-site posts.
 import { redirect } from "next/navigation";
 
-import { login, register, type AuthResult, type FieldErrors } from "@/auth/accounts";
-import { safeNextPath, withWelcome } from "@/auth/next-path";
-import { discardSession, endSession, requestDeviceToken, requestIp, setDeviceCookie, setSessionCookie } from "@/auth/session";
+import {
+  changePassword,
+  deleteAccount,
+  login,
+  register,
+  type AuthResult,
+  type ChangePasswordResult,
+  type DeleteAccountErrors,
+  type DeleteAccountResult,
+  type FieldErrors,
+  type PasswordChangeErrors,
+} from "@/auth/accounts";
+import { loginPath, safeNextPath, withWelcome } from "@/auth/next-path";
+import {
+  clearAccountCookies,
+  discardSession,
+  endSession,
+  getCurrentUser,
+  requestDeviceToken,
+  requestIp,
+  setDeviceCookie,
+  setSessionCookie,
+} from "@/auth/session";
 import { getDb } from "@/db";
 import { errorSummary } from "@/server/error-summary";
 
@@ -87,5 +108,73 @@ export async function loginAction(_prev: AccountFormState, formData: FormData): 
 
 export async function logoutAction(): Promise<void> {
   await endSession();
+  redirect("/");
+}
+
+// Changing the password and deleting the account (#234), from /account. Both
+// act on the logged-in user (never a name from the form); a request without a
+// session goes to the login page.
+
+/** What the password form shows: field errors, a message, or that it worked. Never echoes a password. */
+export type PasswordFormState = { errors: PasswordChangeErrors; message?: string; done?: boolean } | undefined;
+/** What the delete form shows after a failed submit. On success it redirects instead. */
+export type DeleteFormState = { errors: DeleteAccountErrors; message?: string } | undefined;
+
+/** Changed, but the new session's cookie couldn't be set: every old session has already ended. */
+const CHANGED_NOT_LOGGED_IN = "Your password was changed, but we couldn't keep you logged in. Please log in with your new password.";
+
+/** The logged-in user's id, or `null` if the session lookup failed (logged). Redirects to log in if there's no session. */
+async function accountUserId(kind: string): Promise<string | null> {
+  try {
+    const user = await getCurrentUser();
+    if (user) return user.id;
+  } catch (error) {
+    console.error(`${kind} failed: ${errorSummary(error)}`);
+    return null;
+  }
+  redirect(loginPath("/account"));
+}
+
+export async function changePasswordAction(_prev: PasswordFormState, formData: FormData): Promise<PasswordFormState> {
+  const userId = await accountUserId("password change");
+  if (!userId) return { errors: {}, message: UNAVAILABLE };
+  const now = new Date();
+  let result: ChangePasswordResult;
+  try {
+    result = await changePassword(getDb, userId, { current: formData.get("current"), password: formData.get("password") }, { ip: await requestIp(), now });
+  } catch (error) {
+    console.error(`password change failed: ${errorSummary(error)}`);
+    return { errors: {}, message: UNAVAILABLE };
+  }
+  if (!result.ok) return result.reason === "invalid" ? { errors: result.errors } : { errors: {}, message: result.message };
+
+  try {
+    await setSessionCookie(result.session.token, result.session.expiresAt);
+  } catch (error) {
+    console.error(`password change failed setting the session cookie: ${errorSummary(error)}`);
+    await discardSession(result.session.token);
+    return { errors: {}, message: CHANGED_NOT_LOGGED_IN };
+  }
+  await setDeviceCookie(result.device, now).catch((error: unknown) => {
+    console.error(`password change: couldn't set the device cookie: ${errorSummary(error)}`);
+  });
+  return { errors: {}, done: true };
+}
+
+export async function deleteAccountAction(_prev: DeleteFormState, formData: FormData): Promise<DeleteFormState> {
+  const userId = await accountUserId("account delete");
+  if (!userId) return { errors: {}, message: UNAVAILABLE };
+  let result: DeleteAccountResult;
+  try {
+    result = await deleteAccount(getDb, userId, { current: formData.get("current"), confirm: formData.get("confirm") }, { ip: await requestIp(), now: new Date() });
+  } catch (error) {
+    console.error(`account delete failed: ${errorSummary(error)}`);
+    return { errors: {}, message: UNAVAILABLE };
+  }
+  if (!result.ok) return result.reason === "invalid" ? { errors: result.errors } : { errors: {}, message: result.message };
+  // The account is gone either way; a cookie left behind matches nothing.
+  await clearAccountCookies().catch((error: unknown) => {
+    console.error(`account delete: couldn't clear the cookies: ${errorSummary(error)}`);
+  });
   redirect("/");
 }
