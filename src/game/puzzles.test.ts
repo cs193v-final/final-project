@@ -68,7 +68,7 @@ describe("parsePuzzle", () => {
   });
 
   it("offers every effect, coarse ones first", () => {
-    expect(EFFECTS).toEqual(["pixelate", "spotlight", "thermal", "swirl", "zoom", "tiles"]);
+    expect(EFFECTS).toEqual(["pixelate", "spotlight", "thermal", "swirl", "zoom", "tiles", "kaleidoscope", "shards"]);
   });
 
   it.each(["blur", "Pixelate", "", null, 3])("rejects the effect %j, naming the allowed ones", (name) => {
