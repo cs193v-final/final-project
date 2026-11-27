@@ -11,9 +11,6 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-/** The effects for the practice photos, as in #259, until `Puzzle.effect` merges. */
-const EFFECTS: Record<string, string> = { "pz-dbdb4dee": "thermal", "pz-683182e7": "pixelate", "pz-af6d3bbb": "zoom" };
-
 /**
  * Development only (#256): plays the timed round screen with the practice
  * pack, so the screen can be tried before the timed server (#255) lands. The
@@ -24,10 +21,11 @@ const EFFECTS: Record<string, string> = { "pz-dbdb4dee": "thermal", "pz-683182e7
 export default function RoundPreviewPage() {
   if (process.env.NODE_ENV === "production") notFound();
   const photos: PreviewPhoto[] = parsePuzzles(samplePuzzles).map((p) => ({
+    seed: p.id,
     imageUrl: p.imageUrl,
     focus: p.reveal.focus,
     credit: p.credit,
-    effect: EFFECTS[p.id],
+    effect: p.effect,
   }));
   return (
     <main className="flex flex-1 flex-col items-center gap-6 px-4 py-10">

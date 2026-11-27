@@ -5,15 +5,18 @@
 //
 // Each theme's folder, content/candidates/<theme>/, holds the photos and
 // candidates.json from `npm run images:find` (#179), plus review.json with
-// the decisions made here. Export writes content/<theme>.json (one pack) and
+// the decisions made here, and pack.json with the pack being built (title,
+// theme, kind, day and play order) so it survives a reload. Export writes content/<theme>.json (one pack) and
 // copies its photos to content/photos/<pack id>/. Everything stays in the
 // git-ignored content/ folder.
 //
 // Runs directly in Node 24 (type stripping), so imports keep their `.ts`.
 
 import { randomBytes } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+import sharp from "sharp";
 
 import { combineContent, parseContent, type Content } from "../game/packs.ts";
 import { EFFECTS } from "../game/puzzles.ts";
@@ -129,6 +132,72 @@ export function parseExportRequest(value: unknown): ExportRequest {
   };
 }
 
+/**
+ * The pack being built for a theme, saved as the reviewer goes (pack.json in
+ * the theme's folder). Every field is optional: it's a draft. Nothing in it
+ * is checked against the candidates until export.
+ */
+export type PackDraft = Partial<ExportRequest>;
+
+/** What was last exported for a theme (content/<theme>.json), for the page to compare with the draft. */
+export type ExportedPack = ExportRequest & { packId: string };
+
+/** Checks a draft sent by the page; throws a message for the page to show. Empty text means "not set". */
+export function parsePackDraft(value: unknown): PackDraft {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("a pack draft must be an object");
+  const data = value as Record<string, unknown>;
+  const draft: PackDraft = {};
+  for (const key of ["title", "theme"] as const) {
+    if (typeof data[key] === "string" && data[key].trim() !== "") draft[key] = text(data[key], key);
+  }
+  if (data.kind === "daily" || data.kind === "stanford") draft.kind = data.kind;
+  if (typeof data.date === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(data.date)) draft.date = data.date;
+  if (Array.isArray(data.puzzleIds)) {
+    if (data.puzzleIds.length > 100) throw new Error("a pack draft can list up to 100 photos");
+    draft.puzzleIds = data.puzzleIds.map((id, i) => text(id, `puzzleIds[${i}]`));
+  }
+  return draft;
+}
+
+/** Saves the draft for a theme folder. */
+export function savePackDraft(dir: string, draft: PackDraft): void {
+  writeJson(join(dir, "pack.json"), draft);
+}
+
+/** The pack last exported for `theme`, or null if it hasn't been (or the file isn't one export wrote). */
+export function readExportedPack(contentDir: string, theme: string): ExportedPack | null {
+  if (!THEME_PATTERN.test(theme)) return null;
+  const file = join(contentDir, `${theme}.json`);
+  if (!existsSync(file)) return null;
+  try {
+    const content = JSON.parse(readFileSync(file, "utf8")) as Content;
+    const pack = content.packs[0];
+    if (pack === undefined || (pack.kind !== "daily" && pack.kind !== "stanford")) return null;
+    const date = content.schedule.find((d) => d.packId === pack.id)?.date;
+    return { packId: pack.id, title: pack.title, theme: pack.theme, kind: pack.kind, puzzleIds: pack.puzzleIds, ...(date === undefined ? {} : { date }) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The draft for a theme folder: pack.json if there is one, else what was last
+ * exported (so a theme exported before drafts were saved picks up where it
+ * left off), else empty.
+ */
+export function readPackDraft(dir: string, exported: ExportedPack | null): PackDraft {
+  const file = join(dir, "pack.json");
+  if (existsSync(file)) {
+    try {
+      return parsePackDraft(JSON.parse(readFileSync(file, "utf8")));
+    } catch {
+      return {};
+    }
+  }
+  if (exported === null) return {};
+  return { title: exported.title, theme: exported.theme, kind: exported.kind, puzzleIds: exported.puzzleIds, ...(exported.date === undefined ? {} : { date: exported.date }) };
+}
+
 const newPackId = () => `pk_${randomBytes(8).toString("hex")}`;
 
 /**
@@ -167,11 +236,13 @@ export function buildContent(candidates: ReviewedCandidate[], request: ExportReq
 export type ExportResult = { file: string; packId: string; photos: number };
 
 /**
- * Writes content/<theme>.json and copies the photos to content/photos/<pack id>/.
+ * Writes content/<theme>.json and copies the photos to content/photos/<pack id>/,
+ * re-encoded without their metadata (EXIF, GPS: the content repo's rule),
+ * turned upright first so a photo shot sideways stays the right way up.
  * Exporting the same theme again keeps its pack id, so a re-export updates the
  * pack instead of making a second one.
  */
-export function exportPack(contentDir: string, themeDir: string, theme: string, request: ExportRequest): ExportResult {
+export async function exportPack(contentDir: string, themeDir: string, theme: string, request: ExportRequest): Promise<ExportResult> {
   if (!THEME_PATTERN.test(theme)) throw new Error("bad theme folder name");
   const file = join(contentDir, `${theme}.json`);
   let packId = newPackId();
@@ -187,8 +258,10 @@ export function exportPack(contentDir: string, themeDir: string, theme: string, 
   for (const puzzle of content.puzzles) {
     const name = puzzle.imageUrl.split("/").pop()!;
     if (!FILE_PATTERN.test(name)) throw new Error(`unexpected photo name ${name}`);
-    copyFileSync(join(themeDir, name), join(photoDir, name));
+    const photo = sharp(join(themeDir, name)).rotate(); // sharp drops metadata unless asked to keep it
+    await (name.endsWith(".jpg") ? photo.jpeg({ quality: 92, mozjpeg: true }) : photo).toFile(join(photoDir, name));
   }
   writeJson(file, content);
+  savePackDraft(themeDir, request); // the draft is now what was exported
   return { file, packId, photos: content.puzzles.length };
 }

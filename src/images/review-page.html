@@ -36,22 +36,35 @@ button:disabled { opacity: .5; cursor: default; }
 .counts { color: var(--muted); font-variant-numeric: tabular-nums; }
 main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; padding: 20px; align-items: start; }
 @media (max-width: 980px) { main { grid-template-columns: minmax(0, 1fr); } }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+.group { margin: 0 0 26px; }
+.group-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; margin: 0 0 10px; }
+.group-head h2 { font-size: 16px; margin: 0; }
+.group-head .counts { font-size: 13px; }
+.group-head button { margin-left: auto; padding: 3px 10px; font-size: 13px; }
+.group.done .group-head h2::after { content: " ✓"; color: var(--good); }
 @media (max-width: 440px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
 .card.approved { border-color: var(--good); box-shadow: inset 0 0 0 1px var(--good); }
 .card.rejected { opacity: .55; }
+.card.active { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card .err { color: var(--bad); font-size: 13px; margin: 0; }
+.card .err:empty { display: none; }
 .stage { position: relative; background: #000; cursor: crosshair; }
 .stage canvas { display: block; width: 100%; height: auto; }
 .dot { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
   border: 2px solid #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.6); pointer-events: none; }
-.body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+details.more summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+details.more[open] { display: flex; flex-direction: column; gap: 8px; }
+details.more[open] summary { margin-bottom: 2px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .row label { color: var(--muted); font-size: 12px; min-width: 64px; }
 .row input[type=text] { flex: 1; }
 .time { flex: 1; accent-color: var(--accent); }
 .tlabel { font-family: var(--mono); font-size: 12px; color: var(--muted); width: 44px; text-align: right; }
-.effects button { padding: 4px 9px; font-size: 13px; }
+.effects button { padding: 3px 8px; font-size: 13px; }
+.effects button kbd { opacity: .55; font: 11px var(--mono); margin-right: 3px; }
 .pill { font: 600 11px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; padding: 4px 7px; border-radius: 99px; background: var(--chip); }
 .pill.approved { color: var(--good); } .pill.rejected { color: var(--bad); }
 .credit { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
@@ -65,6 +78,15 @@ aside li img { width: 54px; height: 40px; object-fit: cover; border-radius: 4px;
 aside li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 aside li .eff { color: var(--muted); font-size: 12px; flex: 0 0 auto; }
 aside li button { padding: 2px 7px; }
+.checks { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.checks li { background: none; padding: 0; display: block; }
+.checks .ok::before { content: "✓ "; color: var(--good); font-weight: 700; }
+.checks .warn::before { content: "! "; color: var(--bad); font-weight: 700; }
+.exported { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
+.exported.stale { color: var(--bad); }
+.saved { font-size: 12px; color: var(--muted); margin-left: auto; transition: opacity .4s; }
+.keys { color: var(--muted); font-size: 12px; }
+kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--panel); }
 .msg { font-size: 13px; overflow-wrap: anywhere; } .msg.bad { color: var(--bad); } .msg.good { color: var(--good); }
 .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 code { font-family: var(--mono); font-size: 12px; background: var(--chip); padding: 1px 5px; border-radius: 4px; }
@@ -81,18 +103,21 @@ code { font-family: var(--mono); font-size: 12px; background: var(--chip); paddi
     <button data-f="all">All</button>
   </div>
   <span class="counts" id="counts"></span>
+  <span class="saved" id="saved" role="status" aria-live="polite"></span>
 </header>
 
 <main>
   <section>
     <p class="msg" id="hint">Pick an effect, press ▶ to watch it play over 25 seconds, click the photo to set the focus point, then approve or reject. Changes save as you go.</p>
-    <div class="grid" id="grid"></div>
+    <p class="keys">Keys, for the highlighted card: <kbd>1</kbd>–<kbd>8</kbd> effect · <kbd>Space</kbd> play · <kbd>A</kbd> approve · <kbd>R</kbd> reject · <kbd>U</kbd> back to review · <kbd>J</kbd>/<kbd>K</kbd> next/previous</p>
+    <div id="grid"></div>
   </section>
 
   <aside aria-labelledby="packh">
     <h2 id="packh">Pack</h2>
     <p class="msg">Approved photos, in play order (easy to hard). Five for a daily.</p>
     <ol id="pack"></ol>
+    <ul class="checks" id="checks" aria-label="Ready to export?"></ul>
     <div class="row"><label for="ptitle">Title</label><input type="text" id="ptitle" placeholder="e.g. Fruit"></div>
     <div class="row"><label for="ptheme">Theme</label><input type="text" id="ptheme" placeholder="Shown as “Today: …”"></div>
     <div class="row"><label for="pkind">Kind</label>
@@ -100,6 +125,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--chip); paddi
     <div class="row"><label for="pdate">Day</label><input type="date" id="pdate"><span class="msg">optional</span></div>
     <button class="primary" id="export">Export pack</button>
     <p class="msg" id="exportMsg" role="status"></p>
+    <p class="exported" id="exported"></p>
   </aside>
 </main>
 
@@ -115,7 +141,9 @@ const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const lerp = (a, b, t) => a + (b - a) * t;
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
 
-let theme = null, candidates = [], filter = "pending", order = [];
+let theme = null, candidates = [], filter = "pending", order = [], exported = null;
+let active = null; // the card the keys act on: { root, actions }
+const cards = []; // the cards on screen, in order, for J/K
 
 // ---------- data ----------
 async function api(path, options = {}) {
@@ -124,61 +152,130 @@ async function api(path, options = {}) {
   if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
   return body;
 }
-async function loadThemes() {
+let savedTimer = 0;
+function showSaved(text = "Saved ✓") {
+  const s = $("saved"); s.textContent = text; s.style.opacity = "1";
+  clearTimeout(savedTimer); savedTimer = setTimeout(() => { s.style.opacity = "0"; }, 1500);
+}
+async function loadThemes(select) {
   const list = await api("/api/themes");
   const sel = $("theme"); sel.textContent = "";
   if (list.length === 0) { $("grid").replaceChildren(el("p", { className: "empty", textContent: 'No candidates yet. Run npm run images:find -- --theme <theme> --answers "<answer>,…"' })); return; }
-  for (const t of list) sel.append(el("option", { value: t.slug, textContent: `${t.slug} (${t.pending} to review)` }));
-  const saved = (() => { try { return localStorage.getItem("review-theme"); } catch { return null; } })();
+  for (const t of list) {
+    const status = t.pending > 0 ? `${t.pending} to review` : "all reviewed";
+    sel.append(el("option", { value: t.slug, textContent: `${t.slug} · ${status}${t.exported ? " · exported" : ""}` }));
+  }
+  const saved = select ?? (() => { try { return localStorage.getItem("review-theme"); } catch { return null; } })();
   sel.value = list.some((t) => t.slug === saved) ? saved : list[0].slug;
-  await loadTheme(sel.value);
+  if (select === undefined) await loadTheme(sel.value);
 }
+const titleFor = (slug) => slug.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
 async function loadTheme(slug) {
   theme = slug;
   try { localStorage.setItem("review-theme", slug); } catch {}
   const data = await api(`/api/${slug}`);
   candidates = data.candidates;
-  order = candidates.filter((c) => c.review.status === "approved").map((c) => c.id);
-  if (!$("ptitle").value) $("ptitle").value = slug.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
-  if (!$("ptheme").value) $("ptheme").value = $("ptitle").value;
+  exported = data.exported;
+  const pack = data.pack || {};
+  // Each theme has its own pack: never carry the last theme's title over.
+  $("ptitle").value = pack.title ?? titleFor(slug);
+  $("ptheme").value = pack.theme ?? $("ptitle").value;
+  $("pkind").value = pack.kind ?? "daily";
+  $("pdate").value = pack.date ?? "";
+  const approved = candidates.filter((c) => c.review.status === "approved").map((c) => c.id);
+  order = [...(pack.puzzleIds ?? []).filter((id) => approved.includes(id)), ...approved.filter((id) => !(pack.puzzleIds ?? []).includes(id))];
+  $("exportMsg").textContent = "";
   render();
 }
-async function save(c) {
+async function save(c, card) {
   try {
     // Keep c.review the same object: each card's handlers edit it as `r`, so
     // replacing it with the server's copy would make every later save send
     // the state from before that edit.
     await api(`/api/${theme}/${c.id}`, { method: "PUT", body: JSON.stringify(c.review) });
+    if (card) card.querySelector(".err").textContent = "";
+    showSaved();
+    renderPackPanel();
     return true;
   } catch (error) {
-    $("hint").textContent = `Couldn't save ${c.id}: ${error.message}`; $("hint").className = "msg bad";
+    if (card) card.querySelector(".err").textContent = `Not saved: ${error.message}`;
+    else { $("hint").textContent = `Couldn't save ${c.id}: ${error.message}`; $("hint").className = "msg bad"; }
     return false;
   }
 }
+function packFields() {
+  return { title: $("ptitle").value, theme: $("ptheme").value, kind: $("pkind").value, date: $("pdate").value, puzzleIds: order };
+}
+let draftTimer = 0;
+function saveDraft() {
+  clearTimeout(draftTimer);
+  const slug = theme, body = JSON.stringify(packFields());
+  draftTimer = setTimeout(() => {
+    api(`/api/${slug}/pack`, { method: "PUT", body }).then(() => showSaved(), (error) => { $("exportMsg").className = "msg bad"; $("exportMsg").textContent = `Pack not saved: ${error.message}`; });
+  }, 300);
+}
 
 // ---------- rendering ----------
+const answerOf = (c) => c.review.answer || c.answer;
 function render() {
   const n = (s) => candidates.filter((c) => c.review.status === s).length;
   $("counts").textContent = `${candidates.length} photos · ${n("pending")} to review · ${n("approved")} approved · ${n("rejected")} rejected`;
-  const shown = candidates.filter((c) => filter === "all" || c.review.status === filter);
   const grid = $("grid");
-  grid.replaceChildren(...shown.map(card));
-  if (shown.length === 0) grid.append(el("p", { className: "empty", textContent: "Nothing here." }));
+  cards.length = 0;
+  active = null;
+  // One section per answer it was searched for, in search order.
+  const groups = new Map();
+  for (const c of candidates) { if (!groups.has(c.answer)) groups.set(c.answer, []); groups.get(c.answer).push(c); }
+  const sections = [];
+  for (const [answer, list] of groups) {
+    const shown = list.filter((c) => filter === "all" || c.review.status === filter);
+    if (shown.length === 0) continue;
+    const count = (s) => list.filter((c) => c.review.status === s).length;
+    const pending = list.filter((c) => c.review.status === "pending");
+    const head = el("div", { className: "group-head" }, el("h2", { textContent: answer }),
+      el("span", { className: "counts", textContent: [count("approved") && `${count("approved")} approved`, count("pending") && `${count("pending")} to review`, count("rejected") && `${count("rejected")} rejected`].filter(Boolean).join(" · ") }));
+    if (count("approved") > 0 && pending.length > 0) {
+      head.append(el("button", { textContent: `Reject the other ${pending.length}`, title: `Reject the ${answer} photos still to review`, onclick: () => rejectAll(pending) }));
+    }
+    const section = el("section", { className: `group${count("approved") > 0 && pending.length === 0 ? " done" : ""}` }, head, el("div", { className: "grid" }, ...shown.map(card)));
+    section.setAttribute("aria-label", answer);
+    sections.push(section);
+  }
+  grid.replaceChildren(...sections);
+  if (sections.length === 0) {
+    const done = filter === "pending" && candidates.length > 0;
+    grid.append(el("p", { className: "empty", textContent: done ? `All ${candidates.length} photos in this theme are reviewed. Check the pack on the right, then export it.` : "Nothing here." }));
+  }
   renderPack();
+}
+async function rejectAll(list) {
+  for (const c of list) {
+    const before = c.review.status;
+    c.review.status = "rejected";
+    if (!(await save(c))) { c.review.status = before; break; }
+  }
+  render();
+}
+function setActive(entry) {
+  if (active === entry) return;
+  active?.root.classList.remove("active");
+  active = entry;
+  active?.root.classList.add("active");
 }
 
 function card(c) {
   const r = c.review;
   const root = el("article", { className: `card ${r.status}` });
+  const err = el("p", { className: "err", role: "alert" });
   const canvas = el("canvas", { width: 800, height: 600 });
   canvas.setAttribute("role", "img");
-  canvas.setAttribute("aria-label", `Photo for ${r.answer || c.answer}. Click to set the focus point.`);
+  canvas.setAttribute("aria-label", `Photo for ${answerOf(c)}. Click to set the focus point.`);
   const dot = el("div", { className: "dot" });
   const stage = el("div", { className: "stage" }, canvas, dot);
   const time = el("input", { type: "range", min: 0, max: REVEAL_SECONDS, step: 0.1, value: 0, className: "time" });
   time.setAttribute("aria-label", "Seconds into the round");
   const tlabel = el("span", { className: "tlabel", textContent: "0.0 s" });
-  const play = el("button", { textContent: "▶", title: "Play the round" });
+  const play = el("button", { textContent: "▶", title: "Play the round (Space)" });
   play.setAttribute("aria-label", "Play the round");
 
   const img = new Image();
@@ -203,106 +300,201 @@ function card(c) {
   img.src = `/img/${theme}/${c.file}`;
 
   let raf = 0;
-  play.onclick = () => {
+  const togglePlay = () => {
     if (raf) { cancelAnimationFrame(raf); raf = 0; play.textContent = "▶"; return; }
     if (Number(time.value) >= REVEAL_SECONDS) time.value = 0;
     const t0 = performance.now() - Number(time.value) * 1000;
     play.textContent = "❚❚";
     const step = (now) => {
+      if (!root.isConnected) { raf = 0; return; }
       const t = (now - t0) / 1000;
       time.value = Math.min(REVEAL_SECONDS, t); draw();
       if (t < REVEAL_SECONDS) raf = requestAnimationFrame(step); else { raf = 0; play.textContent = "▶"; }
     };
     raf = requestAnimationFrame(step);
   };
+  play.onclick = togglePlay;
   time.oninput = draw;
   stage.onclick = (e) => {
     const box = canvas.getBoundingClientRect();
     r.focus = { x: clamp((e.clientX - box.left) / box.width, 0, 1), y: clamp((e.clientY - box.top) / box.height, 0, 1) };
-    draw(); void save(c);
+    draw(); void save(c, root);
   };
 
+  const approve = el("button", { textContent: "Approve", className: "primary", title: "Approve (A)", onclick: () => setStatus("approved") });
+  const syncApprove = () => {
+    approve.disabled = !r.effect || r.status === "approved";
+    approve.title = r.effect ? "Approve (A)" : "Pick an effect first";
+  };
   const effects = el("div", { className: "row effects", role: "group" });
   effects.setAttribute("aria-label", "Effect");
-  for (const name of EFFECTS) {
-    const b = el("button", { textContent: name, className: r.effect === name ? "on" : "" });
+  const pickEffect = (name) => {
+    r.effect = name;
+    for (const other of effects.children) { const on = other.dataset.effect === name; other.classList.toggle("on", on); other.setAttribute("aria-pressed", String(on)); }
+    syncApprove(); draw(); void save(c, root);
+  };
+  EFFECTS.forEach((name, i) => {
+    const b = el("button", { className: r.effect === name ? "on" : "", title: `${name} (${i + 1})` }, el("kbd", { textContent: String(i + 1) }), name);
+    b.dataset.effect = name;
     b.setAttribute("aria-pressed", String(r.effect === name));
-    b.onclick = () => {
-      r.effect = name;
-      for (const other of effects.children) { other.classList.toggle("on", other === b); other.setAttribute("aria-pressed", String(other === b)); }
-      draw(); void save(c);
-    };
+    b.onclick = () => pickEffect(name);
     effects.append(b);
-  }
+  });
 
-  const answer = el("input", { type: "text", value: r.answer || c.answer, id: `a-${c.id}` });
-  const alts = el("input", { type: "text", value: (r.acceptedAnswers || []).join(", "), placeholder: "plurals, other names", id: `alt-${c.id}` });
+  const answer = el("input", { type: "text", value: answerOf(c), id: `a-${c.id}` });
+  // No placeholder words: "plurals, other names" once got saved as answers.
+  const alts = el("input", { type: "text", value: (r.acceptedAnswers || []).join(", "), id: `alt-${c.id}` });
   const note = el("textarea", { value: r.note || "", placeholder: "Note (optional)", id: `n-${c.id}` });
   note.setAttribute("aria-label", "Note");
+  const name = el("span", { className: "answer", textContent: answerOf(c) });
   const commitFields = () => {
     const a = answer.value.trim();
     if (a && a !== c.answer) r.answer = a; else delete r.answer;
     r.acceptedAnswers = alts.value.split(",").map((s) => s.trim()).filter(Boolean);
     if (note.value.trim()) r.note = note.value; else delete r.note;
-    void save(c);
+    name.textContent = answerOf(c);
+    void save(c, root);
   };
   answer.onchange = alts.onchange = note.onchange = commitFields;
 
   const setStatus = async (status) => {
+    if (r.status === status) return;
+    if (status === "approved" && !r.effect) { err.textContent = "Pick an effect before approving."; return; }
     const before = r.status;
     r.status = status;
-    if (!(await save(c))) { r.status = before; return; }
+    if (!(await save(c, root))) { r.status = before; return; }
     $("hint").className = "msg";
     if (status === "approved" && !order.includes(c.id)) order.push(c.id);
     if (status !== "approved") order = order.filter((id) => id !== c.id);
+    saveDraft();
+    // Keep going from the next card: after the re-render, highlight whatever is now where this card was.
+    const index = cards.findIndex((e) => e.root === root);
     render();
+    const next = cards[Math.min(index, cards.length - 1)];
+    if (next && index >= 0) { setActive(next); if (keyboardDriven) next.root.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
   };
-  const approve = el("button", { textContent: "Approve", className: "primary", onclick: () => setStatus("approved") });
-  const reject = el("button", { textContent: "Reject", onclick: () => setStatus("rejected") });
-  const reset = el("button", { textContent: "Back to review", onclick: () => setStatus("pending") });
+  syncApprove();
+  const reject = el("button", { textContent: "Reject", title: "Reject (R)", onclick: () => setStatus("rejected") });
+  const reset = el("button", { textContent: "Back to review", title: "Back to review (U)", onclick: () => setStatus("pending") });
 
   const credit = el("p", { className: "credit" });
   const link = /^https:\/\//.test(c.credit.url || "") ? el("a", { href: c.credit.url, target: "_blank", rel: "noopener noreferrer", textContent: "source" }) : null;
   credit.append(`${c.credit.source} · ${c.credit.license} · ${c.width}×${c.height}`, ...(link ? [" · ", link] : []));
   const title = el("p", { className: "credit", textContent: `Title: ${c.title || "(none)"}` });
-
-  root.append(stage, el("div", { className: "body" },
-    el("div", { className: "row" }, el("span", { className: "answer", textContent: r.answer || c.answer }), el("span", { className: `pill ${r.status}`, textContent: r.status })),
-    el("div", { className: "row" }, play, time, tlabel),
-    effects,
+  const extras = r.answer || (r.acceptedAnswers || []).length || r.note;
+  const more = el("details", { className: "more", open: Boolean(extras) }, el("summary", { textContent: "Answer, alternates and note" }),
     el("div", { className: "row" }, el("label", { htmlFor: answer.id, textContent: "Answer" }), answer),
     el("div", { className: "row" }, el("label", { htmlFor: alts.id, textContent: "Also accept" }), alts),
-    note,
+    el("p", { className: "credit", textContent: "Other names, spellings and plurals a player might type, separated by commas. Leave it empty if there are none." }),
+    note);
+
+  root.append(stage, el("div", { className: "body" },
+    el("div", { className: "row" }, name, el("span", { className: `pill ${r.status}`, textContent: r.status })),
+    el("div", { className: "row" }, play, time, tlabel),
+    effects,
     el("div", { className: "row" }, approve, reject, ...(r.status === "pending" ? [] : [reset])),
+    err,
+    more,
     credit, title,
   ));
+  const entry = { root, actions: { togglePlay, pickEffect, setStatus } };
+  cards.push(entry);
+  root.addEventListener("mouseenter", () => { keyboardDriven = false; setActive(entry); });
+  root.addEventListener("focusin", () => setActive(entry));
   return root;
 }
 
+// ---------- keys ----------
+let keyboardDriven = false;
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const tag = e.target.tagName;
+  if (tag === "INPUT" && e.target.type !== "range" || tag === "TEXTAREA" || tag === "SELECT") return;
+  const key = e.key.toLowerCase();
+  if (key === "j" || key === "k") {
+    if (cards.length === 0) return;
+    keyboardDriven = true;
+    const i = active ? cards.indexOf(active) : -1;
+    const next = cards[clamp(i + (key === "j" ? 1 : -1), 0, cards.length - 1)] ?? cards[0];
+    setActive(next);
+    next.root.scrollIntoView({ block: "center", behavior: "smooth" });
+    e.preventDefault();
+    return;
+  }
+  if (!active) return;
+  if (key === " ") { active.actions.togglePlay(); e.preventDefault(); }
+  else if (key === "a") active.actions.setStatus("approved");
+  else if (key === "r") active.actions.setStatus("rejected");
+  else if (key === "u") active.actions.setStatus("pending");
+  else if (/^[1-9]$/.test(key) && EFFECTS[Number(key) - 1]) active.actions.pickEffect(EFFECTS[Number(key) - 1]);
+});
+
+// ---------- pack ----------
 function renderPack() {
   const byId = new Map(candidates.map((c) => [c.id, c]));
   order = order.filter((id) => byId.get(id)?.review.status === "approved");
   const list = $("pack");
-  if (order.length === 0) { list.replaceChildren(el("li", { textContent: "Approve photos to add them." })); return; }
-  list.replaceChildren(...order.map((id, i) => {
+  if (order.length === 0) list.replaceChildren(el("li", { textContent: "Approve photos to add them." }));
+  else list.replaceChildren(...order.map((id, i) => {
     const c = byId.get(id);
-    const up = el("button", { textContent: "↑", disabled: i === 0, onclick: () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; renderPack(); } });
-    const down = el("button", { textContent: "↓", disabled: i === order.length - 1, onclick: () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; renderPack(); } });
-    up.setAttribute("aria-label", `Move ${c.review.answer || c.answer} up`);
-    down.setAttribute("aria-label", `Move ${c.review.answer || c.answer} down`);
+    const move = (to) => { [order[to], order[i]] = [order[i], order[to]]; saveDraft(); renderPack(); };
+    const up = el("button", { textContent: "↑", disabled: i === 0, onclick: () => move(i - 1) });
+    const down = el("button", { textContent: "↓", disabled: i === order.length - 1, onclick: () => move(i + 1) });
+    up.setAttribute("aria-label", `Move ${answerOf(c)} up`);
+    down.setAttribute("aria-label", `Move ${answerOf(c)} down`);
     return el("li", {}, el("img", { src: `/img/${theme}/${c.file}`, alt: "" }),
-      el("span", { textContent: `${i + 1}. ${c.review.answer || c.answer}` }), el("span", { className: "eff", textContent: c.review.effect }), up, down);
+      el("span", { textContent: `${i + 1}. ${answerOf(c)}` }), el("span", { className: "eff", textContent: c.review.effect }), up, down);
   }));
+  renderPackPanel();
 }
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function renderPackPanel() {
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+  const picked = order.map((id) => byId.get(id)).filter(Boolean);
+  const checks = [];
+  const daily = $("pkind").value === "daily";
+  if (daily) checks.push([picked.length === 5, `${picked.length} of 5 photos`]);
+  else checks.push([picked.length > 0, `${picked.length} photo${picked.length === 1 ? "" : "s"}`]);
+  const answers = picked.map(answerOf);
+  const repeated = [...new Set(answers.filter((a, i) => answers.indexOf(a) !== i))];
+  if (picked.length > 1) checks.push([repeated.length === 0, repeated.length ? `Two photos of: ${repeated.join(", ")}` : "A different answer for each"]);
+  const effects = picked.map((c) => c.review.effect);
+  const reused = [...new Set(effects.filter((e, i) => effects.indexOf(e) !== i))];
+  if (picked.length > 1) checks.push([reused.length === 0, reused.length ? `Effect used twice: ${reused.join(", ")} (fine, but less variety)` : "A different effect for each"]);
+  const placeholderWords = picked.filter((c) => (c.review.acceptedAnswers || []).some((a) => /^(plurals?|other names?|similar spellings?)$/i.test(a.trim())));
+  if (placeholderWords.length) checks.push([false, `“Also accept” has placeholder words (like “plurals”) for: ${placeholderWords.map(answerOf).join(", ")}`]);
+  // A title carried over from another theme (it happened: two packs went out as "Fruit").
+  const title = $("ptitle").value.trim().toLowerCase();
+  const words = theme.split("-").map((w) => w.replace(/s$/, "")).filter((w) => w.length > 2);
+  if (title && words.length && !words.some((w) => title.includes(w))) checks.push([false, `Title “${$("ptitle").value.trim()}” doesn't mention ${theme}: right pack?`]);
+  $("checks").replaceChildren(...checks.map(([ok, text]) => el("li", { className: ok ? "ok" : "warn", textContent: text })));
+  $("export").textContent = picked.length ? `Export pack (${picked.length} photo${picked.length === 1 ? "" : "s"})` : "Export pack";
+  $("export").disabled = picked.length === 0;
+
+  const box = $("exported");
+  if (!exported) { box.className = "exported"; box.textContent = "Not exported yet."; return; }
+  const now = packFields();
+  const changed = [];
+  if (now.title.trim() !== exported.title) changed.push("title");
+  if (now.theme.trim() !== exported.theme) changed.push("theme");
+  if (now.kind !== exported.kind) changed.push("kind");
+  if ((now.date || undefined) !== exported.date) changed.push("day");
+  if (!same(now.puzzleIds, exported.puzzleIds)) changed.push("photos or order");
+  box.className = `exported${changed.length ? " stale" : ""}`;
+  box.textContent = `Last exported as “${exported.title}” (${exported.kind}${exported.date ? `, ${exported.date}` : ""}, ${exported.puzzleIds.length} photos).` +
+    (changed.length ? ` Changed since: ${changed.join(", ")}. Export again to update it.` : " Up to date, apart from any edits to the photos themselves.");
+}
+for (const id of ["ptitle", "ptheme", "pkind", "pdate"]) $(id).addEventListener("input", () => { saveDraft(); renderPackPanel(); });
 
 $("export").onclick = async () => {
   const msg = $("exportMsg");
   try {
-    const result = await api(`/api/${theme}/export`, { method: "POST", body: JSON.stringify({
-      title: $("ptitle").value, theme: $("ptheme").value, kind: $("pkind").value, puzzleIds: order, date: $("pdate").value,
-    }) });
+    const result = await api(`/api/${theme}/export`, { method: "POST", body: JSON.stringify(packFields()) });
+    exported = result.exported;
     msg.className = "msg good";
     msg.replaceChildren(`Saved ${result.photos} photos to `, el("code", { textContent: result.file }), ". Check it with ", el("code", { textContent: "npm run db:seed -- --dry-run" }), ".");
+    renderPackPanel();
+    void loadThemes(theme);
   } catch (error) {
     msg.className = "msg bad"; msg.textContent = `Not exported: ${error.message}`;
   }

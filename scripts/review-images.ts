@@ -8,8 +8,9 @@
 // credit. A reviewer picks the effect that hides it (watching it play), clicks
 // the photo to set the focus point (zoom, spotlight and swirl centre there),
 // fixes the answer and alternates, and approves or rejects it. Decisions are
-// saved to review.json in the theme's folder as you go, so several sittings
-// (or teammates, one at a time) can share the work.
+// saved to review.json in the theme's folder as you go, and the pack being
+// built to pack.json, so several sittings (or teammates, one at a time) can
+// share the work.
 //
 // "Export pack" turns the approved photos, in the order you put them, into
 // content/<theme>.json plus content/photos/<pack id>/, checked by the same
@@ -37,8 +38,12 @@ import {
   exportPack,
   FILE_PATTERN,
   parseExportRequest,
+  parsePackDraft,
   parseReview,
+  readExportedPack,
+  readPackDraft,
   reviewedCandidates,
+  savePackDraft,
   saveReview,
   THEME_PATTERN,
 } from "../src/images/review.ts";
@@ -65,7 +70,9 @@ export function effectsModule(name: string): string | null {
 
 export type ServerOptions = { contentDir: string; port: number };
 
-function themes(candidatesDir: string) {
+/** Each theme folder with its counts, and whether it's been exported. */
+function themes(contentDir: string) {
+  const candidatesDir = join(contentDir, "candidates");
   if (!existsSync(candidatesDir)) return [];
   return readdirSync(candidatesDir)
     .filter((name) => THEME_PATTERN.test(name) && statSync(join(candidatesDir, name)).isDirectory())
@@ -73,7 +80,8 @@ function themes(candidatesDir: string) {
     .map((slug) => {
       const list = reviewedCandidates(join(candidatesDir, slug));
       const count = (s: string) => list.filter((c) => c.review.status === s).length;
-      return { slug, total: list.length, approved: count("approved"), rejected: count("rejected"), pending: count("pending") };
+      const exported = readExportedPack(contentDir, slug) !== null;
+      return { slug, total: list.length, approved: count("approved"), rejected: count("rejected"), pending: count("pending"), exported };
     });
 }
 
@@ -120,7 +128,7 @@ export function createHandler({ contentDir, port }: ServerOptions) {
       const parts = url.pathname.split("/").filter(Boolean);
 
       if (req.method === "GET" && url.pathname === "/") return send(res, 200, page, "text/html; charset=utf-8");
-      if (req.method === "GET" && url.pathname === "/api/themes") return send(res, 200, themes(candidatesDir));
+      if (req.method === "GET" && url.pathname === "/api/themes") return send(res, 200, themes(contentDir));
       if (req.method === "GET" && parts[0] === "effects" && parts.length === 2 && parts[1]!.endsWith(".js")) {
         const js = effectsModule(parts[1]!.slice(0, -3));
         return js === null ? send(res, 404, { error: "not found" }) : send(res, 200, js, "text/javascript; charset=utf-8");
@@ -132,7 +140,13 @@ export function createHandler({ contentDir, port }: ServerOptions) {
       if (!existsSync(themeDir)) return send(res, 404, { error: "no such theme" });
 
       if (req.method === "GET" && kind === "api" && item === undefined) {
-        return send(res, 200, { theme, candidates: reviewedCandidates(themeDir) });
+        const exported = readExportedPack(contentDir, theme);
+        return send(res, 200, { theme, candidates: reviewedCandidates(themeDir), pack: readPackDraft(themeDir, exported), exported });
+      }
+      if (req.method === "PUT" && kind === "api" && item === "pack" && extra === undefined) {
+        const draft = parsePackDraft(await readBody(req));
+        savePackDraft(themeDir, draft);
+        return send(res, 200, { ok: true, pack: draft });
       }
       if (req.method === "GET" && kind === "img" && item !== undefined && FILE_PATTERN.test(item) && extra === undefined) {
         const key = `${theme}/${item}`;
@@ -152,8 +166,8 @@ export function createHandler({ contentDir, port }: ServerOptions) {
       }
       if (req.method === "POST" && kind === "api" && item === "export" && extra === undefined) {
         const request = parseExportRequest(await readBody(req));
-        const result = exportPack(contentDir, themeDir, theme, request);
-        return send(res, 200, { ok: true, ...result, file: `content/${theme}.json` });
+        const result = await exportPack(contentDir, themeDir, theme, request);
+        return send(res, 200, { ok: true, ...result, file: `content/${theme}.json`, exported: readExportedPack(contentDir, theme) });
       }
       return send(res, 404, { error: "not found" });
     } catch (error) {
@@ -171,7 +185,7 @@ async function main() {
   const server = createServer(createHandler({ contentDir, port }));
   server.listen(port, "127.0.0.1", () => {
     console.log(`Review page: http://127.0.0.1:${port}  (Ctrl-C to stop)`);
-    const found = themes(join(contentDir, "candidates"));
+    const found = themes(contentDir);
     if (found.length === 0) console.log('No candidates yet. Run: npm run images:find -- --theme <theme> --answers "<answer>,…"');
     for (const t of found) console.log(`  ${t.slug}: ${t.total} photos, ${t.approved} approved, ${t.pending} to review`);
   });

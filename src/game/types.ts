@@ -27,8 +27,8 @@ export type Puzzle = {
   aiSolvedLevel: RevealLevel | null; // first reveal level the AI solved it at (#56); null = never, or not run yet
   /**
    * Timed-reveal redesign (PROPOSAL): how this photo is hidden while the
-   * round's clock runs, chosen per puzzle to suit the photo. Zoom, spotlight
-   * and swirl centre on `reveal.focus`. Missing = not chosen yet.
+   * round's clock runs, chosen per puzzle to suit the photo. Zoom, spotlight,
+   * swirl and kaleidoscope centre on `reveal.focus`. Missing = not chosen yet.
    */
   effect?: PuzzleEffect;
   /**
@@ -47,7 +47,7 @@ export type Puzzle = {
  * effects themselves are drawn by the round screen. `EFFECTS` in
  * `puzzles.ts` lists them for the parser and the database check.
  */
-export type PuzzleEffect = "pixelate" | "spotlight" | "thermal" | "swirl" | "zoom" | "tiles";
+export type PuzzleEffect = "pixelate" | "spotlight" | "thermal" | "swirl" | "zoom" | "tiles" | "kaleidoscope" | "shards";
 
 /**
  * Owner: Darian. An integer from 0 (tightest crop) to

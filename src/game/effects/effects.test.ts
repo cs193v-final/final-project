@@ -1,12 +1,14 @@
 // Spec for the reveal effects of the timed rounds (#257). Pure: plain pixels in, pixels out.
 import { describe, expect, it } from "vitest";
 
-import { createEffect, EFFECT_SETUPS, type EffectName, type Pixels } from "./index.ts";
+import { createEffect, DEFAULT_EFFECT, EFFECT_SETUPS, FRAME_LONG_SIDE, frameSize, type EffectName, type Pixels } from "./index.ts";
+import { KALEIDOSCOPE_OPEN_BY, KALEIDOSCOPE_WEDGES } from "./kaleidoscope.ts";
 import { pixelateBlock } from "./pixelate.ts";
 import { seededRandom, shuffled } from "./pixels.ts";
+import { SHARDS_CRACKS_GONE_BY } from "./shards.ts";
 import { SPOTLIGHT_DRIFT_SPEED } from "./spotlight.ts";
 import { SWIRL_WOBBLE } from "./swirl.ts";
-import { THERMAL_PALETTE } from "./thermal.ts";
+import { brightnessRange, heatLevel, THERMAL_CLIP, THERMAL_CYCLES, THERMAL_DRIFT, THERMAL_PALETTE } from "./thermal.ts";
 import { ZOOM_EASE, ZOOM_START } from "./zoom.ts";
 import { openTiles, TILES_ACROSS, TILES_DOWN, tileGrid, tileOrder } from "./tiles.ts";
 
@@ -151,6 +153,32 @@ describe("createEffect", () => {
   });
 });
 
+// The round screen (EffectCanvas) and the AI solver (solveTimed) both draw at
+// this size, so CLIP's solve times are for the frames players see (#257).
+describe("frameSize", () => {
+  it.each([
+    ["a cut photo", 1600, 1200, 600, 450],
+    ["a practice photo", 1920, 1282, 600, 401],
+    ["a tall photo", 1200, 1600, 450, 600],
+    ["a square", 900, 900, 600, 600],
+    ["a photo smaller than the frame (stretched)", 300, 200, 600, 400],
+    ["a sliver, which keeps at least 1 pixel", 10_000, 1, 600, 1],
+  ])("puts %s at %i × %i into %i × %i", (_name, width, height, w, h) => {
+    expect(frameSize(width, height)).toEqual({ width: w, height: h });
+  });
+
+  it(`is ${FRAME_LONG_SIDE} px on the longer side, the size the effects were tuned at`, () => {
+    expect(FRAME_LONG_SIDE).toBe(600);
+  });
+});
+
+describe("DEFAULT_EFFECT", () => {
+  it("is pixelate, an effect every photo works with", () => {
+    expect(DEFAULT_EFFECT).toBe("pixelate");
+    expect(EFFECTS).toContain(DEFAULT_EFFECT);
+  });
+});
+
 describe("drawing at a size other than the photo's", () => {
   const big = photo(320, 240);
   const size = { width: 160, height: 120 };
@@ -219,9 +247,9 @@ describe("drawing at a size other than the photo's", () => {
 });
 
 describe("the smooth effects change a little at a time", () => {
-  // Spotlight, thermal, swirl and zoom move continuously: a step of 1/10,000 of
+  // Spotlight, thermal, swirl, zoom, kaleidoscope and shards move continuously: a step of 1/10,000 of
   // the reveal (far shorter than a frame) changes almost nothing.
-  it.each(["spotlight", "thermal", "swirl", "zoom"] as const)("%s", (effect) => {
+  it.each(["spotlight", "thermal", "swirl", "zoom", "kaleidoscope", "shards"] as const)("%s", (effect) => {
     const source = photo();
     const draw = createEffect(effect, source, options);
     const whole = difference(draw(0), source.data);
@@ -330,29 +358,67 @@ describe("spotlight", () => {
 });
 
 describe("thermal", () => {
-  const heatColour = (brightness: number) => [...THERMAL_PALETTE.subarray(brightness * 3, brightness * 3 + 3), 255];
+  const heatColour = (level: number) => [...THERMAL_PALETTE.subarray(level * 3, level * 3 + 3), 255];
   const grey = (v: number) => solid(64, 48, [v, v, v]);
+  /** The palette level a photo of one grey `v` gets at `progress` (one grey has no range to stretch, so 0–255 is used). */
+  const levelAt = (v: number, progress: number) => heatLevel(v / 255, progress * THERMAL_DRIFT * 2);
 
-  it("colours by brightness, brightest hottest: black, purple, red, yellow, white", () => {
+  it("has a palette from black through purple, red and yellow to white", () => {
     expect(heatColour(0)).toEqual([0, 0, 10, 255]);
     expect(heatColour(255)).toEqual([255, 255, 230, 255]);
     for (let i = 1; i < 256; i++) {
       expect(THERMAL_PALETTE[i * 3]).toBeGreaterThanOrEqual(THERMAL_PALETTE[(i - 1) * 3]!); // red
       expect(THERMAL_PALETTE[i * 3 + 1]).toBeGreaterThanOrEqual(THERMAL_PALETTE[(i - 1) * 3 + 1]!); // green
     }
-    // A photo of one grey becomes that grey's heat colour.
-    for (const v of [40, 128, 220]) expect(pixel(createEffect("thermal", grey(v), options)(0), 64, 10, 10)).toEqual(heatColour(v));
   });
 
-  it("keeps the heat map until 30% of the reveal, and has the photo's own colours back by 90%, nearly sharp", () => {
+  it("runs up and down the palette several times across the brightness range, smoothly", () => {
+    expect(heatLevel(0)).toBe(0);
+    expect(heatLevel(1 / THERMAL_CYCLES)).toBe(255); // top of the first trip up
+    expect(heatLevel(2 / THERMAL_CYCLES)).toBe(0); // back down
+    // So the darkest and some much brighter pixels share a colour: a dark subject isn't simply the darkest thing.
+    expect(heatLevel(0)).toBe(heatLevel(2 / THERMAL_CYCLES));
+    for (let i = 1; i <= 1000; i++) expect(Math.abs(heatLevel(i / 1000) - heatLevel((i - 1) / 1000))).toBeLessThanOrEqual(2);
+  });
+
+  it("drifts the bands as the clock runs; two whole trips bring them back", () => {
+    expect(heatLevel(0.1, 0.3)).not.toBe(heatLevel(0.1));
+    expect(heatLevel(0.3, 2)).toBe(heatLevel(0.3));
+  });
+
+  it("stretches the photo's brightness range, ignoring a few pixels at each end", () => {
+    const n = 1000;
+    const data = new Uint8ClampedArray(n * 4).fill(255);
+    for (let i = 0; i < n; i++) data.fill(i < n * THERMAL_CLIP ? 0 : i >= n * (1 - THERMAL_CLIP) ? 255 : 60 + (i % 100), i * 4, i * 4 + 3);
+    expect(brightnessRange(data)).toEqual([60, 159]);
+    expect(brightnessRange(grey(90).data)).toEqual([0, 255]); // no range: left as it is
+  });
+
+  it("starts as the heat colours: a photo of one grey becomes its heat colour", () => {
+    for (const v of [40, 128, 220]) expect(pixel(createEffect("thermal", grey(v), options)(0), 64, 10, 10)).toEqual(heatColour(levelAt(v, 0)));
+  });
+
+  it("keeps the heat map until half the reveal, and has the photo's own colours back by 92%", () => {
     const at = (v: number, progress: number) => pixel(createEffect("thermal", grey(v), options)(progress), 64, 10, 10);
-    expect(at(128, 0.3)).toEqual(heatColour(128));
-    const halfway = at(128, 0.6); // half heat colour, half grey
-    expect(halfway).not.toEqual(heatColour(128));
-    expect(halfway).not.toEqual([128, 128, 128, 255]);
-    expect(at(128, 0.9)).toEqual([128, 128, 128, 255]); // no heat colour left
+    expect(at(128, 0.5)).toEqual(heatColour(levelAt(128, 0.5)));
+    const later = at(128, 0.7); // part heat colour, part grey
+    expect(later).not.toEqual(heatColour(levelAt(128, 0.7)));
+    expect(later).not.toEqual([128, 128, 128, 255]);
+    expect(at(128, 0.92)).toEqual([128, 128, 128, 255]); // no heat colour left
+  });
+
+  it("draws the same frame whatever order the clock is moved in", () => {
     const source = photo();
-    expect(difference(createEffect("thermal", source, options)(0.9), source.data)).toBeLessThan(0.03); // only a little soft
+    const fresh = (progress: number) => createEffect("thermal", source, options)(progress);
+    const draw = createEffect("thermal", source, options);
+    for (const progress of [0.6, 0.1, 0.95, 0.1, 0.6, 0]) expect(changedBytes(draw(progress), fresh(progress)), `at ${progress}`).toBe(0);
+  });
+
+  it("stays blurry for most of the reveal and is nearly sharp near the end", () => {
+    const source = photo();
+    const draw = createEffect("thermal", source, options);
+    expect(difference(draw(0.97), source.data)).toBeLessThan(0.03);
+    expect(difference(draw(0.97), source.data)).toBeLessThan(difference(draw(0.92), source.data));
   });
 });
 
@@ -457,5 +523,51 @@ describe("seeded randomness", () => {
     expect(shuffled(0, "x")).toEqual([]);
     expect(shuffled(1, "x")).toEqual([0]);
     expect(new Set(shuffled(100, "x")).size).toBe(100);
+  });
+});
+
+describe("kaleidoscope", () => {
+  const source = photo();
+  const centre = { focus: { x: 0.5, y: 0.5 }, seed: "pz-test" };
+  const [width, height] = [source.width, source.height];
+  /** The pixel at `angle` (radians) and `radius` from the middle of a frame. */
+  const at = (frame: Uint8ClampedArray, angle: number, radius: number) =>
+    pixel(frame, width, Math.round(width / 2 + radius * Math.cos(angle)), Math.round(height / 2 + radius * Math.sin(angle)));
+
+  it("starts as mirrored wedges: a point and its reflection across a wedge's edge match", () => {
+    const frame = createEffect("kaleidoscope", source, centre)(0);
+    const wedge = (2 * Math.PI) / KALEIDOSCOPE_WEDGES;
+    let same = 0;
+    const tries = [0.1, 0.2, 0.3].flatMap((offset) => [15, 25, 35].map((radius) => [offset, radius] as const));
+    for (const [offset, radius] of tries) {
+      if (at(frame, wedge - offset, radius).join() === at(frame, wedge + offset, radius).join()) same++;
+    }
+    expect(same).toBeGreaterThanOrEqual(tries.length - 2); // rounding to whole pixels can miss one or two
+  });
+
+  it("is fully unfolded, the photo exactly, by 90% of the reveal", () => {
+    expect(changedBytes(createEffect("kaleidoscope", source, centre)(KALEIDOSCOPE_OPEN_BY), source.data)).toBe(0);
+  });
+});
+
+describe("shards", () => {
+  const white = solid(160, 120, [255, 255, 255]);
+
+  it("starts with dark cracks between the shards, gone by the end", () => {
+    const darkPixels = (frame: Uint8ClampedArray) => {
+      let n = 0;
+      for (let i = 0; i < frame.length; i += 4) if (frame[i]! < 100) n++;
+      return n;
+    };
+    const draw = createEffect("shards", white, options);
+    const start = darkPixels(draw(0));
+    expect(start).toBeGreaterThan(160 * 120 * 0.02);
+    expect(start).toBeLessThan(160 * 120 * 0.3); // lines, not whole shards
+    expect(darkPixels(draw(SHARDS_CRACKS_GONE_BY))).toBe(0);
+  });
+
+  it("cracks differently for a different seed", () => {
+    const source = photo();
+    expect(changedBytes(createEffect("shards", source, options)(0), createEffect("shards", source, { ...options, seed: "pz-other" })(0))).toBeGreaterThan(0);
   });
 });
