@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
+import { MotionToggle } from "./MotionToggle";
 import { FOCUS_RING } from "./ui/styles";
 
 /**
@@ -47,7 +48,8 @@ export function CloudsToggle() {
   }, [paused]);
 
   return (
-    <footer className="clouds-toggle mt-auto flex justify-end px-4 pt-6 pb-4">
+    <footer className="clouds-toggle mt-auto flex flex-wrap justify-end gap-2 px-4 pt-6 pb-4">
+      <MotionToggle />
       <button
         type="button"
         aria-pressed={paused}

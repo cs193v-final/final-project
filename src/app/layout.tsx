@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Open_Sans } from "next/font/google";
 import { Suspense } from "react";
 import { AccountStatus } from "@/components/account/AccountStatus";
 import { CloudsToggle } from "@/components/CloudsToggle";
+import { MOTION_BOOT_SCRIPT } from "@/components/motion-boot";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SkyBackdrop } from "@/components/SkyBackdrop";
 import { GAME_NAME } from "@/site";
@@ -35,7 +36,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${openSans.variable} h-full antialiased`}
+      // The motion script below sets data-reduced-motion on <html> before React hydrates.
+      suppressHydrationWarning
     >
+      <head>
+        {/* Before first paint: animations on or off, from the player's choice or the system (#183). */}
+        <script dangerouslySetInnerHTML={{ __html: MOTION_BOOT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         {/* The drifting sky behind every screen (#183). Decorative. */}
         <SkyBackdrop />

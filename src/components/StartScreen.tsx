@@ -5,6 +5,7 @@ import type { ScoringConfig } from "@/game/types";
 import { GAME_NAME } from "@/site";
 import { IslandHero } from "./IslandHero";
 import { ModePicker } from "./ModePicker";
+import { MotionHint } from "./MotionToggle";
 import { PrototypeNotice, SectionHeading, TextLink } from "./ui/controls";
 
 const pts = (n: number) => `${n} ${n === 1 ? "point" : "points"}`;
@@ -49,6 +50,8 @@ export function StartScreen({ scoring = SCORING_CONFIG, streak }: { scoring?: Sc
         </p>
       </div>
 
+      {/* Says why there's no motion, with a one-click way to turn it on (#183). */}
+      <MotionHint />
       {streak}
       {/* The "Picture Island" (#183), which zooms out on arrival; the daily sits right under it. */}
       <IslandHero />
