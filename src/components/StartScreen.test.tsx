@@ -8,7 +8,8 @@ const html = renderToStaticMarkup(<StartScreen />);
 
 describe("StartScreen", () => {
   it("shows the game name as the page heading", () => {
-    expect(html).toMatch(/<h1[^>]*>Zoom Out<\/h1>/u);
+    // The last word is wrapped for its accent colour (#183); the heading text is still the name.
+    expect(html.replace(/<\/?span[^>]*>/gu, "")).toMatch(/<h1[^>]*>Zoom Out<\/h1>/u);
   });
 
   it("says what the game is in one short line under the name (#144, from user test #90)", () => {
@@ -18,7 +19,7 @@ describe("StartScreen", () => {
   });
 
   it("has a Start button that goes to the practice game", () => {
-    expect(html).toMatch(/<a[^>]*href="\/play"[^>]*>Start practice<\/a>/u);
+    expect(html).toMatch(/<a[^>]*href="\/play"[^>]*>Start practice<svg[^>]*aria-hidden="true"/u);
   });
 
   it("lists every how-to-play step, in order", () => {

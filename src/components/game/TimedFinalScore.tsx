@@ -118,14 +118,36 @@ export function TimedFinalScore({
   return (
     <section aria-labelledby="final-score" className="flex w-full max-w-md flex-col items-center gap-6 text-center">
       <div className="flex flex-col items-center gap-1">
-        <h2 id="final-score" ref={heading} tabIndex={-1} className="text-2xl font-semibold outline-none">
+        <h2 id="final-score" ref={heading} tabIndex={-1} className="font-display text-3xl tracking-tight outline-none">
           {title}
         </h2>
         {/* The total, counting up. Decorative: the sentence below says it in words. */}
-        <span data-total-count aria-hidden="true" className="text-6xl font-bold tabular-nums">
+        <span
+          data-total-count
+          aria-hidden="true"
+          className="mt-2 font-display text-7xl leading-none tracking-[-0.07em] text-emerald-700 tabular-nums sm:text-8xl dark:text-[#d6eea7]"
+        >
           {formatPoints(shownTotal)}
         </span>
-        <p className="badge-pop text-lg font-semibold text-emerald-700 dark:text-emerald-400">{scoreRating(total, max)}</p>
+        <p className="badge-pop mt-2 rounded-md border border-[#5a793a] bg-meadow px-3 py-1 font-bold text-plum shadow-[0_2px_0_#668446]">
+          {scoreRating(total, max)}
+        </p>
+        {/* One tile per photo, like the round progress pips. Decorative: the list below says it. */}
+        <div aria-hidden="true" className="mt-2 flex gap-1.5">
+          {rounds.map((r, i) => (
+            <span
+              key={i}
+              data-summary-pip={r.outcome}
+              className={`grid h-8 w-9 place-items-center rounded-md border font-mono text-xs font-bold ${
+                r.outcome === "correct"
+                  ? "border-[#5a793a] bg-[#d8f1ad] text-plum"
+                  : "border-[#a3413b] bg-peach text-[#6d2329]"
+              }`}
+            >
+              {r.outcome === "correct" ? "✓" : "×"}
+            </span>
+          ))}
+        </div>
         <p className="text-lg">
           You scored <strong className="font-semibold tabular-nums">{formatPoints(total)}</strong> out of{" "}
           {formatPoints(max)}
@@ -139,7 +161,10 @@ export function TimedFinalScore({
 
       <ol ref={list} className="flex w-full flex-col gap-2 text-left">
         {rounds.map((r, i) => (
-          <li key={i} className="flex items-center justify-between gap-3 rounded-lg bg-zinc-100 px-4 py-3 dark:bg-zinc-900">
+          <li
+            key={i}
+            className="flex items-center justify-between gap-3 rounded-lg border border-zinc-300 bg-paper px-4 py-3 shadow-[0_3px_0_var(--color-zinc-300)] dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-[0_3px_0_var(--color-zinc-700)]"
+          >
             <div className="flex flex-col">
               <span className="font-medium">
                 {i + 1}. {r.answer}
@@ -152,12 +177,16 @@ export function TimedFinalScore({
                 {timedRoundText(r)}
               </span>
             </div>
-            <span className="shrink-0 text-lg font-semibold tabular-nums">{formatPoints(r.points)}</span>
+            <span className="shrink-0 font-mono text-lg font-bold tabular-nums">{formatPoints(r.points)}</span>
           </li>
         ))}
       </ol>
 
-      {onPlayAgain ? <Button onClick={onPlayAgain}>Play again</Button> : null}
+      {onPlayAgain ? (
+        <Button onClick={onPlayAgain} className="font-display text-lg tracking-tight">
+          Play again
+        </Button>
+      ) : null}
       {after}
     </section>
   );

@@ -124,10 +124,10 @@ export function EffectCanvas({
     );
   }
   return failed ? (
-    <p role="alert" className="px-6 text-center text-sm text-rose-700 dark:text-rose-400">
+    <p role="alert" className="px-6 text-center text-sm text-peach">
       The photo didn&apos;t load. Check your connection, then refresh the page.
     </p>
   ) : (
-    <p className="px-6 text-center text-sm text-zinc-600 dark:text-zinc-400">Loading the photo…</p>
+    <p className="px-6 text-center text-sm text-[#e5d2fc]">Loading the photo…</p>
   );
 }

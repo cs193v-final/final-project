@@ -114,9 +114,12 @@ export function RoundPreview({
   const over = round.phase === "correct" || round.phase === "timedOut";
   return (
     <div className="flex w-full flex-col items-center gap-3">
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Image {index + 1} of {photos.length} · effect: {photo.effect ?? "none chosen (pixelate)"}
-      </p>
+      <div className="flex w-full max-w-md items-end justify-between gap-3">
+        <p className="font-mono text-xs font-bold tracking-wider text-zinc-600 uppercase dark:text-zinc-300">
+          Image {index + 1} of {photos.length} · effect: {photo.effect ?? "none chosen (pixelate)"}
+        </p>
+        <RoundPips count={photos.length} current={index} done={done} />
+      </div>
       <TimedRound
         key={index}
         phase={round.phase}
@@ -142,5 +145,33 @@ export function RoundPreview({
         onTimeUp={() => void onTimeUp()}
       />
     </div>
+  );
+}
+
+/**
+ * Round progress (#183): a tile per photo, green once guessed, peach once
+ * timed out, highlighted for the current one. Decorative: the line beside it
+ * says which image this is.
+ */
+function RoundPips({ count, current, done }: { count: number; current: number; done: readonly TimedRoundSummary[] }) {
+  return (
+    <ol aria-hidden="true" className="flex gap-1">
+      {Array.from({ length: count }, (_, i) => {
+        const outcome = done[i]?.outcome;
+        const tone =
+          outcome === "correct"
+            ? "border-[#5a793a] bg-[#d8f1ad] text-plum"
+            : outcome === "timedOut"
+              ? "border-[#a3413b] bg-peach text-[#6d2329]"
+              : i === current
+                ? "border-[#5a793a] bg-meadow text-plum shadow-[0_2px_0_#5a793a]"
+                : "border-[#8d77ab] bg-paper text-plum shadow-[0_2px_0_#8d77ab]";
+        return (
+          <li key={i} className={`grid size-6 place-items-center rounded-[5px] border font-mono text-[11px] font-bold ${tone}`}>
+            {i + 1}
+          </li>
+        );
+      })}
+    </ol>
   );
 }

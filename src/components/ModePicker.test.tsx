@@ -2,7 +2,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { ModePicker } from "./ModePicker";
+import { FEATURED_LINK_CLASS, MODE_LINK_CLASS, ModePicker } from "./ModePicker";
 import { MODES, type GameMode } from "./modes";
 import { buttonClass } from "./ui/styles";
 
@@ -71,9 +71,9 @@ describe("ModePicker", () => {
     const { picker, cards, card } = setup();
     expect(cards[0]).toBe(card("Daily challenge"));
     const links = within(picker).getAllByRole("link");
-    const primary = links.filter((a) => a.className === buttonClass("primary", "mt-auto self-start"));
+    const primary = links.filter((a) => a.className === buttonClass("primary", FEATURED_LINK_CLASS));
     expect(primary.map((a) => a.textContent)).toEqual(["Play today's"]);
-    expect(within(card("Practice")).getByRole("link").className).toBe(buttonClass("secondary", "mt-auto self-start"));
+    expect(within(card("Practice")).getByRole("link").className).toBe(buttonClass("secondary", MODE_LINK_CLASS));
     expect(within(card("Daily challenge")).getByRole("heading").className).toContain("text-2xl");
   });
 

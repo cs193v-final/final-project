@@ -26,16 +26,20 @@ export function SiteHeader({ account }: SiteHeaderProps) {
   const pathname = usePathname();
   const onHome = pathname === "/";
   return (
-    <header className="w-full border-b border-zinc-200 dark:border-zinc-800">
-      <nav aria-label="Site" className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-x-4 px-4 py-2">
+    <header className="w-full">
+      <nav
+        aria-label="Site"
+        className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 border-b border-zinc-300 px-4 py-3 dark:border-zinc-700"
+      >
         <Link
           href="/"
           // Screen readers hear "Zoom Out home". The visible name starts the
           // label (WCAG "label in name"), so voice control "click Zoom Out" works.
           aria-label={`${GAME_NAME} home`}
           aria-current={onHome ? "page" : undefined}
-          className={`-mx-2 inline-block rounded-md px-2 py-2 font-semibold tracking-tight hover:bg-zinc-100 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
+          className={`group -mx-2 inline-flex items-center gap-2.5 rounded-md px-2 py-1.5 font-display text-xl tracking-tight hover:bg-zinc-200 dark:hover:bg-zinc-800 ${FOCUS_RING}`}
         >
+          <BrandGlyph />
           {GAME_NAME}
         </Link>
         {/* Wraps on a phone, so a long username and Log out never overlap the link. */}
@@ -44,7 +48,7 @@ export function SiteHeader({ account }: SiteHeaderProps) {
           <Link
             href="/leaderboard"
             aria-current={pathname === "/leaderboard" ? "page" : undefined}
-            className={`-mx-2 inline-block rounded-md px-2 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-900 ${FOCUS_RING}`}
+            className={`-mx-2 inline-block rounded-md px-2 py-2 font-semibold hover:bg-zinc-200 dark:hover:bg-zinc-800 ${FOCUS_RING}`}
           >
             Leaderboard
           </Link>
@@ -52,5 +56,20 @@ export function SiteHeader({ account }: SiteHeaderProps) {
         </div>
       </nav>
     </header>
+  );
+}
+
+/** The brand mark (#183): crop corners around a lens, on a Meadow tile with a beveled base. */
+function BrandGlyph() {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid size-8 place-items-center rounded-lg bg-meadow text-plum shadow-[0_3px_0_#729448]"
+    >
+      <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2.1} strokeLinecap="round" strokeLinejoin="round">
+        <path className="brand-corners" d="M8 4H4v4m12-4h4v4m0 8v4h-4M4 16v4h4" />
+        <circle cx="12" cy="12" r="2.8" />
+      </svg>
+    </span>
   );
 }
