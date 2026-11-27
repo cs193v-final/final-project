@@ -17,6 +17,7 @@ import {
   useAnimateOn,
   usePrefersReducedMotion,
 } from "./motion";
+import { CAPS, Corners, CropMark, MONITOR } from "./monitor";
 import { buzz, sounds, unlockAudio } from "./sound";
 import { SoundToggle } from "./SoundToggle";
 
@@ -162,7 +163,7 @@ export function TimedRound({
       {/* The "monitor" (#183): the photo in a deep-plum frame, with the score and clock on it. */}
       <div
         data-monitor
-        className="w-full rounded-2xl border border-plum bg-plum p-2 text-[#fffbec] shadow-[0_5px_0_#473764]"
+        className={MONITOR}
       >
         {phase === "playing" ? <LiveScore clock={clock} timeUp={localTimeUp} scoring={scoring} /> : null}
         <PhotoStage
@@ -305,9 +306,6 @@ function formatClock(secondsLeft: number): string {
   const whole = Math.ceil(Math.max(0, secondsLeft));
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
-
-/** The monitor's small caps labels (#183). */
-const CAPS = "font-mono text-[11px] font-bold tracking-[0.1em] uppercase text-[#e0d4f2]";
 
 /**
  * The monitor's instrument row (#183): the big draining number on the left,
@@ -497,28 +495,7 @@ function PhotoStage({
   );
 }
 
-/** The viewfinder corners over the photo while it clears (#183). Decorative. */
-function Corners() {
-  const corner = "absolute size-4 border-[#fffbec]/75";
-  return (
-    <span aria-hidden="true" className="pointer-events-none absolute inset-y-[15%] inset-x-[22%]">
-      <i className={`${corner} top-0 left-0 border-t-2 border-l-2`} />
-      <i className={`${corner} top-0 right-0 border-t-2 border-r-2`} />
-      <i className={`${corner} bottom-0 left-0 border-b-2 border-l-2`} />
-      <i className={`${corner} right-0 bottom-0 border-r-2 border-b-2`} />
-    </span>
-  );
-}
 
-/** The crop-and-lens mark, the brand glyph's shape (#183). Decorative. */
-function CropMark({ className }: { className?: string }) {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.1} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M8 4H4v4m12-4h4v4m0 8v4h-4M4 16v4h4" />
-      <circle cx="12" cy="12" r="2.8" />
-    </svg>
-  );
-}
 
 function GuessForm({
   disabled,

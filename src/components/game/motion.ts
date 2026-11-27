@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { countUpValue } from "@/game/feedback";
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
@@ -85,3 +86,25 @@ export const ROW_IN: Keyframe[] = [
   { opacity: 1, transform: "translateY(0)" },
 ];
 export const ROW_IN_TIMING: KeyframeAnimationOptions = { duration: 220, easing: EASE_OUT, fill: "backwards" };
+
+/**
+ * `target`, counted up from 0 over `durationMs` (#283). With reduced motion,
+ * or before the browser can animate, it's just `target`.
+ */
+export function useCountUp(target: number, durationMs: number): number {
+  const reduced = usePrefersReducedMotion();
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    if (reduced || typeof requestAnimationFrame !== "function") return;
+    let frame = 0;
+    const start = performance.now();
+    const step = (now: number) => {
+      const next = countUpValue(target, now - start, durationMs);
+      setValue(next);
+      if (next !== target) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [target, durationMs, reduced]);
+  return reduced ? target : value;
+}

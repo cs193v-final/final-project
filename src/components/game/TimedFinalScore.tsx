@@ -1,39 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { countUpValue, scoreRating } from "@/game/feedback";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
+import { scoreRating } from "@/game/feedback";
 import { formatPoints, formatSeconds } from "@/game/round-clock";
 import type { BeatAiSummary, TimedScoringConfig } from "@/game/types";
 import { Button } from "../ui/controls";
 import { beatAiText } from "./FinalScore";
-import { ROW_IN, ROW_IN_TIMING, usePrefersReducedMotion } from "./motion";
+import { ROW_IN, ROW_IN_TIMING, useCountUp, usePrefersReducedMotion } from "./motion";
 import { sounds } from "./sound";
 
 /** How long the total takes to count up, and the gap between rows arriving (#283). */
 const COUNT_UP_MS = 900;
 const ROW_STAGGER_MS = 70;
 
-/**
- * `target`, counted up from 0 over `durationMs` (#283). With reduced motion,
- * or before the browser can animate, it's just `target`.
- */
-function useCountUp(target: number, durationMs: number): number {
-  const reduced = usePrefersReducedMotion();
-  const [value, setValue] = useState(0);
-  useEffect(() => {
-    if (reduced || typeof requestAnimationFrame !== "function") return;
-    let frame = 0;
-    const start = performance.now();
-    const step = (now: number) => {
-      const next = countUpValue(target, now - start, durationMs);
-      setValue(next);
-      if (next !== target) frame = requestAnimationFrame(step);
-    };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
-  }, [target, durationMs, reduced]);
-  return reduced ? target : value;
-}
 
 /**
  * Brings the rows in one after another with a tally sound each, then a
