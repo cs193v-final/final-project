@@ -5,7 +5,6 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LeaderboardEntry } from "@/game/types";
-import { fakeMotionSetting } from "@/test/fakeMotion";
 
 import { DailyLeaderboard, type DailyLeaderboardProps } from "./DailyLeaderboard";
 
@@ -129,8 +128,7 @@ describe("DailyLeaderboard", () => {
     expect(rows()[1]!.className).not.toContain("bg-meadow-soft");
   });
 
-  it("shows your rank below the list as a big figure, at its final value straight away with reduced motion", () => {
-    fakeMotionSetting(true);
+  it("shows your rank below the list as a big figure, straight away (counting up would read as dropping places)", () => {
     const { container } = render(<DailyLeaderboard board={board({ loggedIn: true, players: 40, you: you(entry(23, "zed", 40), 40) })} />);
     const strip = container.querySelector("[data-your-rank]")!;
     expect(strip).toHaveAttribute("aria-hidden", "true");
