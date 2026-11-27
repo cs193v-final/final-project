@@ -71,3 +71,17 @@ export const POP: Keyframe[] = [
   { transform: "scale(1)" },
 ];
 export const POP_TIMING: KeyframeAnimationOptions = { duration: 500, easing: "ease-out" };
+
+/** A strong ease-out for things that land (#283): quick to arrive, gentle to settle. */
+export const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+
+/** The live score's beat in the last seconds (#283). */
+export const PULSE: Keyframe[] = [{ transform: "scale(1)" }, { transform: "scale(1.08)" }, { transform: "scale(1)" }];
+export const PULSE_TIMING: KeyframeAnimationOptions = { duration: 220, easing: EASE_OUT };
+
+/** A final-score row arriving (#283). */
+export const ROW_IN: Keyframe[] = [
+  { opacity: 0, transform: "translateY(6px)" },
+  { opacity: 1, transform: "translateY(0)" },
+];
+export const ROW_IN_TIMING: KeyframeAnimationOptions = { duration: 220, easing: EASE_OUT, fill: "backwards" };
