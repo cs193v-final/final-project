@@ -203,6 +203,13 @@ describe("findAnswerLeaks", () => {
     ["another -es plural", puzzle("pz-1", "Peaches", [], "/img/peach.jpg")],
     ["the plural of a singular answer", puzzle("pz-1", "Cherry", [], "/img/cherries.jpg")],
     ["a short word next to digits", puzzle("pz-1", "Big Ben", [], "/img/ben1.jpg")],
+    // The audit's misses (#109):
+    ["a short answer's -s plural", puzzle("pz-1", "Cat", [], "/img/cats.jpg")],
+    ["a short answer's -es plural", puzzle("pz-1", "Fox", [], "/img/foxes-01.jpg")],
+    ["a short answer's -en plural", puzzle("pz-1", "Ox", [], "/img/oxen.jpg")],
+    ["an irregular plural", puzzle("pz-1", "Mouse", [], "/img/mice.jpg")],
+    ["an irregular singular", puzzle("pz-1", "Geese", [], "/img/goose-2.jpg")],
+    ["the initials of a three-word answer", puzzle("pz-1", "Golden Gate Bridge", [], "/img/GGB.jpg")],
   ])("finds %s", (_name, p) => {
     expect(leaksFor(p)).toHaveLength(1);
   });
@@ -210,6 +217,11 @@ describe("findAnswerLeaks", () => {
   it("doesn't flag a short answer inside a longer word", () => {
     expect(leaksFor(puzzle("pz-box", "Ox"))).toEqual([]);
     expect(leaksFor(puzzle("pz-1", "Big Ben", [], "/img/bench-1.jpg"))).toEqual([]);
+  });
+
+  it("doesn't flag two-word initials, which would match every opaque id", () => {
+    expect(leaksFor(puzzle("pz-7c1e9a40", "Pine Zest", [], "/img/pz-7c1e9a40.jpg"), "pk_3f9c2a")).toEqual([]);
+    expect(leaksFor(puzzle("pz-1", "Big Ben", [], "/img/bb-1.jpg"))).toEqual([]);
   });
 
   it("doesn't flag filler words like \"the\"", () => {
