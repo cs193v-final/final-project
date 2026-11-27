@@ -4,7 +4,7 @@ import type { Puzzle, PuzzleEffect, RevealLevel } from "./types.ts";
  * Every `PuzzleEffect`, in the order a picker should offer them (coarse ones,
  * for simple photos, first). The database checks against the same list.
  */
-export const EFFECTS = ["pixelate", "spotlight", "thermal", "swirl", "zoom", "tiles"] as const satisfies readonly PuzzleEffect[];
+export const EFFECTS = ["pixelate", "spotlight", "thermal", "swirl", "zoom", "tiles", "kaleidoscope", "shards"] as const satisfies readonly PuzzleEffect[];
 
 // Fails to compile if `EFFECTS` misses a `PuzzleEffect`.
 const allEffectsListed: PuzzleEffect extends (typeof EFFECTS)[number] ? true : never = true;

@@ -128,7 +128,7 @@ export const rateLimits = pgTable(
 export const packKind = pgEnum("pack_kind", ["practice", "daily", "stanford", "lobby"]);
 
 /** Matches `PuzzleEffect` and `EFFECTS` (timed-reveal redesign); schema.test.ts checks they agree. */
-export const puzzleEffect = pgEnum("puzzle_effect", ["pixelate", "spotlight", "thermal", "swirl", "zoom", "tiles"]);
+export const puzzleEffect = pgEnum("puzzle_effect", ["pixelate", "spotlight", "thermal", "swirl", "zoom", "tiles", "kaleidoscope", "shards"]);
 
 export const packs = pgTable("packs", {
   id: opaqueId(),
