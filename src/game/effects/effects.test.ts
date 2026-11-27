@@ -6,7 +6,7 @@ import { pixelateBlock } from "./pixelate.ts";
 import { seededRandom, shuffled } from "./pixels.ts";
 import { SPOTLIGHT_DRIFT_SPEED } from "./spotlight.ts";
 import { SWIRL_WOBBLE } from "./swirl.ts";
-import { THERMAL_PALETTE } from "./thermal.ts";
+import { brightnessRange, heatLevel, THERMAL_CLIP, THERMAL_CYCLES, THERMAL_DRIFT, THERMAL_PALETTE } from "./thermal.ts";
 import { ZOOM_EASE, ZOOM_START } from "./zoom.ts";
 import { openTiles, TILES_ACROSS, TILES_DOWN, tileGrid, tileOrder } from "./tiles.ts";
 
@@ -330,29 +330,67 @@ describe("spotlight", () => {
 });
 
 describe("thermal", () => {
-  const heatColour = (brightness: number) => [...THERMAL_PALETTE.subarray(brightness * 3, brightness * 3 + 3), 255];
+  const heatColour = (level: number) => [...THERMAL_PALETTE.subarray(level * 3, level * 3 + 3), 255];
   const grey = (v: number) => solid(64, 48, [v, v, v]);
+  /** The palette level a photo of one grey `v` gets at `progress` (one grey has no range to stretch, so 0–255 is used). */
+  const levelAt = (v: number, progress: number) => heatLevel(v / 255, progress * THERMAL_DRIFT * 2);
 
-  it("colours by brightness, brightest hottest: black, purple, red, yellow, white", () => {
+  it("has a palette from black through purple, red and yellow to white", () => {
     expect(heatColour(0)).toEqual([0, 0, 10, 255]);
     expect(heatColour(255)).toEqual([255, 255, 230, 255]);
     for (let i = 1; i < 256; i++) {
       expect(THERMAL_PALETTE[i * 3]).toBeGreaterThanOrEqual(THERMAL_PALETTE[(i - 1) * 3]!); // red
       expect(THERMAL_PALETTE[i * 3 + 1]).toBeGreaterThanOrEqual(THERMAL_PALETTE[(i - 1) * 3 + 1]!); // green
     }
-    // A photo of one grey becomes that grey's heat colour.
-    for (const v of [40, 128, 220]) expect(pixel(createEffect("thermal", grey(v), options)(0), 64, 10, 10)).toEqual(heatColour(v));
   });
 
-  it("keeps the heat map until 30% of the reveal, and has the photo's own colours back by 90%, nearly sharp", () => {
+  it("runs up and down the palette several times across the brightness range, smoothly", () => {
+    expect(heatLevel(0)).toBe(0);
+    expect(heatLevel(1 / THERMAL_CYCLES)).toBe(255); // top of the first trip up
+    expect(heatLevel(2 / THERMAL_CYCLES)).toBe(0); // back down
+    // So the darkest and some much brighter pixels share a colour: a dark subject isn't simply the darkest thing.
+    expect(heatLevel(0)).toBe(heatLevel(2 / THERMAL_CYCLES));
+    for (let i = 1; i <= 1000; i++) expect(Math.abs(heatLevel(i / 1000) - heatLevel((i - 1) / 1000))).toBeLessThanOrEqual(2);
+  });
+
+  it("drifts the bands as the clock runs; two whole trips bring them back", () => {
+    expect(heatLevel(0.1, 0.3)).not.toBe(heatLevel(0.1));
+    expect(heatLevel(0.3, 2)).toBe(heatLevel(0.3));
+  });
+
+  it("stretches the photo's brightness range, ignoring a few pixels at each end", () => {
+    const n = 1000;
+    const data = new Uint8ClampedArray(n * 4).fill(255);
+    for (let i = 0; i < n; i++) data.fill(i < n * THERMAL_CLIP ? 0 : i >= n * (1 - THERMAL_CLIP) ? 255 : 60 + (i % 100), i * 4, i * 4 + 3);
+    expect(brightnessRange(data)).toEqual([60, 159]);
+    expect(brightnessRange(grey(90).data)).toEqual([0, 255]); // no range: left as it is
+  });
+
+  it("starts as the heat colours: a photo of one grey becomes its heat colour", () => {
+    for (const v of [40, 128, 220]) expect(pixel(createEffect("thermal", grey(v), options)(0), 64, 10, 10)).toEqual(heatColour(levelAt(v, 0)));
+  });
+
+  it("keeps the heat map until half the reveal, and has the photo's own colours back by 92%", () => {
     const at = (v: number, progress: number) => pixel(createEffect("thermal", grey(v), options)(progress), 64, 10, 10);
-    expect(at(128, 0.3)).toEqual(heatColour(128));
-    const halfway = at(128, 0.6); // half heat colour, half grey
-    expect(halfway).not.toEqual(heatColour(128));
-    expect(halfway).not.toEqual([128, 128, 128, 255]);
-    expect(at(128, 0.9)).toEqual([128, 128, 128, 255]); // no heat colour left
+    expect(at(128, 0.5)).toEqual(heatColour(levelAt(128, 0.5)));
+    const later = at(128, 0.7); // part heat colour, part grey
+    expect(later).not.toEqual(heatColour(levelAt(128, 0.7)));
+    expect(later).not.toEqual([128, 128, 128, 255]);
+    expect(at(128, 0.92)).toEqual([128, 128, 128, 255]); // no heat colour left
+  });
+
+  it("draws the same frame whatever order the clock is moved in", () => {
     const source = photo();
-    expect(difference(createEffect("thermal", source, options)(0.9), source.data)).toBeLessThan(0.03); // only a little soft
+    const fresh = (progress: number) => createEffect("thermal", source, options)(progress);
+    const draw = createEffect("thermal", source, options);
+    for (const progress of [0.6, 0.1, 0.95, 0.1, 0.6, 0]) expect(changedBytes(draw(progress), fresh(progress)), `at ${progress}`).toBe(0);
+  });
+
+  it("stays blurry for most of the reveal and is nearly sharp near the end", () => {
+    const source = photo();
+    const draw = createEffect("thermal", source, options);
+    expect(difference(draw(0.97), source.data)).toBeLessThan(0.03);
+    expect(difference(draw(0.97), source.data)).toBeLessThan(difference(draw(0.92), source.data));
   });
 });
 
