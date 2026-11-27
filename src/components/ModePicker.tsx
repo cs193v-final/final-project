@@ -49,7 +49,7 @@ export function ModePicker({ modes = MODES }: { modes?: readonly GameMode[] }) {
           isFeatured(mode) ? (
             <li
               key={mode.id}
-              className="flex flex-col items-center justify-end gap-2 pb-1 text-center sm:col-start-2 sm:row-start-1"
+              className="rise-in flex flex-col items-center justify-end gap-2 pb-1 text-center [--rise-delay:120ms] sm:col-start-2 sm:row-start-1"
             >
               <p className="font-mono text-xs font-bold tracking-wider text-zinc-600 uppercase dark:text-zinc-300">
                 5 images · Midnight PT
@@ -67,7 +67,9 @@ export function ModePicker({ modes = MODES }: { modes?: readonly GameMode[] }) {
             <li
               key={mode.id}
               className={joinClasses(
-                "flex flex-col gap-2 rounded-xl border p-3 text-left sm:self-end",
+                "rise-in flex flex-col gap-2 rounded-xl border p-3 text-left sm:self-end",
+                // After the daily, in list order (#183).
+                mode.id === "stanford" ? "[--rise-delay:190ms]" : "[--rise-delay:260ms]",
                 mode.status === "available"
                   ? "border-[#776795] bg-paper shadow-[0_4px_0_#776795] dark:border-zinc-400 dark:bg-zinc-800 dark:shadow-[0_4px_0_#b899cc]"
                   : "border-dashed border-zinc-500 dark:border-zinc-400",

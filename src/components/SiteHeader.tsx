@@ -37,7 +37,7 @@ export function SiteHeader({ account }: SiteHeaderProps) {
           // label (WCAG "label in name"), so voice control "click Zoom Out" works.
           aria-label={`${GAME_NAME} home`}
           aria-current={onHome ? "page" : undefined}
-          className={`-mx-2 inline-flex items-center gap-2.5 rounded-md px-2 py-1.5 font-display text-xl tracking-tight hover:bg-zinc-200 dark:hover:bg-zinc-800 ${FOCUS_RING}`}
+          className={`group -mx-2 inline-flex items-center gap-2.5 rounded-md px-2 py-1.5 font-display text-xl tracking-tight hover:bg-zinc-200 dark:hover:bg-zinc-800 ${FOCUS_RING}`}
         >
           <BrandGlyph />
           {GAME_NAME}
@@ -67,7 +67,7 @@ function BrandGlyph() {
       className="grid size-8 place-items-center rounded-lg bg-meadow text-plum shadow-[0_3px_0_#729448]"
     >
       <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2.1} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M8 4H4v4m12-4h4v4m0 8v4h-4M4 16v4h4" />
+        <path className="brand-corners" d="M8 4H4v4m12-4h4v4m0 8v4h-4M4 16v4h4" />
         <circle cx="12" cy="12" r="2.8" />
       </svg>
     </span>

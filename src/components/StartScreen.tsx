@@ -1,9 +1,9 @@
-import Image from "next/image";
 import type { ReactNode } from "react";
 
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import type { ScoringConfig } from "@/game/types";
 import { GAME_NAME } from "@/site";
+import { IslandHero } from "./IslandHero";
 import { ModePicker } from "./ModePicker";
 import { PrototypeNotice, SectionHeading, TextLink } from "./ui/controls";
 
@@ -50,18 +50,8 @@ export function StartScreen({ scoring = SCORING_CONFIG, streak }: { scoring?: Sc
       </div>
 
       {streak}
-      {/* The "Picture Island" (#183): the daily sits right under it. Decorative. */}
-      <div className="relative -mb-4 w-full max-w-xl">
-        <Image
-          src="/brand/island.webp"
-          alt=""
-          width={1100}
-          height={733}
-          priority
-          sizes="(min-width: 640px) 36rem, 100vw"
-          className="h-auto w-full"
-        />
-      </div>
+      {/* The "Picture Island" (#183), which zooms out on arrival; the daily sits right under it. */}
+      <IslandHero />
       <ModePicker />
       {/* Not a mode, so not a card (#62). The header links to it too. */}
       <p className="-mt-4 text-sm text-zinc-600 dark:text-zinc-400">
@@ -97,7 +87,7 @@ function TitleWithAccent({ name }: { name: string }) {
   return (
     <>
       {name.slice(0, cut + 1)}
-      <span className="text-rust">{name.slice(cut + 1)}</span>
+      <span className="word-zoom text-rust">{name.slice(cut + 1)}</span>
     </>
   );
 }

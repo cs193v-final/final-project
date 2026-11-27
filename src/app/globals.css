@@ -162,6 +162,135 @@
   animation: badge-pop 240ms cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 
+/*
+ * Home screen motion (#183). One orchestrated moment on arrival (the home
+ * screen is seen about once a day, so this is the delight budget), built on
+ * the game's own gesture: zooming out.
+ *   0 ms     the island, framed tight on the camera lens, zooms out (1.4 s)
+ *   0 ms     "Out" settles from a size up, like the photo clearing
+ *   120 ms   the daily button rises in, then the side modes (stagger 70 ms)
+ *   1.6 s    the island starts a slow float
+ * Everything is clickable from the first frame: nothing waits on the intro.
+ */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+/* In `animation` shorthands the curves are written out: the CSS build drops
+   @keyframes whose only use has a var() in its shorthand. */
+
+@keyframes island-zoom-out {
+  from {
+    transform: scale(2.6);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes viewfinder-open {
+  0%,
+  35% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+}
+
+@keyframes island-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes word-zoom-out {
+  from {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.island-photo {
+  /* The camera's lens: the close-up the zoom starts from. */
+  transform-origin: 41% 44%;
+  animation: island-zoom-out 1400ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.island-viewfinder {
+  animation: viewfinder-open 1400ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.island-bob {
+  animation: island-float 6s cubic-bezier(0.77, 0, 0.175, 1) 1.6s infinite;
+}
+
+.word-zoom {
+  display: inline-block;
+  transform-origin: 30% 60%;
+  animation: word-zoom-out 700ms cubic-bezier(0.23, 1, 0.32, 1) 150ms both;
+}
+
+.rise-in {
+  animation: rise-in 300ms cubic-bezier(0.23, 1, 0.32, 1) var(--rise-delay, 0ms) both;
+}
+
+/* The brand glyph's corners spread on hover: a tiny zoom out (#183). */
+.brand-corners {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .brand-corners {
+    transition: transform 200ms var(--ease-out);
+  }
+  .group:hover .brand-corners {
+    transform: scale(1.18);
+  }
+}
+
+/* Reduced motion: no zoom, float or movement; things fade in instead. */
+@media (prefers-reduced-motion: reduce) {
+  .island-photo,
+  .word-zoom,
+  .rise-in {
+    animation: fade-in 200ms ease both;
+  }
+  .island-viewfinder {
+    display: none;
+  }
+  .island-bob {
+    animation: none;
+  }
+}
+
 /* Backup for the JS check in usePrefersReducedMotion. */
 @media (prefers-reduced-motion: reduce) {
   .confetti-piece,
