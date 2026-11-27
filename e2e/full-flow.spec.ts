@@ -145,7 +145,7 @@ test("a test user signs up, plays the server game to the end and again, and logs
   await expect(status(page)).toContainText("isn't it (1 wrong guess)");
   await page.getByRole("button", { name: "Zoom out" }).click();
   // Wait for the new level before the next move: input during a pending move is dropped.
-  await expect(page.getByText("Zoom level 2 of")).toBeVisible();
+  await expect(page.getByText(/^Zoom level 2 of /)).toBeVisible();
   const firstPoints = pointsIfCorrect(1, 1);
   await expect(page.getByText(`Worth ${firstPoints} points now`)).toBeVisible();
   await actions.expectNoAnswer(first); // start, wrong guess, zoom out
@@ -203,7 +203,7 @@ test("a test user signs up, plays the server game to the end and again, and logs
   await guess(page, "still not the answer");
   await expect(status(page)).toContainText("isn't it (1 wrong guess)");
   await page.getByRole("button", { name: "Zoom out" }).click();
-  await expect(page.getByText("Zoom level 2 of")).toBeVisible();
+  await expect(page.getByText(/^Zoom level 2 of /)).toBeVisible();
   await actions.expectNoAnswer(first);
   await actions.stop();
   const gameUrl = page.url();
@@ -211,7 +211,7 @@ test("a test user signs up, plays the server game to the end and again, and logs
   expect(findAnswer((await response?.text()) ?? "", first), "the page HTML contained an answer").toBeUndefined();
   await expectLoggedInAs(page, username);
   await expect(page.getByText(`Image 1 of ${count}`)).toBeVisible();
-  await expect(page.getByText("Zoom level 2 of")).toBeVisible();
+  await expect(page.getByText(/^Zoom level 2 of /)).toBeVisible();
   await expect(page.getByText("1 wrong guess", { exact: true })).toBeVisible();
 
   // Log out from the header: it shows Log in, and the game is no longer this browser's.
@@ -236,7 +236,7 @@ test("a test user signs up, plays the server game to the end and again, and logs
   await page.goto(gameUrl);
   await expectLoggedInAs(page, username);
   await expect(page.getByText(`Image 1 of ${count}`)).toBeVisible();
-  await expect(page.getByText("Zoom level 2 of")).toBeVisible();
+  await expect(page.getByText(/^Zoom level 2 of /)).toBeVisible();
   await expect(page.getByText("1 wrong guess", { exact: true })).toBeVisible();
   await guess(page, first.answer);
   await expect(status(page)).toContainText(`Correct! It's ${first.answer}.`);

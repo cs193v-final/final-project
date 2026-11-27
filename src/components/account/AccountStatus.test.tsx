@@ -2,6 +2,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FOCUS_RING } from "@/components/ui/styles";
+
 // The header reads the URL in the browser (#134). Stand in for Next's router
 // with the jsdom location, which the tests set with history.replaceState.
 vi.mock("next/navigation", () => ({
@@ -41,6 +43,17 @@ describe("AccountStatusView", () => {
     expect(screen.getByRole("link", { name: "Ethan" })).toHaveAttribute("href", "/account");
     expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /log out/i })).toBeNull();
+  });
+
+  it("gives the header's links and Log out the header's look and the shared focus ring (#183)", () => {
+    const { unmount } = render(<AccountStatusView user={{ id: "u1", username: "Ethan" }} />);
+    for (const control of [screen.getByRole("link", { name: "Ethan" }), screen.getByRole("button", { name: "Log out" })]) {
+      expect(control.className).toContain(FOCUS_RING);
+      expect(control.className).toContain("font-semibold");
+    }
+    unmount();
+    render(<AccountStatusView user={null} />);
+    expect(screen.getByRole("link", { name: "Log in" }).className).toContain(FOCUS_RING);
   });
 });
 

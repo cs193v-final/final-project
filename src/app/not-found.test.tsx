@@ -2,6 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { MODES } from "@/components/modes";
+import { PAGE_TITLE } from "@/components/ui/styles";
 import { GAME_NAME } from "@/site";
 import NotFound, { metadata } from "./not-found";
 
@@ -22,6 +23,15 @@ describe("the 404 page", () => {
     expect(practice?.status).toBe("available");
     if (practice?.status !== "available") return;
     expect(screen.getByRole("link", { name: practice.cta })).toHaveAttribute("href", practice.href);
+  });
+
+  it("shows an empty monitor above the title as decoration, hidden from screen readers (#183)", () => {
+    render(<NotFound />);
+    const art = screen.getByText("Nothing in frame").closest('[aria-hidden="true"]');
+    expect(art).not.toBeNull();
+    // Before the title, so the heading is still what a screen reader meets first.
+    expect(art!.compareDocumentPosition(screen.getByRole("heading", { level: 1 })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).className).toBe(PAGE_TITLE);
   });
 
   it("is the page's main content, so the header stays a separate landmark", () => {

@@ -167,7 +167,7 @@ function RoundPips({ count, current, done }: { count: number; current: number; d
                 ? "border-[#5a793a] bg-meadow text-plum shadow-[0_2px_0_#5a793a]"
                 : "border-[#8d77ab] bg-paper text-plum shadow-[0_2px_0_#8d77ab]";
         return (
-          <li key={i} className={`grid size-6 place-items-center rounded-[5px] border font-mono text-[11px] font-bold ${tone}`}>
+          <li key={i} className={`grid size-6 place-items-center rounded-[5px] border font-mono text-xs font-bold ${tone}`}>
             {i + 1}
           </li>
         );

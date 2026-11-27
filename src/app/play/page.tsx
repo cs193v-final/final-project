@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { PracticeGame } from "@/components/game/PracticeGame";
-import { PrototypeNotice, TextLink } from "@/components/ui/controls";
+import { PrototypeNotice, TextLink, PAGE_TITLE } from "@/components/ui/controls";
 import { loadGame } from "@/server/games";
 import { actAction, getGameAction, startGameAction } from "./actions";
 
@@ -19,7 +19,7 @@ export default function PlayPage({ searchParams }: PageProps<"/play">) {
           Home
         </TextLink>
       </nav>
-      <h1 className="text-3xl font-semibold tracking-tight">Practice</h1>
+      <h1 className={PAGE_TITLE}>Practice</h1>
       <PrototypeNotice>Prototype: point values are still being tuned.</PrototypeNotice>
       {/* The game depends on the request (URL and owner cookie), so it streams in at request time. */}
       <Suspense fallback={<p className="text-zinc-600 dark:text-zinc-400">Loading the game…</p>}>

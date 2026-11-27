@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
-import { buttonClass, FOCUS_RING, joinClasses, TEXT_INPUT, type ButtonVariant } from "./styles";
+import { buttonClass, chipClass, FOCUS_RING, joinClasses, TEXT_INPUT, type ButtonSize, type ButtonVariant } from "./styles";
 
 /**
  * Shared controls (#89), so similar controls look and behave the same on every
@@ -19,12 +19,24 @@ import { buttonClass, FOCUS_RING, joinClasses, TEXT_INPUT, type ButtonVariant } 
  */
 
 export { Button, type ButtonProps } from "./Button";
-export { buttonClass, FOCUS_RING, type ButtonVariant } from "./styles";
+export {
+  buttonClass,
+  CAPS_LABEL,
+  CARD,
+  CARD_EMPTY,
+  CARD_ROW,
+  chipClass,
+  FOCUS_RING,
+  PAGE_TITLE,
+  type ButtonSize,
+  type ButtonVariant,
+  type ChipTone,
+} from "./styles";
 
-export type ButtonLinkProps = ComponentProps<typeof Link> & { variant?: ButtonVariant };
+export type ButtonLinkProps = ComponentProps<typeof Link> & { variant?: ButtonVariant; size?: ButtonSize };
 
-export function ButtonLink({ variant = "primary", className, ...rest }: ButtonLinkProps) {
-  return <Link {...rest} className={buttonClass(variant, className)} />;
+export function ButtonLink({ variant = "primary", size = "md", className, ...rest }: ButtonLinkProps) {
+  return <Link {...rest} className={buttonClass(variant, className, size)} />;
 }
 
 export function TextLink({ className, ...rest }: ComponentProps<typeof Link>) {
@@ -60,7 +72,8 @@ export function SectionHeading({ id, children }: { id: string; children: ReactNo
 /** Labels anything that's still a placeholder or sample data, e.g. "Prototype: 3 practice images." */
 export function PrototypeNotice({ children }: { children: ReactNode }) {
   return (
-    <p className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
+    // A paper chip in the Picture Island palette (#183), not stock yellow.
+    <p className={chipClass("paper", "border-dashed font-medium shadow-none")}>
       {children}
     </p>
   );

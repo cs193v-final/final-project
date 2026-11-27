@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 
 import { StanfordGame } from "@/components/game/StanfordGame";
-import { ButtonLink, PrototypeNotice, TextLink } from "@/components/ui/controls";
+import { ButtonLink, PrototypeNotice, TextLink, PAGE_TITLE } from "@/components/ui/controls";
 import { actAction, getGameAction } from "@/app/play/actions";
 import { loadGame } from "@/server/games";
 import { loadStanfordIntro } from "@/server/stanford";
@@ -30,7 +30,7 @@ export default function StanfordPage({ searchParams }: PageProps<"/stanford">) {
           Home
         </TextLink>
       </nav>
-      <h1 className="text-3xl font-semibold tracking-tight">Stanford</h1>
+      <h1 className={PAGE_TITLE}>Stanford</h1>
       {/* The game depends on the request (URL and owner cookie), so it streams in at request time. */}
       <Suspense fallback={<p className="text-zinc-600 dark:text-zinc-400">Loading Stanford mode…</p>}>
         <Stanford searchParams={searchParams} />

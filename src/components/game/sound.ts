@@ -96,7 +96,10 @@ const MASTER_VOLUME = 0.6;
 
 function play(tones: readonly Tone[]) {
   if (!readSoundOn()) return;
-  const ctx = audio();
+  // Only into a context a click made (unlockAudio): one made without a click
+  // starts suspended, and everything queued in it would play at once on the
+  // next click, e.g. a finished game's tally when it's reloaded (#302 review).
+  const ctx = context === null ? null : audio();
   if (!ctx) return;
   try {
     const t0 = ctx.currentTime + 0.01;

@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { DailyLeaderboard } from "@/components/leaderboard/DailyLeaderboard";
-import { ButtonLink, TextLink } from "@/components/ui/controls";
+import { ButtonLink, PAGE_TITLE, TextLink } from "@/components/ui/controls";
 import { errorSummary } from "@/server/error-summary";
 import { loadDailyLeaderboard } from "@/server/leaderboard";
 import { GAME_NAME } from "@/site";
@@ -26,7 +26,7 @@ export default function LeaderboardPage() {
           Home
         </TextLink>
       </nav>
-      <h1 className="text-3xl font-semibold tracking-tight">Leaderboard</h1>
+      <h1 className={PAGE_TITLE}>Leaderboard</h1>
       <Suspense fallback={<p className="text-zinc-600 dark:text-zinc-400">Loading the leaderboard…</p>}>
         <Board />
       </Suspense>

@@ -187,7 +187,7 @@ test("a refresh resumes the game, and the page HTML has no answer for the round 
   await guess(page, "definitely not the answer");
   await expect(status(page)).toContainText("isn't it (1 wrong guess)");
   await page.getByRole("button", { name: "Zoom out" }).click();
-  await expect(page.getByText("Zoom level 2 of")).toBeVisible();
+  await expect(page.getByText(/^Zoom level 2 of /)).toBeVisible();
 
   const url = page.url();
   const response = await page.reload();
@@ -197,7 +197,7 @@ test("a refresh resumes the game, and the page HTML has no answer for the round 
   expect(findAnswer(html, first), "the page HTML contained an answer").toBeUndefined();
 
   await expect(page.getByText(`Image 1 of ${count}`)).toBeVisible();
-  await expect(page.getByText("Zoom level 2 of")).toBeVisible();
+  await expect(page.getByText(/^Zoom level 2 of /)).toBeVisible();
   await expect(page.getByText("1 wrong guess", { exact: true })).toBeVisible();
   await expect(page.getByText(`Worth ${pointsIfCorrect(1, 1)} points now`)).toBeVisible();
 
@@ -302,7 +302,8 @@ test("the browser only ever gets the image of the level reached (#57)", async ({
   const levels = puzzleAt(0).reveal.zoomLevels.length;
   for (let level = 1; level < levels; level++) {
     await page.getByRole("button", { name: "Zoom out" }).click();
-    await expect(page.getByText(`Zoom level ${level + 1} of ${levels}`)).toBeVisible();
+    // Anchored: the AI badge can say "… zoom level 3 of 5" too.
+    await expect(page.getByText(new RegExp(`^Zoom level ${level + 1} of ${levels}$`))).toBeVisible();
     await expect(image).not.toHaveAttribute("src", seen.at(-1)!);
     await expect(image).toHaveAttribute("src", /^\/img\/[0-9a-f]{32}\.webp$/u);
     seen.push(await image.getAttribute("src"));

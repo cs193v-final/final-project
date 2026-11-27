@@ -50,6 +50,27 @@ describe("ImageViewer", () => {
     expect(html).toContain('alt="Mystery image, zoom level 1 of 4"');
   });
 
+  it("sits in the monitor with a zoom track lit up to the level on screen, and corners until it's full (#183)", () => {
+    const html = render({ revealLevel: 1 });
+    expect(html).toContain("data-monitor");
+    expect([...html.matchAll(/data-zoom-segment="(on|off)"/g)].map((m) => m[1])).toEqual(["on", "on", "off", "off"]);
+    expect(html).toContain("2/4");
+    expect(html).toContain("data-corners");
+
+    const full = render({ showFull: true });
+    expect([...full.matchAll(/data-zoom-segment="on"/g)]).toHaveLength(4);
+    expect(full).not.toContain("data-corners");
+  });
+
+  it("puts the instruments above the photo and the overlay inside its frame", () => {
+    const html = renderToStaticMarkup(
+      <ImageViewer puzzle={puzzle} revealLevel={0} instruments={<b data-test-instrument />} overlay={<i data-test-overlay />} />,
+    );
+    expect(html.indexOf("data-test-instrument")).toBeLessThan(html.indexOf("data-frame"));
+    expect(html.indexOf("data-test-overlay")).toBeGreaterThan(html.indexOf("data-frame"));
+    expect(html.indexOf("data-test-overlay")).toBeLessThan(html.indexOf("<figcaption"));
+  });
+
   it("shows a message instead of a broken image when there's no image yet", () => {
     const html = render({ puzzle: { ...puzzle, imageUrl: "" } });
     expect(html).not.toContain("<img");

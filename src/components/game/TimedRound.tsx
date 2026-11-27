@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type HTMLAttributes } from "react";
 import { speedLabel, speedTier, STREAK_SHOWN_FROM, type SpeedTier } from "@/game/feedback";
 import { formatPoints, formatSeconds, readClock, secondsNow, type ClockReading } from "@/game/round-clock";
 import type { Puzzle, PuzzleEffect, TimedScoringConfig } from "@/game/types";
-import { Button, TextInput } from "../ui/controls";
+import { Button, chipClass, TextInput } from "../ui/controls";
 import { Confetti } from "./Confetti";
 import { EffectCanvas } from "./EffectCanvas";
 import {
@@ -17,6 +17,7 @@ import {
   useAnimateOn,
   usePrefersReducedMotion,
 } from "./motion";
+import { CAPS, Corners, CropMark, MONITOR, MONITOR_EMPTY, MONITOR_FRAME } from "./monitor";
 import { buzz, sounds, unlockAudio } from "./sound";
 import { SoundToggle } from "./SoundToggle";
 
@@ -162,9 +163,31 @@ export function TimedRound({
       {/* The "monitor" (#183): the photo in a deep-plum frame, with the score and clock on it. */}
       <div
         data-monitor
-        className="w-full rounded-2xl border border-plum bg-plum p-2 text-[#fffbec] shadow-[0_5px_0_#473764]"
+        className={MONITOR}
       >
-        {phase === "playing" ? <LiveScore clock={clock} timeUp={localTimeUp} scoring={scoring} /> : null}
+        {/* The instrument rows stay in every phase, so the monitor never changes height (#183). */}
+        {phase === "playing" ? (
+          <LiveScore clock={clock} timeUp={localTimeUp} scoring={scoring} />
+        ) : phase === "ready" ? (
+          <Readout
+            left={{ label: "points if you guess now", value: formatPoints(scoring.maxPoints), tone: "text-meadow" }}
+            right={{ label: "Time left", value: formatClock(scoring.limitSeconds), tone: "text-meadow" }}
+          />
+        ) : (
+          <Readout
+            left={{
+              label: phase === "correct" ? "round score" : "time's up",
+              value: `+${formatPoints(result?.points ?? 0)}`,
+              unit: "pts",
+              tone: phase === "correct" ? "text-meadow" : "text-peach",
+            }}
+            right={{
+              label: "Time",
+              value: phase === "correct" && result ? formatSeconds(result.seconds) : formatClock(0),
+              tone: phase === "correct" ? "text-meadow" : "text-peach",
+            }}
+          />
+        )}
         <PhotoStage
           phase={phase}
           imageSrc={imageSrc}
@@ -175,7 +198,15 @@ export function TimedRound({
           wrongGuesses={wrongGuesses}
           wonPoints={justWon && result ? result.points : null}
         />
-        {phase === "playing" ? <TimerBar clock={clock} scoring={scoring} /> : null}
+        {phase === "playing" ? (
+          <TimerBar clock={clock} scoring={scoring} />
+        ) : (
+          <TimeTrack
+            scoring={scoring}
+            filled={phase === "ready" ? 0 : Math.min((result?.seconds ?? scoring.limitSeconds) / scoring.limitSeconds, 1)}
+            clearing={phase !== "timedOut" && (result?.seconds ?? 0) < scoring.revealSeconds}
+          />
+        )}
       </div>
       {justWon ? <Confetti /> : null}
 
@@ -185,7 +216,7 @@ export function TimedRound({
             The score starts at {formatPoints(scoring.maxPoints)} and drains until you guess right.
           </p>
           <Button
-            className="font-display text-lg tracking-tight"
+            size="lg"
             disabled={pending}
             onClick={() => {
               // A click is what lets the browser play this round's sounds.
@@ -276,11 +307,8 @@ const URGENT_SECONDS = 5;
 /** "🔥 3 in a row": rounds guessed in a row, counting this one once it's right (#283). */
 function StreakChip({ count }: { count: number }) {
   return (
-    <p
-      data-streak
-      className="badge-pop inline-flex items-center gap-1 rounded-md border border-[#955838] bg-flash px-2.5 py-1 text-sm font-bold text-plum shadow-[0_2px_0_#995c37]"
-    >
-      <span aria-hidden="true">🔥</span>
+    <p data-streak className={chipClass("flash", "badge-pop")}>
+      <LineIcon d={FLAME} />
       {count} in a row
     </p>
   );
@@ -305,9 +333,6 @@ function formatClock(secondsLeft: number): string {
   const whole = Math.ceil(Math.max(0, secondsLeft));
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
-
-/** The monitor's small caps labels (#183). */
-const CAPS = "font-mono text-[11px] font-bold tracking-[0.1em] uppercase text-[#e0d4f2]";
 
 /**
  * The monitor's instrument row (#183): the big draining number on the left,
@@ -360,23 +385,48 @@ function LiveScore({ clock, timeUp, scoring }: { clock: ClockReading; timeUp: bo
  */
 function TimerBar({ clock, scoring }: { clock: ClockReading; scoring: TimedScoringConfig }) {
   const filled = Math.min(clock.seconds / scoring.limitSeconds, 1);
-  const clearAt = scoring.revealSeconds / scoring.limitSeconds;
   const whole = Math.min(Math.floor(clock.seconds), scoring.limitSeconds);
   return (
-    <div className="px-0.5 pt-2.5">
-      <div
-        role="progressbar"
-        aria-label="Time"
-        aria-valuemin={0}
-        aria-valuemax={scoring.limitSeconds}
-        aria-valuenow={whole}
-        aria-valuetext={`${whole} of ${scoring.limitSeconds} seconds`}
-        className="relative h-1.5 w-full overflow-hidden rounded-full bg-[#615174]"
-      >
+    <TimeTrack
+      scoring={scoring}
+      filled={filled}
+      clearing={clock.phase === "clearing"}
+      bar={{
+        role: "progressbar",
+        "aria-label": "Time",
+        "aria-valuemin": 0,
+        "aria-valuemax": scoring.limitSeconds,
+        "aria-valuenow": whole,
+        "aria-valuetext": `${whole} of ${scoring.limitSeconds} seconds`,
+      }}
+    />
+  );
+}
+
+/**
+ * The time track and its labels (#183). The fill is a `scaleX` transform, not
+ * a width, so ticking 20 times a second never re-lays out the page. Outside
+ * the playing phase it's decorative (no `bar` attributes, aria-hidden).
+ */
+function TimeTrack({
+  scoring,
+  filled,
+  clearing,
+  bar,
+}: {
+  scoring: TimedScoringConfig;
+  filled: number;
+  clearing: boolean;
+  bar?: HTMLAttributes<HTMLDivElement> & Record<`aria-${string}`, string | number>;
+}) {
+  const clearAt = scoring.revealSeconds / scoring.limitSeconds;
+  return (
+    <div className="px-0.5 pt-2.5" aria-hidden={bar ? undefined : true}>
+      <div {...bar} className="relative h-1.5 w-full overflow-hidden rounded-full bg-[#615174]">
         <div
           data-timer-fill
-          className={`h-full rounded-full ${clock.phase === "clearing" ? "bg-meadow" : "bg-peach"}`}
-          style={{ width: `${filled * 100}%` }}
+          className={`h-full w-full origin-left rounded-full ${clearing ? "bg-meadow" : "bg-peach"}`}
+          style={{ transform: `scaleX(${filled})` }}
         />
         {/* Where the photo is clear and the score bottoms out. */}
         <div
@@ -393,6 +443,47 @@ function TimerBar({ clock, scoring }: { clock: ClockReading; scoring: TimedScori
         </span>
       </div>
     </div>
+  );
+}
+
+/**
+ * The instrument row outside the playing phase (#183): what the round starts
+ * at, or what it scored. Decorative: the page says the same in words.
+ */
+function Readout({
+  left,
+  right,
+}: {
+  left: { label: string; value: string; tone: string; unit?: string };
+  right: { label: string; value: string; tone: string };
+}) {
+  return (
+    <div data-readout className="flex items-end justify-between gap-3 px-2 pt-1 pb-2.5" aria-hidden="true">
+      <div className="flex flex-col items-start">
+        <span className={CAPS}>{left.label}</span>
+        <span className={`font-display text-4xl tracking-[-0.05em] whitespace-nowrap tabular-nums sm:text-5xl ${left.tone}`}>
+          {left.value}
+          {left.unit ? <span className="ml-1 font-mono text-base tracking-normal">{left.unit}</span> : null}
+        </span>
+      </div>
+      <div className="flex flex-col items-end">
+        <span className={CAPS}>{right.label}</span>
+        <span className={`font-mono text-3xl font-bold whitespace-nowrap tabular-nums sm:text-4xl ${right.tone}`}>{right.value}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Line icons in the brand glyph's stroke style, instead of emoji (#183). Decorative. */
+const FLAME = "M12 21c-3.9 0-6.5-2.6-6.5-6 0-2.7 1.6-4.4 3-6 .4 1.4 1.2 2.4 2.3 2.9C10.6 8.6 12 5.6 14.6 3c.3 2.8 1.6 4.6 2.8 6.2 1 1.4 1.6 2.9 1.6 4.8 0 3.9-2.9 7-7 7z";
+const BOLT = "M13 2 4 14h7l-1 8 9-12h-7z";
+const EYE = "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z";
+
+function LineIcon({ d }: { d: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d={d} />
+    </svg>
   );
 }
 
@@ -444,13 +535,12 @@ function PhotoStage({
   // A flash still running when the round ends would tint the "Correct!" photo.
   const flashOn = flashing && phase === "playing";
 
-  const frame =
-    "relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-[10px] bg-[#393052]";
+  const frame = MONITOR_FRAME;
 
   if (imageSrc === null || phase === "ready") {
     return (
       <div
-        className={`${frame} bg-[repeating-linear-gradient(45deg,#352b4b_0px,#352b4b_13px,#3b3054_13px,#3b3054_26px)] text-[#e5d2fc]`}
+        className={`${frame} ${MONITOR_EMPTY}`}
       >
         <div className="flex flex-col items-center gap-3 px-6 text-center">
           <CropMark className="size-14" />
@@ -480,7 +570,7 @@ function PhotoStage({
         <div
           data-wrong-flash={flashOn ? "on" : "off"}
           aria-hidden="true"
-          className={`pointer-events-none absolute inset-0 rounded-xl ring-4 ring-inset ring-rose-600 ${reduced ? "" : "transition-opacity duration-300"} ${flashOn ? "bg-rose-600/20 opacity-100" : "opacity-0"}`}
+          className={`pointer-events-none absolute inset-0 rounded-xl ring-4 ring-inset ring-peach ${reduced ? "" : "transition-opacity duration-300"} ${flashOn ? "bg-peach/30 opacity-100" : "opacity-0"}`}
         />
         {wonPoints !== null && !reduced ? (
           // Decorative: the result below says the points in words.
@@ -497,28 +587,7 @@ function PhotoStage({
   );
 }
 
-/** The viewfinder corners over the photo while it clears (#183). Decorative. */
-function Corners() {
-  const corner = "absolute size-4 border-[#fffbec]/75";
-  return (
-    <span aria-hidden="true" className="pointer-events-none absolute inset-y-[15%] inset-x-[22%]">
-      <i className={`${corner} top-0 left-0 border-t-2 border-l-2`} />
-      <i className={`${corner} top-0 right-0 border-t-2 border-r-2`} />
-      <i className={`${corner} bottom-0 left-0 border-b-2 border-l-2`} />
-      <i className={`${corner} right-0 bottom-0 border-r-2 border-b-2`} />
-    </span>
-  );
-}
 
-/** The crop-and-lens mark, the brand glyph's shape (#183). Decorative. */
-function CropMark({ className }: { className?: string }) {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.1} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M8 4H4v4m12-4h4v4m0 8v4h-4M4 16v4h4" />
-      <circle cx="12" cy="12" r="2.8" />
-    </svg>
-  );
-}
 
 function GuessForm({
   disabled,
@@ -586,7 +655,7 @@ function GuessForm({
           </Button>
         </div>
       </form>
-      <p role="status" aria-live="polite" className="flex min-h-6 items-start gap-2 text-rose-700 dark:text-rose-400">
+      <p role="status" aria-live="polite" className="flex min-h-6 items-start gap-2 font-semibold text-rust">
         {message && !disabled && !blank ? (
           <span aria-hidden="true" className="font-bold">
             ✗
@@ -646,11 +715,8 @@ function RoundOver({
         </p>
       ) : null}
       {tier ? (
-        <p
-          data-speed={tier}
-          className="badge-pop inline-flex items-center gap-1 rounded-md border border-[#5a793a] bg-meadow px-2.5 py-1 text-sm font-bold text-plum shadow-[0_2px_0_#668446]"
-        >
-          <span aria-hidden="true">{tier === "lightning" ? "⚡" : "👀"}</span>
+        <p data-speed={tier} className={chipClass("meadow", "badge-pop")}>
+          <LineIcon d={tier === "lightning" ? BOLT : EYE} />
           {speedLabel(tier)}
         </p>
       ) : null}

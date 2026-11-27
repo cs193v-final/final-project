@@ -6,7 +6,7 @@ import { GAME_NAME } from "@/site";
 import { IslandHero } from "./IslandHero";
 import { ModePicker } from "./ModePicker";
 import { MotionHint } from "./MotionToggle";
-import { PrototypeNotice, SectionHeading, TextLink } from "./ui/controls";
+import { CARD_ROW, PrototypeNotice, SectionHeading, TextLink } from "./ui/controls";
 
 const pts = (n: number) => `${n} ${n === 1 ? "point" : "points"}`;
 
@@ -65,18 +65,23 @@ export function StartScreen({ scoring = SCORING_CONFIG, streak }: { scoring?: Sc
         <SectionHeading id="how-to-play">How to play</SectionHeading>
         <ol className="flex flex-col gap-2">
           {steps.map((step, i) => (
-            <li
-              key={step}
-              className="flex gap-3 rounded-lg border border-zinc-300 bg-paper px-4 py-3 shadow-[0_3px_0_var(--color-zinc-300)] dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-[0_3px_0_var(--color-zinc-700)]"
-            >
-              <span aria-hidden="true" className="font-mono font-bold text-zinc-600 dark:text-zinc-300">
+            <li key={step} className={`${CARD_ROW} flex items-start gap-3 px-4 py-3`}>
+              {/* A small Meadow tile, like the header's brand glyph (#183). The list already numbers the steps. */}
+              <span
+                aria-hidden="true"
+                className="grid size-8 shrink-0 place-items-center rounded-lg bg-meadow font-mono font-bold text-plum shadow-[0_3px_0_#729448]"
+              >
                 {i + 1}
               </span>
-              <span>{step}</span>
+              <span className="self-center">{step}</span>
             </li>
           ))}
         </ol>
       </section>
+
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <TextLink href="/credits">Photo credits</TextLink>
+      </p>
 
       <PrototypeNotice>Prototype: point values are still being tuned.</PrototypeNotice>
     </main>

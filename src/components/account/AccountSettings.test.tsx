@@ -6,7 +6,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { DeleteFormState, PasswordFormState } from "@/app/account/actions";
-import { TEXT_INPUT } from "@/components/ui/styles";
+import { buttonClass, CARD, TEXT_INPUT } from "@/components/ui/styles";
 
 import { ChangePasswordForm, DeleteAccountForm } from "./AccountSettings";
 
@@ -20,6 +20,12 @@ async function submit(buttonName: string) {
 }
 
 describe("ChangePasswordForm", () => {
+  it("is a card titled in the display face, like the page (#183)", () => {
+    render(<ChangePasswordForm action={neverPassword} />);
+    expect(screen.getByRole("region", { name: "Change your password" }).className).toContain(CARD);
+    expect(screen.getByRole("heading", { level: 2, name: "Change your password" }).className).toContain("font-display");
+  });
+
   it("has a named section with labelled password boxes on the shared controls", () => {
     render(<ChangePasswordForm action={neverPassword} />);
     expect(screen.getByRole("region", { name: "Change your password" })).toBeInTheDocument();
@@ -62,6 +68,14 @@ describe("ChangePasswordForm", () => {
 });
 
 describe("DeleteAccountForm", () => {
+  it("is its own card, marked by a rust edge, with a secondary (not primary) button (#183)", () => {
+    render(<DeleteAccountForm action={neverDelete} username="ethan" />);
+    const section = screen.getByRole("region", { name: "Delete your account" });
+    expect(section.className).toContain(CARD);
+    expect(section.className).toContain("border-l-rust");
+    expect(screen.getByRole("button", { name: "Delete my account" }).className).toBe(buttonClass("secondary"));
+  });
+
   it("says what's deleted, and asks for the password and the username typed again", () => {
     render(<DeleteAccountForm action={neverDelete} username="ethan" />);
     const section = screen.getByRole("region", { name: "Delete your account" });

@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SCORING_CONFIG } from "@/game/scoring-config";
 import type { ScoringConfig } from "@/game/types";
+import { CARD_ROW } from "./ui/styles";
 import { HOW_TO_PLAY, howToPlay, StartScreen } from "./StartScreen.tsx";
 
 const html = renderToStaticMarkup(<StartScreen />);
@@ -22,10 +23,24 @@ describe("StartScreen", () => {
     expect(html).toMatch(/<a[^>]*href="\/play"[^>]*>Start practice<svg[^>]*aria-hidden="true"/u);
   });
 
+  it("links to the photo credits (#239)", () => {
+    expect(html).toMatch(/<a[^>]*href="\/credits"[^>]*>Photo credits<\/a>/u);
+  });
+
   it("lists every how-to-play step, in order", () => {
     const positions = HOW_TO_PLAY.map((step) => html.indexOf(step.replace("'", "&#x27;")));
     expect(positions.every((p) => p >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+
+  it("puts each step on a row card, its number on a Meadow tile hidden from screen readers (the list numbers it) (#183)", () => {
+    const howTo = html.slice(html.indexOf('id="how-to-play"'));
+    const items = howTo.slice(0, howTo.indexOf("</ol>")).match(/<li [^>]*>.*?<\/li>/gu) ?? [];
+    expect(items).toHaveLength(HOW_TO_PLAY.length);
+    items.forEach((item, i) => {
+      expect(item).toContain(CARD_ROW);
+      expect(item).toMatch(new RegExp(`<span aria-hidden="true" class="[^"]*bg-meadow[^"]*">${i + 1}</span>`, "u"));
+    });
   });
 
   it("explains what costs points and that you can skip", () => {
