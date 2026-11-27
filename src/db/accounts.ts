@@ -7,10 +7,12 @@
 // Usernames are encrypted (#84): these functions only ever see the encrypted
 // username and its keyed hash (`usernameIndex`). Encrypting and decrypting is
 // done by `src/auth/accounts.ts`, which has the key. No function returns the
-// password hash except `findLoginRow`, which login needs to check a password.
+// password hash except `findLoginRow` and `findUserRow`, which the password
+// checks need.
 import { and, desc, eq, gt, inArray, lte, lt, ne, or, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
+import { rowsOf } from "./rows.ts";
 import { rateLimits, sessions, users } from "./schema.ts";
 import type * as schema from "./schema.ts";
 
@@ -51,8 +53,70 @@ export async function findLoginRow(
   return row ?? null;
 }
 
-export async function insertSession(db: PgDb, tokenHash: string, userId: string, expiresAt: Date): Promise<void> {
-  await db.insert(sessions).values({ tokenHash, userId, expiresAt });
+/** The user row the account page's password checks need, by id, or `null`. */
+export async function findUserRow(db: PgDb, userId: string): Promise<(StoredUser & { passwordHash: string }) | null> {
+  const [row] = await db
+    .select({ id: users.id, usernameEncrypted: users.usernameEncrypted, passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.id, userId));
+  return row ?? null;
+}
+
+/**
+ * Replaces the user's password hash and ends every session of theirs, in one
+ * statement, so either both happen or neither does (review of #251): a
+ * password that changed while the old sessions, a stolen one included, stayed
+ * valid is what changing it is meant to prevent. Only if the hash is still
+ * `previousHash`, so two changes at once can't both win. Returns whether it
+ * changed.
+ */
+export async function replacePasswordHash(db: PgDb, userId: string, previousHash: string, passwordHash: string): Promise<boolean> {
+  const result = await db.execute(sql`
+    WITH upd AS (
+      UPDATE ${users} SET password_hash = ${passwordHash}
+      WHERE id = ${userId} AND password_hash = ${previousHash}
+      RETURNING id
+    ), del AS (
+      DELETE FROM ${sessions} WHERE user_id IN (SELECT id FROM upd)
+    )
+    SELECT count(*)::int AS changed FROM upd`);
+  return Number(rowsOf(result)[0]?.changed ?? 0) > 0;
+}
+
+/** Ends every session of the user. Returns how many were removed. */
+export async function deleteUserSessions(db: PgDb, userId: string): Promise<number> {
+  const removed = await db.delete(sessions).where(eq(sessions.userId, userId)).returning({ t: sessions.tokenHash });
+  return removed.length;
+}
+
+/**
+ * Deletes the user. Their sessions and games go with them (`ON DELETE
+ * CASCADE`), so they drop off every leaderboard. Returns whether a row was deleted.
+ */
+export async function deleteUser(db: PgDb, userId: string): Promise<boolean> {
+  const rows = await db.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
+  return rows.length > 0;
+}
+
+/**
+ * Starts a session, but only if the user's password hash is still
+ * `passwordHash`, the one that was just checked (review of #251). Otherwise a
+ * login that checked the old password while its owner changed it could
+ * insert its session after the change ended the others, and keep it. Returns
+ * whether it was inserted.
+ *
+ * `FOR SHARE` makes this wait for a change in progress and then see the new
+ * hash; if this takes the lock first, the change waits for it to commit and
+ * `changePassword` ends the session afterwards (see there).
+ */
+export async function insertSession(db: PgDb, tokenHash: string, userId: string, expiresAt: Date, passwordHash: string): Promise<boolean> {
+  const result = await db.execute(sql`
+    INSERT INTO ${sessions} (token_hash, user_id, expires_at)
+    SELECT ${tokenHash}, id, ${expiresAt.toISOString()}::timestamptz FROM ${users}
+    WHERE id = ${userId} AND password_hash = ${passwordHash}
+    FOR SHARE
+    RETURNING token_hash`);
+  return rowsOf(result).length > 0;
 }
 
 /**

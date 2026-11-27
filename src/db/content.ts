@@ -51,6 +51,7 @@ const puzzleRow = (p: Puzzle) => ({
   creditUrl: p.credit.url ?? null,
   aiSolvedLevel: p.aiSolvedLevel,
   effect: p.effect ?? null,
+  aiSolvedSeconds: p.aiSolvedSeconds ?? null,
 });
 
 /** `SET col = excluded.col` for an upsert, for every listed column. */
@@ -216,6 +217,7 @@ export async function seedContent(db: AnyDb, content: Content): Promise<SeedSumm
           "creditUrl",
           "aiSolvedLevel",
           "effect",
+          "aiSolvedSeconds",
         ]),
       });
   }
@@ -273,6 +275,7 @@ export async function getPuzzles(db: AnyDb, ids: readonly string[]): Promise<Puz
       },
       aiSolvedLevel: r.aiSolvedLevel,
       ...(r.effect === null ? {} : { effect: r.effect }),
+      ...(r.aiSolvedSeconds === null ? {} : { aiSolvedSeconds: r.aiSolvedSeconds }),
     };
   });
 }
