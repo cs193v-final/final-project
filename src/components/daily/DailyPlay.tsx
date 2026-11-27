@@ -95,7 +95,7 @@ export function DailyPlay({ initial, start, act, get, intro, loadStats, streak }
       <DailyIntroScreen
         intro={intro}
         start={
-          <Button onClick={() => void onStart()} disabled={pending}>
+          <Button onClick={() => void onStart()} disabled={pending} size="lg">
             Start today&apos;s challenge
           </Button>
         }

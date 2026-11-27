@@ -44,6 +44,21 @@ describe("StreakNote on the home screen", () => {
   });
 });
 
+describe("StreakNote look (#183)", () => {
+  it("shows the count in a chip that screen readers skip, since the sentence says it", () => {
+    const { container } = render(<StreakNote streak={{ current: 6, longest: 6, playedToday: true }} where="home" />);
+    const chip = container.querySelector("[data-streak-chip]")!;
+    expect(chip).toHaveTextContent("🔥6");
+    expect(chip).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("shows no chip without a streak", () => {
+    const { container } = render(<StreakNote streak={{ current: 0, longest: 0, playedToday: false }} where="home" />);
+    expect(container.querySelector("[data-streak-chip]")).toBeNull();
+    expect(screen.getByRole("region", { name: "Daily streak" })).toHaveTextContent(/^No daily streak yet\./u);
+  });
+});
+
 describe("StreakNote on the daily result", () => {
   it("shows the streak with today counted", () => {
     render(<StreakNote streak={{ current: 4, longest: 4, playedToday: true }} where="result" />);
