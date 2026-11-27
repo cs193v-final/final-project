@@ -318,3 +318,28 @@ describe("after a correct guess", () => {
     expect(screen.getByRole("button", { name: "See results" })).toBeInTheDocument();
   });
 });
+
+describe("the monitor keeps its shape (#183)", () => {
+  it("shows a decorative readout and track before the round, so Start doesn't move the photo", () => {
+    render(<TimedRound {...props({ phase: "ready", imageSrc: null })} />);
+    const readout = document.querySelector("[data-readout]")!;
+    expect(readout).toHaveAttribute("aria-hidden", "true");
+    expect(readout).toHaveTextContent(formatPoints(SCORING.maxPoints));
+    expect(document.querySelector("[data-timer-fill]")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("shows the round's points on the monitor once it's over", () => {
+    render(<TimedRound {...props({ phase: "correct", result: { answer: "giraffe", points: 6_212, seconds: 6.2 } })} />);
+    expect(document.querySelector("[data-readout]")).toHaveTextContent("+6,212 points");
+    expect(screen.queryByRole("timer")).not.toBeInTheDocument();
+  });
+
+  it("fills the timer bar with a transform, not a width", () => {
+    render(<TimedRound {...props()} />);
+    advance(3_000);
+    const fill = document.querySelector<HTMLElement>("[data-timer-fill]")!;
+    expect(fill.style.transform).toMatch(/^scaleX\(0\.1/u);
+    expect(fill.style.width).toBe("");
+  });
+});

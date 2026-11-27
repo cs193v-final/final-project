@@ -62,7 +62,8 @@ export const SHAKE: Keyframe[] = [
   { transform: "translateX(3px)" },
   { transform: "translateX(0)" },
 ];
-export const SHAKE_TIMING: KeyframeAnimationOptions = { duration: 400, easing: "ease-in-out" };
+// The shared strong curves (#183), not the browser's weak defaults.
+export const SHAKE_TIMING: KeyframeAnimationOptions = { duration: 400, easing: "cubic-bezier(0.77, 0, 0.175, 1)" };
 
 /** A small grow-and-settle for the image when a guess is right. */
 export const POP: Keyframe[] = [
@@ -71,7 +72,7 @@ export const POP: Keyframe[] = [
   { transform: "scale(0.99)" },
   { transform: "scale(1)" },
 ];
-export const POP_TIMING: KeyframeAnimationOptions = { duration: 500, easing: "ease-out" };
+export const POP_TIMING: KeyframeAnimationOptions = { duration: 500, easing: "cubic-bezier(0.23, 1, 0.32, 1)" };
 
 /** A strong ease-out for things that land (#283): quick to arrive, gentle to settle. */
 export const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
