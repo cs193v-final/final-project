@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { combineContent, findAnswerLeaks, parseContent, parsePack, type Content } from "./packs.ts";
+import { combineContent, findAnswerLeaks, licenseProblem, parseContent, parsePack, type Content } from "./packs.ts";
 import { PuzzleDataError } from "./puzzles.ts";
 import type { Puzzle } from "./types.ts";
 
@@ -231,3 +231,34 @@ describe("findAnswerLeaks", () => {
     expect(leak!.problem).toBe('"/img/bridge.jpg" gives away the answer "Golden Gate Bridge" (contains "bridge")');
   });
 });
+
+describe("photo licenses (#240)", () => {
+  const credit = (license: string, url?: string) => ({ source: "Jane Doe, via Wikimedia Commons", license, ...(url ? { url } : {}) });
+  const link = "https://commons.wikimedia.org/wiki/File:Example.jpg";
+
+  it.each(["CC0", "CC0 1.0", "Public Domain Mark 1.0", "public domain", "CC BY 2.0, cropped", "CC BY-SA 4.0", "CC BY-SA 3.0 IGO, cropped", "CC BY 4"])(
+    "accepts %j",
+    (license) => expect(licenseProblem(credit(license, link))).toBeNull(),
+  );
+
+  it.each(["CC BY-NC 4.0", "CC BY-NC-SA 2.0, cropped", "CC BY-ND 4.0", "CC BY-NC-ND 3.0", "All rights reserved", "GFDL", "CC BY-SA 4.0 or whatever", ""])(
+    "refuses %j",
+    (license) => expect(licenseProblem(credit(license, link))).toMatch(/isn't allowed/),
+  );
+
+  it("needs a link for CC BY and CC BY-SA, but not for CC0 or the public domain", () => {
+    expect(licenseProblem(credit("CC BY 2.0, cropped"))).toMatch(/needs a url/);
+    expect(licenseProblem(credit("CC BY-SA 4.0"))).toMatch(/needs a url/);
+    expect(licenseProblem(credit("CC0 1.0"))).toBeNull();
+    expect(licenseProblem(credit("Public Domain Mark 1.0"))).toBeNull();
+  });
+
+  it("stops the seed with the puzzle's id named, never its answer", () => {
+    const nc = { ...puzzle("pz-1", "Strawberry"), credit: credit("CC BY-NC 4.0", link) };
+    const error = errorOf(() => combineContent(one({ puzzles: [nc, PUZZLES[1]!] })));
+    expect(error.path).toBe("puzzle pz-1: credit");
+    expect(error.message).toMatch(/BY-NC 4.0/);
+    expect(`${error.path} ${error.message}`).not.toMatch(/strawberry/i);
+  });
+});
+

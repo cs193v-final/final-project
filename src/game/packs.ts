@@ -146,7 +146,37 @@ export function combineContent(parts: readonly { source: string; content: Conten
 
   const [leak] = findAnswerLeaks(combined);
   if (leak) throw new PuzzleDataError(leak.path, leak.problem);
+  for (const puzzle of combined.puzzles) {
+    const problem = licenseProblem(puzzle.credit);
+    if (problem) throw new PuzzleDataError(`puzzle ${puzzle.id}: credit`, problem);
+  }
   return combined;
+}
+
+/**
+ * The licenses a puzzle's photo may have (#240), as the image picker writes
+ * them (`licenseLabel` in src/images/openverse.ts): CC0, the Public Domain
+ * Mark, CC BY and CC BY-SA, any version, optionally ported (e.g. "3.0 IGO")
+ * and marked ", cropped". No NC (we're a public site) and no ND (we crop
+ * every photo). Matched on the whole text, ignoring case.
+ */
+const ALLOWED_LICENSE = /^(cc0( 1\.0)?|public domain( mark)?( 1\.0)?|cc by(-sa)? \d(\.\d)?( [a-z]{2,4})?)(, cropped)?$/iu;
+/** CC BY and CC BY-SA require attribution with a link to the photo. */
+const NEEDS_LINK = /^cc by/iu;
+
+/**
+ * Why a credit can't be seeded, or null if it's fine: a license that isn't on
+ * the allow-list, or CC BY / BY-SA without a link. The seed is the last gate
+ * before production, so hand-edited content can't slip an NC or ND photo in.
+ * Never mentions the answer.
+ */
+export function licenseProblem(credit: Puzzle["credit"]): string | null {
+  const license = credit.license.trim();
+  if (!ALLOWED_LICENSE.test(license)) {
+    return `license "${license}" isn't allowed: use CC0, Public Domain Mark, CC BY or CC BY-SA (no NC or ND)`;
+  }
+  if (NEEDS_LINK.test(license) && !credit.url) return `${license} needs a url (attribution links to the photo)`;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
