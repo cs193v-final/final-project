@@ -1,21 +1,95 @@
 @import "tailwindcss";
 
+/*
+ * "Picture Island" look (#183): Cloud Lavender world, Deep Plum ink and photo
+ * frame, Meadow for play and solved, Peach Flash for urgency, Oat Paper for
+ * cards and controls. Open Sans ExtraBold for display, Geist for UI, Geist Mono
+ * for the timer and score.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #e4ddfa; /* Cloud Lavender */
+  --foreground: #27213f; /* Deep Plum */
+  --meadow: #c4e983;
+  --meadow-edge: #5a793a;
+  --meadow-shadow: #668446;
+  --peach: #ffad94;
+  --flash: #ffcf89;
+  --flash-edge: #955838;
+  --paper: #fffbec; /* Oat Paper */
+  --bevel: #776795;
+  --rust: #925145;
+  --focus: #5835ab;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-meadow: var(--meadow);
+  --color-peach: var(--peach);
+  --color-flash: var(--flash);
+  --color-paper: var(--paper);
+  --color-plum: #27213f;
+  --color-rust: var(--rust);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-open-sans);
+}
+
+/*
+ * Every screen's neutrals are Tailwind's zinc and white classes, so tinting
+ * the zinc scale plum and white to Oat Paper restyles them all at once. Each
+ * shade keeps zinc's lightness closely enough that the text pairs still pass
+ * WCAG AA on the lavender page (checked by e2e/contrast.spec.ts). Green and
+ * amber text get darker shades for the same reason.
+ */
+@theme {
+  --color-white: #fffbec;
+  --color-zinc-50: #f8f5fd;
+  --color-zinc-100: #efe9fb;
+  --color-zinc-200: #ddd3f3;
+  --color-zinc-300: #c7b9e3;
+  --color-zinc-400: #a99bc6;
+  --color-zinc-500: #63557f;
+  --color-zinc-600: #554766;
+  --color-zinc-700: #433858;
+  --color-zinc-800: #3a3052;
+  --color-zinc-900: #27213f;
+  --color-zinc-950: #1a1530;
+  --color-emerald-400: #c4e983;
+  --color-emerald-600: #4d7a2a;
+  --color-emerald-700: #416028;
+  --color-amber-400: #ffcf89;
+  --color-amber-700: #8a4a12;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #201a32;
+    --foreground: #fff5e6;
+    --bevel: #b899cc;
+    --rust: #ffb89c;
+    --focus: #c4e983;
+  }
+}
+
+/* The beveled "toy block" press (#183): the base shifts on press. */
+.bevel {
+  box-shadow: 0 4px 0 var(--bevel-color, var(--bevel));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .bevel {
+    transition:
+      transform 150ms cubic-bezier(0.23, 1, 0.32, 1),
+      box-shadow 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .bevel:hover:not([aria-disabled="true"]) {
+      transform: translateY(-2px);
+    }
+  }
+  .bevel:active:not([aria-disabled="true"]) {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 var(--bevel-color, var(--bevel));
   }
 }
 
@@ -100,7 +174,20 @@
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(ellipse at 50% 20%, #f3eafb55, transparent 62%),
+    var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: var(--background);
+  }
+}
+
+::selection {
+  background: var(--meadow);
+  color: #27213f;
 }

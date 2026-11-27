@@ -150,27 +150,32 @@ export function TimedRound({
         <SoundToggle />
       </div>
 
-      {phase === "playing" ? <LiveScore clock={clock} timeUp={localTimeUp} scoring={scoring} /> : null}
-
-      <PhotoStage
-        phase={phase}
-        imageSrc={imageSrc}
-        effect={effect}
-        focus={focus}
-        progress={over ? 1 : clock.progress}
-        wrongGuesses={wrongGuesses}
-        wonPoints={justWon && result ? result.points : null}
-      />
+      {/* The "monitor" (#183): the photo in a deep-plum frame, with the score and clock on it. */}
+      <div
+        data-monitor
+        className="w-full rounded-2xl border border-plum bg-plum p-2 text-[#fffbec] shadow-[0_5px_0_#473764]"
+      >
+        {phase === "playing" ? <LiveScore clock={clock} timeUp={localTimeUp} scoring={scoring} /> : null}
+        <PhotoStage
+          phase={phase}
+          imageSrc={imageSrc}
+          effect={effect}
+          focus={focus}
+          progress={over ? 1 : clock.progress}
+          wrongGuesses={wrongGuesses}
+          wonPoints={justWon && result ? result.points : null}
+        />
+        {phase === "playing" ? <TimerBar clock={clock} scoring={scoring} /> : null}
+      </div>
       {justWon ? <Confetti /> : null}
-
-      {phase === "playing" ? <TimerBar clock={clock} scoring={scoring} /> : null}
 
       {phase === "ready" ? (
         <div className="flex flex-col items-center gap-2 text-center">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
             The score starts at {formatPoints(scoring.maxPoints)} and drains until you guess right.
           </p>
           <Button
+            className="font-display text-lg tracking-tight"
             disabled={pending}
             onClick={() => {
               // A click is what lets the browser play this round's sounds.
@@ -263,7 +268,7 @@ function StreakChip({ count }: { count: number }) {
   return (
     <p
       data-streak
-      className="badge-pop inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+      className="badge-pop inline-flex items-center gap-1 rounded-md border border-[#955838] bg-flash px-2.5 py-1 text-sm font-bold text-plum shadow-[0_2px_0_#995c37]"
     >
       <span aria-hidden="true">🔥</span>
       {count} in a row
@@ -279,67 +284,104 @@ function StreakChip({ count }: { count: number }) {
 function scoreTone(points: number, scoring: TimedScoringConfig): string {
   const span = scoring.maxPoints - scoring.minPoints;
   const share = span > 0 ? (points - scoring.minPoints) / span : 0;
-  if (share >= 0.5) return "text-emerald-700 dark:text-emerald-400";
-  if (share >= 0.15) return "text-amber-700 dark:text-amber-400";
-  return "text-rose-700 dark:text-rose-400";
+  // On the deep-plum monitor: Meadow, then Flash, then Peach (all above 8:1).
+  if (share >= 0.5) return "text-meadow";
+  if (share >= 0.15) return "text-flash";
+  return "text-peach";
 }
 
-/** The big draining number. Not a live region: it changes 20 times a second. */
+/** "0:21": whole seconds left, for the monitor's clock (#183). */
+function formatClock(secondsLeft: number): string {
+  const whole = Math.ceil(Math.max(0, secondsLeft));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+/** The monitor's small caps labels (#183). */
+const CAPS = "font-mono text-[11px] font-bold tracking-[0.1em] uppercase text-[#e0d4f2]";
+
+/**
+ * The monitor's instrument row (#183): the big draining number on the left,
+ * the time left on the right. Not a live region: it changes 20 times a second.
+ */
 function LiveScore({ clock, timeUp, scoring }: { clock: ClockReading; timeUp: boolean; scoring: TimedScoringConfig }) {
   const second = Math.ceil(clock.secondsLeft);
   const urgent = !timeUp && second >= 1 && second <= URGENT_SECONDS ? second : null;
   const number = useAnimateOn<HTMLSpanElement>(urgent, PULSE, PULSE_TIMING);
   return (
-    <div className="flex flex-col items-center" role="timer" aria-label="Points if you guess now">
-      <span
-        ref={number}
-        data-live-points
-        className={`inline-block text-5xl font-bold tabular-nums transition-colors duration-300 ${scoreTone(clock.points, scoring)}`}
-        aria-hidden="true"
-      >
-        {formatPoints(clock.points)}
-      </span>
+    <div
+      className="flex items-end justify-between gap-3 px-2 pt-1 pb-2.5"
+      role="timer"
+      aria-label="Points if you guess now"
+    >
+      <div className="flex flex-col items-start">
+        <span className={CAPS} aria-hidden="true">
+          {clock.phase === "clearing" ? "points if you guess now" : timeUp ? "time's up" : "photo is clear"}
+        </span>
+        <span
+          ref={number}
+          data-live-points
+          className={`inline-block font-display text-4xl tracking-[-0.05em] tabular-nums transition-colors duration-300 sm:text-5xl ${scoreTone(clock.points, scoring)}`}
+          aria-hidden="true"
+        >
+          {formatPoints(clock.points)}
+        </span>
+      </div>
       {/* Read on demand by screen readers, rounded so it doesn't flicker. */}
       <span className="sr-only">
         {timeUp ? "Time's up" : `${formatPoints(clock.points)} points, ${Math.ceil(clock.secondsLeft)} seconds left`}
       </span>
-      <span className="text-xs text-zinc-600 dark:text-zinc-400" aria-hidden="true">
-        {clock.phase === "clearing" ? "points if you guess now" : timeUp ? "time's up" : "photo is clear"}
-      </span>
+      <div className="flex flex-col items-end" aria-hidden="true">
+        <span className={CAPS}>Time left</span>
+        <span
+          data-time-left
+          className={`font-mono text-3xl font-bold tabular-nums sm:text-4xl ${urgent !== null || timeUp ? "text-peach" : "text-meadow"}`}
+        >
+          {formatClock(clock.secondsLeft)}
+        </span>
+      </div>
     </div>
   );
 }
 
 /**
- * The round's time as a bar, with a mark where the photo is fully clear and
- * the end at the limit.
+ * The round's time as a bar (#183): Meadow while the photo clears, Peach in
+ * the last stretch after it's clear, with a mark where it's clear and labels
+ * under it.
  */
 function TimerBar({ clock, scoring }: { clock: ClockReading; scoring: TimedScoringConfig }) {
   const filled = Math.min(clock.seconds / scoring.limitSeconds, 1);
   const clearAt = scoring.revealSeconds / scoring.limitSeconds;
   const whole = Math.min(Math.floor(clock.seconds), scoring.limitSeconds);
   return (
-    <div
-      role="progressbar"
-      aria-label="Time"
-      aria-valuemin={0}
-      aria-valuemax={scoring.limitSeconds}
-      aria-valuenow={whole}
-      aria-valuetext={`${whole} of ${scoring.limitSeconds} seconds`}
-      className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
-    >
+    <div className="px-0.5 pt-2.5">
       <div
-        data-timer-fill
-        className={`h-full ${clock.phase === "clearing" ? "bg-zinc-900 dark:bg-zinc-100" : "bg-rose-600 dark:bg-rose-500"}`}
-        style={{ width: `${filled * 100}%` }}
-      />
-      {/* Where the photo is clear and the score bottoms out. */}
-      <div
-        data-clear-mark
-        aria-hidden="true"
-        className="absolute top-0 h-full w-0.5 bg-zinc-500"
-        style={{ left: `${clearAt * 100}%` }}
-      />
+        role="progressbar"
+        aria-label="Time"
+        aria-valuemin={0}
+        aria-valuemax={scoring.limitSeconds}
+        aria-valuenow={whole}
+        aria-valuetext={`${whole} of ${scoring.limitSeconds} seconds`}
+        className="relative h-1.5 w-full overflow-hidden rounded-full bg-[#615174]"
+      >
+        <div
+          data-timer-fill
+          className={`h-full rounded-full ${clock.phase === "clearing" ? "bg-meadow" : "bg-peach"}`}
+          style={{ width: `${filled * 100}%` }}
+        />
+        {/* Where the photo is clear and the score bottoms out. */}
+        <div
+          data-clear-mark
+          aria-hidden="true"
+          className="absolute top-0 h-full w-1 bg-plum"
+          style={{ left: `${clearAt * 100}%` }}
+        />
+      </div>
+      <div className={`flex justify-between pt-1.5 ${CAPS}`} aria-hidden="true">
+        <span>Start</span>
+        <span>
+          Clear {scoring.revealSeconds}s / {scoring.limitSeconds}s
+        </span>
+      </div>
     </div>
   );
 }
@@ -392,12 +434,17 @@ function PhotoStage({
   const flashOn = flashing && phase === "playing";
 
   const frame =
-    "relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-xl bg-zinc-200 dark:bg-zinc-800";
+    "relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-[10px] bg-[#393052]";
 
   if (imageSrc === null || phase === "ready") {
     return (
-      <div className={frame}>
-        <p className="px-6 text-center text-sm text-zinc-600 dark:text-zinc-400">The photo appears when you start.</p>
+      <div
+        className={`${frame} bg-[repeating-linear-gradient(45deg,#352b4b_0px,#352b4b_13px,#3b3054_13px,#3b3054_26px)] text-[#e5d2fc]`}
+      >
+        <div className="flex flex-col items-center gap-3 px-6 text-center">
+          <CropMark className="size-14" />
+          <p className="text-sm">The photo appears when you start.</p>
+        </div>
       </div>
     );
   }
@@ -421,6 +468,7 @@ function PhotoStage({
           style={style}
           draggable={false}
         />
+        {phase === "playing" ? <Corners /> : null}
         <div
           data-wrong-flash={flashOn ? "on" : "off"}
           aria-hidden="true"
@@ -431,13 +479,36 @@ function PhotoStage({
           <span
             data-points-float
             aria-hidden="true"
-            className="points-float pointer-events-none absolute rounded-full bg-emerald-600 px-4 py-1 text-2xl font-bold tabular-nums text-white shadow-lg"
+            className="points-float pointer-events-none absolute rounded-lg border border-[#5a793a] bg-meadow px-4 py-1 font-display text-3xl tabular-nums text-plum shadow-[0_4px_0_#668446]"
           >
             +{formatPoints(wonPoints)}
           </span>
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** The viewfinder corners over the photo while it clears (#183). Decorative. */
+function Corners() {
+  const corner = "absolute size-4 border-[#fffbec]/75";
+  return (
+    <span aria-hidden="true" className="pointer-events-none absolute inset-y-[15%] inset-x-[22%]">
+      <i className={`${corner} top-0 left-0 border-t-2 border-l-2`} />
+      <i className={`${corner} top-0 right-0 border-t-2 border-r-2`} />
+      <i className={`${corner} bottom-0 left-0 border-b-2 border-l-2`} />
+      <i className={`${corner} right-0 bottom-0 border-r-2 border-b-2`} />
+    </span>
+  );
+}
+
+/** The crop-and-lens mark, the brand glyph's shape (#183). Decorative. */
+function CropMark({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.1} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 4H4v4m12-4h4v4m0 8v4h-4M4 16v4h4" />
+      <circle cx="12" cy="12" r="2.8" />
+    </svg>
   );
 }
 
@@ -498,10 +569,11 @@ function GuessForm({
             autoCorrect="off"
             spellCheck={false}
             enterKeyHint="send"
+            placeholder="What’s in the picture?"
             autoFocus
             className="min-w-0 flex-1"
           />
-          <Button type="submit" disabled={pending || disabled}>
+          <Button type="submit" variant="flash" disabled={pending || disabled}>
             Guess
           </Button>
         </div>
@@ -540,8 +612,14 @@ function RoundOver({
 
   const correct = phase === "correct";
   return (
-    <section aria-label="Round result" className="flex w-full flex-col items-center gap-2 text-center">
-      <p role="status" className={`text-lg font-semibold ${correct ? "text-emerald-700 dark:text-emerald-400" : "text-zinc-900 dark:text-zinc-100"}`}>
+    <section
+      aria-label="Round result"
+      className="flex w-full flex-col items-center gap-2 rounded-xl border border-zinc-300 bg-paper px-4 py-4 text-center shadow-[0_4px_0_var(--color-zinc-300)] dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-[0_4px_0_var(--color-zinc-700)]"
+    >
+      <p
+        role="status"
+        className={`font-display text-2xl tracking-tight ${correct ? "text-emerald-700 dark:text-emerald-400" : "text-zinc-900 dark:text-zinc-50"}`}
+      >
         {correct ? (
           <>
             <span aria-hidden="true">✓ </span>
@@ -562,15 +640,16 @@ function RoundOver({
       {tier ? (
         <p
           data-speed={tier}
-          className="badge-pop inline-flex items-center gap-1 rounded-full bg-sky-100 px-3 py-1 text-sm font-semibold text-sky-900 dark:bg-sky-950 dark:text-sky-200"
+          className="badge-pop inline-flex items-center gap-1 rounded-md border border-[#5a793a] bg-meadow px-2.5 py-1 text-sm font-bold text-plum shadow-[0_2px_0_#668446]"
         >
           <span aria-hidden="true">{tier === "lightning" ? "⚡" : "👀"}</span>
           {speedLabel(tier)}
         </p>
       ) : null}
       {result?.credit ? <Credit credit={result.credit} /> : null}
-      <Button ref={next} disabled={pending} onClick={onNext}>
+      <Button ref={next} disabled={pending} onClick={onNext} className="mt-1">
         {isLastRound ? "See results" : "Next image"}
+        <span aria-hidden="true">→</span>
       </Button>
     </section>
   );

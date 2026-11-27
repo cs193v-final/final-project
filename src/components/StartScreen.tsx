@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { ReactNode } from "react";
 
 import { SCORING_CONFIG } from "@/game/scoring-config";
@@ -37,14 +38,30 @@ export const HOW_TO_PLAY = howToPlay();
 export function StartScreen({ scoring = SCORING_CONFIG, streak }: { scoring?: ScoringConfig; streak?: ReactNode } = {}) {
   const steps = howToPlay(scoring);
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-12 text-center">
+    <main className="flex flex-1 flex-col items-center gap-6 px-4 pt-8 pb-12 text-center">
       <div className="flex flex-col items-center gap-3">
-        <h1 className="text-5xl font-semibold tracking-tight">{GAME_NAME}</h1>
+        <h1 className="font-display text-6xl leading-[0.9] tracking-[-0.06em] sm:text-8xl">
+          <TitleWithAccent name={GAME_NAME} />
+        </h1>
         {/* Short on purpose: a tester found the longer version too wordy (#144, user test #90). */}
-        <p className="max-w-md text-lg text-zinc-600 dark:text-zinc-400">Guess the picture. The less you see, the more you score.</p>
+        <p className="max-w-md text-base font-semibold text-zinc-600 sm:text-lg dark:text-zinc-300">
+          Guess the picture. The less you see, the more you score.
+        </p>
       </div>
 
       {streak}
+      {/* The "Picture Island" (#183): the daily sits right under it. Decorative. */}
+      <div className="relative -mb-4 w-full max-w-xl">
+        <Image
+          src="/brand/island.webp"
+          alt=""
+          width={1100}
+          height={733}
+          priority
+          sizes="(min-width: 640px) 36rem, 100vw"
+          className="h-auto w-full"
+        />
+      </div>
       <ModePicker />
       {/* Not a mode, so not a card (#62). The header links to it too. */}
       <p className="-mt-4 text-sm text-zinc-600 dark:text-zinc-400">
@@ -55,8 +72,11 @@ export function StartScreen({ scoring = SCORING_CONFIG, streak }: { scoring?: Sc
         <SectionHeading id="how-to-play">How to play</SectionHeading>
         <ol className="flex flex-col gap-2">
           {steps.map((step, i) => (
-            <li key={step} className="flex gap-3 rounded-lg bg-zinc-100 px-4 py-3 dark:bg-zinc-900">
-              <span aria-hidden="true" className="font-semibold text-zinc-600 dark:text-zinc-400">
+            <li
+              key={step}
+              className="flex gap-3 rounded-lg border border-zinc-300 bg-paper px-4 py-3 shadow-[0_3px_0_var(--color-zinc-300)] dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-[0_3px_0_var(--color-zinc-700)]"
+            >
+              <span aria-hidden="true" className="font-mono font-bold text-zinc-600 dark:text-zinc-300">
                 {i + 1}
               </span>
               <span>{step}</span>
@@ -67,5 +87,17 @@ export function StartScreen({ scoring = SCORING_CONFIG, streak }: { scoring?: Sc
 
       <PrototypeNotice>Prototype: point values are still being tuned.</PrototypeNotice>
     </main>
+  );
+}
+
+/** The game's name with its last word in the accent colour, e.g. "Zoom" + "Out" (#183). */
+function TitleWithAccent({ name }: { name: string }) {
+  const cut = name.lastIndexOf(" ");
+  if (cut < 0) return name;
+  return (
+    <>
+      {name.slice(0, cut + 1)}
+      <span className="text-rust">{name.slice(cut + 1)}</span>
+    </>
   );
 }

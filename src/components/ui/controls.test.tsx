@@ -159,9 +159,9 @@ describe("every control meets the same focus and size rules (WCAG 2.2 AA)", () =
   });
 
   it("gives every control a minimum height of at least 24 px (2.5.8 Target Size)", () => {
-    // jsdom has no layout, so check the min-height class: min-h-6 is 24 px, min-h-10 is 40 px.
+    // jsdom has no layout, so check the min-height class: min-h-6 is 24 px, min-h-11 is 44 px.
     for (const control of controls()) {
-      expect(control.className).toMatch(/\bmin-h-(6|10)\b/u);
+      expect(control.className).toMatch(/\bmin-h-(6|10|11)\b/u);
     }
   });
 });
