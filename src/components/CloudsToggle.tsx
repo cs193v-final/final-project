@@ -52,7 +52,7 @@ export function CloudsToggle() {
         type="button"
         aria-pressed={paused}
         onClick={() => setPaused(!paused)}
-        className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border border-zinc-400 bg-paper/90 px-3 text-xs font-semibold text-zinc-700 backdrop-blur-sm hover:bg-paper dark:border-zinc-500 dark:bg-zinc-800/90 dark:text-zinc-200 ${FOCUS_RING}`}
+        className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border border-[#776795] bg-paper/90 px-3 text-xs font-semibold text-zinc-700 backdrop-blur-sm hover:bg-paper dark:border-zinc-400 dark:bg-zinc-800/90 dark:text-zinc-200 ${FOCUS_RING}`}
       >
         <svg aria-hidden="true" viewBox="0 0 24 24" className="size-3.5" fill="currentColor">
           {paused ? <path d="M7 5v14l12-7z" /> : <path d="M7 5h3v14H7zm7 0h3v14h-3z" />}
