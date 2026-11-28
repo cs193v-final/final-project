@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { GAME_NAME } from "@/site";
 import { Suspense } from "react";
 
 import { changePasswordAction, deleteAccountAction, logoutAction } from "@/app/account/actions";
@@ -6,7 +7,7 @@ import { requireUser } from "@/auth/session";
 import { ChangePasswordForm, DeleteAccountForm } from "@/components/account/AccountSettings";
 import { Button, CARD, PAGE_TITLE, TextLink } from "@/components/ui/controls";
 
-export const metadata: Metadata = { title: "Your account · Zoom Out" };
+export const metadata: Metadata = { title: `Your account · ${GAME_NAME}` };
 
 export default function AccountPage() {
   return (

@@ -1,5 +1,6 @@
 import { PAGE_TITLE } from "@/components/ui/styles";
 import type { Metadata } from "next";
+import { GAME_NAME } from "@/site";
 import { notFound } from "next/navigation";
 import { RoundPreview, type PreviewPhoto } from "@/components/game/RoundPreview";
 import samplePuzzles from "@/puzzles/sample.json";
@@ -8,7 +9,7 @@ import { TIMED_SCORING_CONFIG } from "@/game/scoring-config";
 import { checkPreviewGuess, previewAnswer } from "./actions";
 
 export const metadata: Metadata = {
-  title: "Round preview (dev) · Zoom Out",
+  title: `Round preview (dev) · ${GAME_NAME}`,
   robots: { index: false },
 };
 

@@ -9,8 +9,8 @@ const html = renderToStaticMarkup(<StartScreen />);
 
 describe("StartScreen", () => {
   it("shows the game name as the page heading", () => {
-    // The last word is wrapped for its accent colour (#183); the heading text is still the name.
-    expect(html.replace(/<\/?span[^>]*>/gu, "")).toMatch(/<h1[^>]*>Zoom Out<\/h1>/u);
+    // A two-word name wraps its last word for its accent colour (#183); the heading text is still the name.
+    expect(html.replace(/<\/?span[^>]*>/gu, "")).toMatch(/<h1[^>]*>Squint<\/h1>/u);
   });
 
   it("says what the game is in one short line under the name (#144, from user test #90)", () => {

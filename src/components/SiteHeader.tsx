@@ -33,8 +33,8 @@ export function SiteHeader({ account }: SiteHeaderProps) {
       >
         <Link
           href="/"
-          // Screen readers hear "Zoom Out home". The visible name starts the
-          // label (WCAG "label in name"), so voice control "click Zoom Out" works.
+          // Screen readers hear "<name> home". The visible name starts the
+          // label (WCAG "label in name"), so voice control "click <name>" works.
           aria-label={`${GAME_NAME} home`}
           aria-current={onHome ? "page" : undefined}
           className={`group -mx-2 inline-flex items-center gap-2.5 rounded-md px-2 py-1.5 font-display text-xl tracking-tight hover:bg-zinc-200 dark:hover:bg-zinc-800 ${FOCUS_RING}`}

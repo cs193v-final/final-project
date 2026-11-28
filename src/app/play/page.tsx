@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { GAME_NAME } from "@/site";
 import { Suspense } from "react";
 import { PracticeGame } from "@/components/game/PracticeGame";
 import { PrototypeNotice, TextLink, PAGE_TITLE } from "@/components/ui/controls";
@@ -6,7 +7,7 @@ import { loadGame } from "@/server/games";
 import { actAction, getGameAction, startGameAction } from "./actions";
 
 export const metadata: Metadata = {
-  title: "Practice · Zoom Out",
+  title: `Practice · ${GAME_NAME}`,
 };
 
 export default function PlayPage({ searchParams }: PageProps<"/play">) {

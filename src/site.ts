@@ -1,6 +1,6 @@
 /**
- * The game's name, in one place. "Zoom Out" is a working title; picking the
- * real name and look is #51, and changing it here updates the header, the home
- * screen and the page titles.
+ * The game's name, in one place (#51): "Squint", what every player does at a
+ * photo that's still clearing. Changing it here updates the header, the home
+ * screen, the share text and every page title.
  */
-export const GAME_NAME = "Zoom Out";
+export const GAME_NAME = "Squint";

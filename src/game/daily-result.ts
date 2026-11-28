@@ -61,7 +61,7 @@ export type ShareInput = {
   url?: string;
 };
 
-/** The text the Share button copies, e.g. "Zoom Out daily · Nov 17 · Fruit\n🟩🟨⬛🟥🟩 340/500\n<url>". */
+/** The text the Share button copies, e.g. "Squint daily · Nov 17 · Fruit\n🟩🟨⬛🟥🟩 340/500\n<url>". */
 export function shareText({ gameName, date, theme, rounds, total, maxTotal, url }: ShareInput): string {
   const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(
     new Date(`${date}T00:00:00Z`),
