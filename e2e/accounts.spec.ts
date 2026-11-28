@@ -66,7 +66,7 @@ test("log-in asks for both fields, and links to sign-up and back home", async ({
 
   await page.getByRole("link", { name: "Create an account" }).click();
   await expect(page).toHaveURL(/\/register$/);
-  // "Home", like /daily and /leaderboard; `exact`, or it would also match the header's "Zoom Out home".
+  // "Home", like /daily and /leaderboard; `exact`, or it would also match the header's "<name> home".
   await page.getByRole("navigation", { name: "Back" }).getByRole("link", { name: "Home", exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
 });

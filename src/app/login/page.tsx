@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
+import { GAME_NAME } from "@/site";
 
 import { loginAction } from "@/app/account/actions";
 import { AccountPageForm } from "@/components/account/AccountPageForm";
 import { PAGE_TITLE, TextLink } from "@/components/ui/controls";
 
-export const metadata: Metadata = { title: "Log in · Zoom Out" };
+export const metadata: Metadata = { title: `Log in · ${GAME_NAME}` };
 
 export default function LoginPage({ searchParams }: PageProps<"/login">) {
   return (

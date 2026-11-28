@@ -62,7 +62,7 @@ describe("DailyResult", () => {
     const { share, user } = setup();
     await user.click(screen.getByRole("button", { name: "Share result" }));
     const text = share.mock.calls[0]![0];
-    expect(text).toMatch(/^Zoom Out daily · Nov 17 · Fruit\n🟩⬛ 100\/200\nhttp:\/\/localhost(:\d+)?\/daily$/u);
+    expect(text).toMatch(/^Squint daily · Nov 17 · Fruit\n🟩⬛ 100\/200\nhttp:\/\/localhost(:\d+)?\/daily$/u);
     expect(text).not.toMatch(/pz-|Kiwi|Lychee/u);
     expect(screen.getByRole("status")).toHaveTextContent("Copied to the clipboard, with no answers in it.");
   });

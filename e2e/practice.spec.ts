@@ -261,7 +261,7 @@ test("leaving /play while the game is still starting stays on the start screen",
   await page.goto("/play");
   await startSent;
   await expect(page.getByText("Starting a new game…")).toBeVisible();
-  // exact: the header's "Zoom Out home" link also contains "home".
+  // exact: the header's "<name> home" link also contains "home".
   await page.getByRole("link", { name: "Home", exact: true }).click();
   await expect(page.getByRole("link", { name: "Start practice" })).toBeVisible();
 

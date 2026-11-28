@@ -258,6 +258,7 @@ The values in use are in `src/game/scoring-config.ts`, and that's the only place
 | Loading content into production | Jacky, who holds the preview and production credentials (#181, #182) |
 | Image storage | Postgres. Each zoom level is cut ahead of time into its own WebP in `image_files`, served at `/img/<random id>.webp`; the server only sends the current level's URL. Not Vercel Blob, whose store and token only the Vercel owner could manage (#57; details in `TECHNICAL.md`) |
 | Where non-public puzzle content lives | The private repo `cs193v-final/final-project-content`, cloned into each checkout's git-ignored `content/` folder (or symlinked there). All four of us push to its `main`; nothing from it is ever copied into this repo. The seed script still refuses content git would commit (#52, #196). |
+| Name and look | **Squint** (Ethan's pick on #51; the team confirms in the PR's review), replacing the "Zoom Out" working title and the proposal's "Crumbscope". One place: `GAME_NAME` in `src/site.ts`. Look: "Picture Island" (#291, #302). |
 
 ### Still open (NOT settled)
 
@@ -268,7 +269,6 @@ Don't treat these as decided. Ask the owner, or keep them configurable.
 | Scoring values and wrong-guess rules | Placeholders in `src/game/scoring-config.ts`; flat or increasing penalties; a guess limit? Decide by Dec 2, or the "Prototype" label on the home screen stays. A pack's values can change without a deploy (#64). | #21, #64 |
 | Number of reveal steps | Fixed or per puzzle | #21 (typo tolerance: Ethan decided it on #21 after the #115 user test; see "`GuessOutcome` and round states") |
 | Stanford mode | A fixed pack (suggested: no schema change), or its own daily rotation | #65 |
-| Name and visual direction | Name: "Crumbscope" (proposal), "Zoom Out" (app), or other; the team picks by Nov 30. Look: Ethan brings 2–3 options, and the team picks one before anything is restyled. | #51, #183 |
 
 ---
 

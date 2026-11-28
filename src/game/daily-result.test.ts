@@ -71,7 +71,7 @@ describe("share text", () => {
 
   it("names the game, day and theme, and the score, with no answers", () => {
     const text = shareText({
-      gameName: "Zoom Out",
+      gameName: "Squint",
       date: "2026-11-17",
       theme: "Fruit",
       rounds: [
@@ -82,12 +82,12 @@ describe("share text", () => {
       maxTotal: 200,
       url: "https://example.com/daily",
     });
-    expect(text).toBe("Zoom Out daily · Nov 17 · Fruit\n🟩⬛ 100/200\nhttps://example.com/daily");
+    expect(text).toBe("Squint daily · Nov 17 · Fruit\n🟩⬛ 100/200\nhttps://example.com/daily");
   });
 
   it("leaves the link out when there isn't one", () => {
-    expect(shareText({ gameName: "Zoom Out", date: "2026-11-17", theme: "Fruit", rounds: [], total: 0, maxTotal: 0 })).toBe(
-      "Zoom Out daily · Nov 17 · Fruit\n 0/0",
+    expect(shareText({ gameName: "Squint", date: "2026-11-17", theme: "Fruit", rounds: [], total: 0, maxTotal: 0 })).toBe(
+      "Squint daily · Nov 17 · Fruit\n 0/0",
     );
   });
 });

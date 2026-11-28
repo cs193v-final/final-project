@@ -22,7 +22,7 @@ describe("SiteHeader", () => {
     pathname = "/play";
     render(<SiteHeader />);
     expect(homeLink()).toHaveAttribute("href", "/");
-    // Screen readers hear "Zoom Out home"; sighted players see the name.
+    // Screen readers hear "<name> home"; sighted players see the name.
     expect(homeLink()).toHaveTextContent(GAME_NAME);
   });
 
