@@ -5,7 +5,7 @@
 // and Zoom out and Skip still work. Scoring is unchanged.
 import { describe, expect, it } from "vitest";
 import { SAMPLE_PUZZLES } from "../puzzles/index.ts";
-import { pointsIfCorrect } from "./scoring.ts";
+import { MAX_SCORING_VALUE, pointsIfCorrect, scoreRound } from "./scoring.ts";
 import {
   act,
   GameConflictError,
@@ -147,5 +147,27 @@ describe("MAX_WRONG_GUESSES_PER_ROUND (#209)", () => {
         MAX_WRONG_GUESSES_PER_ROUND,
       );
     }
+  });
+});
+
+describe("the stored wrong-guess penalty can't overflow (#236)", () => {
+  const INTEGER_MAX = 2_147_483_647; // Postgres `integer` (rounds.wrong_guess_penalty)
+
+  // The cap (#209) is what bounds it: its own tests check the next guess is refused.
+  it("fits in an integer column at the guess cap and the largest allowed penalty", () => {
+    const config: ScoringConfig = {
+      basePoints: MAX_SCORING_VALUE,
+      revealPenalty: MAX_SCORING_VALUE,
+      wrongGuessPenalty: MAX_SCORING_VALUE,
+      minPoints: 0,
+      skipPoints: 0,
+    };
+    const events = [
+      ...Array.from({ length: MAX_WRONG_GUESSES_PER_ROUND }, () => ({ type: "wrongGuess" as const, puzzleId: "p1" })),
+      { type: "correct" as const, puzzleId: "p1", revealLevel: 0 },
+    ];
+    const { breakdown } = scoreRound(events, config);
+    expect(breakdown.wrongGuessPenalty).toBe(MAX_WRONG_GUESSES_PER_ROUND * MAX_SCORING_VALUE);
+    expect(breakdown.wrongGuessPenalty).toBeLessThanOrEqual(INTEGER_MAX);
   });
 });
