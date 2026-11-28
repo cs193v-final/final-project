@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatPoints, formatSeconds, readClock, secondsNow } from "./round-clock.ts";
+import { formatPoints, formatSeconds, readClock, secondsNow, steppedProgress } from "./round-clock.ts";
 import type { TimedScoringConfig } from "./types.ts";
 
 const CONFIG: TimedScoringConfig = { maxPoints: 10_000, minPoints: 100, revealSeconds: 25, limitSeconds: 30, curve: 2 };
@@ -56,5 +56,27 @@ describe("formatting", () => {
     expect(formatPoints(10_000)).toBe("10,000");
     expect(formatPoints(100)).toBe("100");
     expect(formatPoints(0)).toBe("0");
+  });
+});
+
+describe("steppedProgress (reduced motion, #281)", () => {
+  it("holds the effect still between whole seconds", () => {
+    expect(steppedProgress(readClock(0, CONFIG), CONFIG)).toBe(0);
+    expect(steppedProgress(readClock(0.9, CONFIG), CONFIG)).toBe(0);
+    expect(steppedProgress(readClock(1, CONFIG), CONFIG)).toBeCloseTo(1 / 25);
+    expect(steppedProgress(readClock(12.7, CONFIG), CONFIG)).toBeCloseTo(12 / 25);
+  });
+
+  it("never runs ahead of the smooth progress, and is clear by the clear time", () => {
+    for (let t = 0; t <= 30; t += 0.37) {
+      const reading = readClock(t, CONFIG);
+      expect(steppedProgress(reading, CONFIG)).toBeLessThanOrEqual(reading.progress);
+    }
+    expect(steppedProgress(readClock(25, CONFIG), CONFIG)).toBe(1);
+    expect(steppedProgress(readClock(29, CONFIG), CONFIG)).toBe(1);
+  });
+
+  it("takes a step size", () => {
+    expect(steppedProgress(readClock(4.9, CONFIG), CONFIG, 2.5)).toBeCloseTo(2.5 / 25);
   });
 });

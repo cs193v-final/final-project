@@ -148,6 +148,20 @@ describe("while the clock runs", () => {
     expect(livePoints()).toBe(formatPoints(SCORING.minPoints));
   });
 
+  it("with reduced motion, moves the photo on in whole-second steps; the score stays smooth (#281)", async () => {
+    fakeMotionSetting(true);
+    const photo = testPhoto();
+    const fake = fakeCanvas({ "/img/test.webp": photo });
+    const round = { effect: "swirl", focus: { x: 0.5, y: 0.5 }, seed: "pz-test" } as const;
+    const draw = createEffect(round.effect, photo, { focus: round.focus, seed: round.seed, size: frameSize(photo.width, photo.height) });
+
+    render(<TimedRound {...props({ ...round, elapsedSeconds: 12.7 })} />);
+    await decoded();
+    const canvas = screen.getByRole("img", { name: "The photo to guess, still hidden" });
+    expect(sameFrame(fake.lastFrame(canvas), draw(12 / SCORING.revealSeconds))).toBe(true);
+    expect(livePoints()).toBe(formatPoints(scoreAt(12.7, SCORING)));
+  });
+
   it("tells screen readers the points and seconds left when asked, without announcing every tick", () => {
     render(<TimedRound {...props()} />);
     const timer = screen.getByRole("timer", { name: "Points if you guess now" });

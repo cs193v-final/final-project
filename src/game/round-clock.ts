@@ -34,6 +34,24 @@ export function readClock(seconds: number, config: TimedScoringConfig): ClockRea
   };
 }
 
+/** How often the effect moves on with reduced motion (#281): about once a second. */
+export const REDUCED_MOTION_STEP_SECONDS = 1;
+
+/**
+ * The effect's progress with reduced motion (#281): `reading.progress`, held
+ * still between whole steps of `stepSeconds`, so swirl and zoom move in a few
+ * small jumps instead of a continuous spin. Only the photo steps; the score
+ * and the clock still use the smooth reading.
+ */
+export function steppedProgress(
+  reading: ClockReading,
+  config: TimedScoringConfig,
+  stepSeconds: number = REDUCED_MOTION_STEP_SECONDS,
+): number {
+  const held = Math.floor(reading.seconds / stepSeconds) * stepSeconds;
+  return Math.min(held / config.revealSeconds, 1);
+}
+
 /**
  * Seconds into the round now, from what the server said when its response
  * arrived: `elapsedAtReceipt` seconds had passed at local time `receivedAtMs`.
