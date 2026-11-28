@@ -20,17 +20,18 @@ export const SCORING_CONFIG: ScoringConfig = {
 
 /**
  * Timed-reveal scoring (#254, #256): 10,000 at the start, draining to 100 when
- * the photo is clear at 25 s; the round ends with 0 at 30 s.
- *   score = 100 + 9,900 × (1 − t / 25)²
+ * the photo is clear at 12 s; the round ends with 0 at 15 s. Shortened from
+ * 25 s / 30 s after playtesting: 30 s felt too long (#21).
+ *   score = 100 + 9,900 × (1 − t / 12)²
  *   correct at 0 s    = 10,000
- *   correct at 12.5 s = 2,575
- *   correct at 25–30 s = 100
- *   time's up (30 s)  = 0
+ *   correct at 6 s    = 2,575
+ *   correct at 12–15 s = 100
+ *   time's up (15 s)  = 0
  */
 export const TIMED_SCORING_CONFIG: TimedScoringConfig = {
   maxPoints: 10_000,
   minPoints: 100,
-  revealSeconds: 25,
-  limitSeconds: 30,
+  revealSeconds: 12,
+  limitSeconds: 15,
   curve: 2,
 };

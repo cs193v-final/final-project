@@ -269,9 +269,12 @@ describe("solveTimed (Beat the AI by solve time, #257)", () => {
     const { classifier, calls } = await recording();
     const { aiSolvedSeconds, steps } = await solveTimed(classifier, await plain(400, 300, GREEN), solvable("spotlight"));
     expect(aiSolvedSeconds).toBeNull();
-    expect(steps.map((s) => s.seconds)).toEqual(solveTimes(25));
+    const times = solveTimes(TIMED_SCORING_CONFIG.revealSeconds);
+    expect(steps.map((s) => s.seconds)).toEqual(times);
     expect(steps.at(-1)!.top[0]!.label).toBe("grass"); // the clear photo
-    expect(calls).toEqual([10, 10, 10, 10, 10, 1]);
+    // In batches of 10 (the default), the last one holding what's left.
+    const batches = Array.from({ length: Math.ceil(times.length / 10) }, (_, i) => Math.min(10, times.length - i * 10));
+    expect(calls).toEqual(batches);
   });
 
   it("stops after the batch that solves it", async () => {
