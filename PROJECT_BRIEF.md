@@ -258,6 +258,7 @@ The values in use are in `src/game/scoring-config.ts`, and that's the only place
 | Loading content into production | Jacky, who holds the preview and production credentials (#181, #182) |
 | Image storage | Postgres. Each zoom level is cut ahead of time into its own WebP in `image_files`, served at `/img/<random id>.webp`; the server only sends the current level's URL. Not Vercel Blob, whose store and token only the Vercel owner could manage (#57; details in `TECHNICAL.md`) |
 | Where non-public puzzle content lives | The private repo `cs193v-final/final-project-content`, cloned into each checkout's git-ignored `content/` folder (or symlinked there). All four of us push to its `main`; nothing from it is ever copied into this repo. The seed script still refuses content git would commit (#52, #196). |
+| Round length | 15 s per round, photo clear at 12 s (was 25 s / 30 s; 30 s felt too long in playtesting). Daily: 5 images. Ethan, #21. Values in `TIMED_SCORING_CONFIG` (`src/game/scoring-config.ts`); a pack can still override them (#64). |
 
 ### Still open (NOT settled)
 
