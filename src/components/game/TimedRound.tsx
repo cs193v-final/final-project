@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent, type HTMLAttributes } from "react";
 import { speedLabel, speedTier, STREAK_SHOWN_FROM, type SpeedTier } from "@/game/feedback";
-import { formatPoints, formatSeconds, readClock, secondsNow, type ClockReading } from "@/game/round-clock";
+import { formatPoints, formatSeconds, readClock, secondsNow, steppedProgress, type ClockReading } from "@/game/round-clock";
 import type { Puzzle, PuzzleEffect, TimedScoringConfig } from "@/game/types";
 import { Button, chipClass, TextInput } from "../ui/controls";
 import { Confetti } from "./Confetti";
@@ -128,6 +128,9 @@ export function TimedRound({
   onTimeUp,
 }: TimedRoundProps) {
   const clock = useRoundClock(phase === "playing", elapsedSeconds, scoring);
+  // With reduced motion the photo moves on about once a second, not every frame (#281).
+  const reduced = usePrefersReducedMotion();
+  const photoProgress = reduced ? steppedProgress(clock, scoring) : clock.progress;
   // Celebrate only what happens while this is on screen: a round resumed
   // after a refresh, already over, doesn't replay its confetti or sounds.
   const [mountPhase] = useState(phase);
@@ -194,7 +197,7 @@ export function TimedRound({
           effect={effect}
           focus={focus}
           seed={seed}
-          progress={over ? 1 : clock.progress}
+          progress={over ? 1 : photoProgress}
           wrongGuesses={wrongGuesses}
           wonPoints={justWon && result ? result.points : null}
         />
